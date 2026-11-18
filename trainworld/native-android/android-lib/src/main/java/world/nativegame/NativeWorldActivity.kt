@@ -176,6 +176,13 @@ class NativeWorldActivity : Activity() {
             setOnClickListener { writeSave() }
         }
         toolbar.addView(play, LinearLayout.LayoutParams(0,dp(56),1f))
+        toolbar.addView(Button(this).apply {
+            text = "Keuangan"
+            setOnClickListener {
+                if (handle == 0L || closed) return@setOnClickListener
+                NativeFinance.show(this@NativeWorldActivity, handle, { clock }) { writeSave() }
+            }
+        }, LinearLayout.LayoutParams(0,dp(56),1f))
         toolbar.addView(save, LinearLayout.LayoutParams(0,dp(56),1f))
         root.addView(toolbar); setContentView(root)
         executor.execute {
