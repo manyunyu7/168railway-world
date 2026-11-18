@@ -138,6 +138,7 @@ try{
   });
   const before=await page.evaluate(slotKeys);
   if(process.env.FORK_IMPORT_SAVE)assert.ok(before.length>=1);
+  else assert.equal(before.length,0,'a new untouched blank world stays out of local saves');
   user='qa-a';if(realHost)await login('a');await panel.getByRole('button',{name:'Muat ulang daftar'}).click();
   await row.getByRole('button',{name:'Buka salinan lokal'}).click();
   await page.waitForFunction(()=>document.querySelector('.host-worlds[open]')===null,{},{timeout:90000});
@@ -148,6 +149,19 @@ try{
     await page.waitForTimeout(250);
   }
   assert.ok(after.length>before.length&&before.every(k=>after.includes(k)),'opening an account save preserves existing local slots and adds a separate one');
+  const copyKey=after.find(k=>!before.includes(k));
+  await page.reload({waitUntil:'domcontentloaded'});
+  const copy=await page.evaluate(key=>new Promise((resolve,reject)=>{
+    const open=indexedDB.open('anitabuilder',1);
+    open.onerror=()=>reject(open.error);
+    open.onsuccess=()=>{
+      const db=open.result,tx=db.transaction('saves','readonly'),read=tx.objectStore('saves').get(key);
+      read.onsuccess=()=>resolve({name:read.result?.name,bytes:read.result?.bytes?.byteLength});
+      tx.oncomplete=()=>db.close();tx.onerror=()=>reject(tx.error);
+    };
+  }),copyKey);
+  assert.equal(copy.name,name,'the explicit account copy keeps its chosen name after reload');
+  assert.ok(copy.bytes>0,'the new local slot contains a game snapshot');
   if(!realHost)assert.equal(opened,1);console.log('PASS actual Rust/WASM gzip TWG1 snapshot, explicit account upload, stale version, switched account, isolation, and open local copy.',realHost?world.size:stored.values().next().value.bytes.length,'bytes', realHost?'Laravel session, storage and CSRF':'isolated HTTP fixtures');
 } catch (error) {
   console.error((await page.locator('body').innerText()).slice(-1500));throw error;
