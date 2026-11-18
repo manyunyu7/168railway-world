@@ -34,6 +34,11 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
 
     init {
         viewMap.workshop=true
+        viewMap.onStationTap={ id ->
+            val inspect = !drawing && !busy && !disposed && handle!=0L
+            if(inspect) onState(snapshot()+("inspectStation" to id))
+            inspect
+        }
         viewMap.onLocation={p->
             if(!busy && drawing && viewMap.draft.size<24){
                 viewMap.draft.add(p);viewMap.invalidate()
@@ -89,6 +94,20 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
     }
 
     fun command(name:String,args:Map<String,Any?>,done:(Map<String,Any?>)->Unit){
+        if(name=="stations" || name=="station" || name=="diagram"){
+            if(disposed || busy || handle==0L){done(mapOf("error" to "Peta belum siap."));return}
+            val result=runCatching {
+                when(name){
+                    "stations" -> org.json.JSONArray().apply {
+                        for(stop in viewMap.stops) put(JSONObject().put("id",stop.id).put("name",stop.name))
+                    }.toString()
+                    "station" -> StationInspector.read(handle,(args["id"] as Number).toInt().also { require(it>=0) },-1,0,clock)
+                    else -> StationInspector.read(handle,-1,(args["line"] as Number).toInt(),(args["run"] as Number).toInt(),clock)
+                }
+            }.getOrNull()
+            done(if(result==null || result=="null") mapOf("error" to "Jadwal tidak tersedia.") else mapOf("data" to result))
+            return
+        }
         if(name=="state" || disposed){done(snapshot());return}
         if(busy){done(snapshot());return}
         if(name=="restore"){openWorld(true,done);return}
