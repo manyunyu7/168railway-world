@@ -227,7 +227,11 @@ mod tests {
         let route = w.api.bus_route(0);
         assert!(route.len() > 20);
         assert_ne!(w.positions(dep + 5.), w.positions(dep + 25.));
-        let mut reopened = World::open(&w.save(dep + 25.).unwrap()).unwrap();
+        let saved = w.save(dep + 25.).unwrap();
+        if let Some(root) = std::env::var_os("WORLD_MOBILITY_EXPORT") {
+            fs::write(Path::new(&root).join("jakarta-bus.save"), &saved).unwrap();
+        }
+        let mut reopened = World::open(&saved).unwrap();
         assert_eq!(reopened.api.bus_route(0), route);
         assert_eq!(reopened.positions(dep + 25.), w.positions(dep + 25.));
         eprintln!("Bus route: {} points", (route.len() - 1) / 3);
@@ -276,7 +280,11 @@ mod tests {
             }
         }
         assert_ne!(w.positions(dep + 5.), w.positions(dep + 25.));
-        let mut reopened = World::open(&w.save(dep + 25.).unwrap()).unwrap();
+        let saved = w.save(dep + 25.).unwrap();
+        if let Some(root) = std::env::var_os("WORLD_MOBILITY_EXPORT") {
+            fs::write(Path::new(&root).join("jakarta-ferry.save"), &saved).unwrap();
+        }
+        let mut reopened = World::open(&saved).unwrap();
         assert_eq!(reopened.api.ferry_route(0), route);
         assert_eq!(reopened.positions(dep + 25.), w.positions(dep + 25.));
     }
