@@ -31,5 +31,5 @@ Buka **Simpan ▾ → Arsip & akun**. Ekspor menyalin berkas TWG1 ke lokasi pili
 
 Login menggunakan browser sistem. Callback skema `com.railway168.studio://login/complete` membawa kode sekali pakai dan state. Aplikasi menukar kode melalui HTTPS dengan verifier S256. Token arsip berlaku satu jam dan disimpan terenkripsi dengan Android Keystore. Backend 168Railway yang mengimplementasikan kontrak ini diperlukan untuk fitur akun. Pemilih dokumen dan slot lokal tetap berfungsi tanpa backend.
 
-Jakarta tertera sebagai **Bangun sendiri**. Empat berkas Jakarta memuat medan, air, pasar dan sel permintaan. Rilis hulu tidak menyediakan jaringan rel awal untuk Jakarta. Saat dibuka, peta berpusat pada 106,8022° BT dan 6,1876° LS dengan nol stasiun. Jalur yang dibuat pemain tersimpan pada slot Jakarta.
 
+Jakarta tertera sebagai **Bangun sendiri**. Lima berkas Jakarta memuat medan, air, pasar, sel permintaan, dan nama kawasan OpenStreetMap. Rilis hulu tidak menyediakan jaringan rel awal untuk Jakarta. Saat dibuka, peta berpusat pada 106,8022° BT dan 6,1876° LS dengan nol stasiun. Jalur yang dibuat pemain tersimpan pada slot Jakarta.

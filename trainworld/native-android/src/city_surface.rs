@@ -2,8 +2,8 @@
 use super::World;
 use flate2::read::GzDecoder;
 use jni::{
-    objects::{JByteArray, JClass, JString},
-    sys::{jintArray, jlong},
+    objects::{JByteArray, JClass, JDoubleArray, JString},
+    sys::{jfloatArray, jintArray, jlong},
     JNIEnv,
 };
 use serde_json::Value;
@@ -129,6 +129,38 @@ fn empty_city(id: &str, header: &str) -> Option<World> {
     world.api.set_unlimited(true);
     world.header["city"] = serde_json::json!(id);
     Some(world)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_project(
+    env: JNIEnv,
+    _: JClass,
+    handle: jlong,
+    coords: JDoubleArray,
+) -> jfloatArray {
+    let project = || -> Option<jfloatArray> {
+        let world = unsafe { (handle as *const World).as_ref() }?;
+        let n = env.get_array_length(&coords).ok()?;
+        if n % 2 != 0 || n > 100_000 {
+            return None;
+        }
+        let mut values = vec![0.; n as usize];
+        env.get_double_array_region(&coords, 0, &mut values).ok()?;
+        let mut xy = Vec::with_capacity(n as usize);
+        for ll in values.chunks_exact(2) {
+            xy.extend(
+                world
+                    .api
+                    .from_lonlat(ll[0], ll[1])
+                    .into_iter()
+                    .map(|v| v as f32),
+            );
+        }
+        let result = env.new_float_array(n).ok()?;
+        env.set_float_array_region(&result, 0, &xy).ok()?;
+        Some(result.into_raw())
+    };
+    project().unwrap_or(std::ptr::null_mut())
 }
 
 #[no_mangle]

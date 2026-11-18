@@ -201,6 +201,7 @@ fn split_eras(bytes: &[u8]) -> (&[u8], Option<(&[u8], bool)>) {
 }
 
 /// A pack's water raster and the origin of the pack's own frame.
+#[derive(Clone)]
 struct PackWater {
     mask: Arc<RunMask>,
     lon: f64,
@@ -2066,6 +2067,16 @@ impl RouteTrace {
 }
 
 impl TrackApi {
+    /// Install the same immutable zone data on a native transactional edit candidate.
+    pub fn copy_city_surface_from(&mut self, source: &Self) {
+        self.w.net.terrain = source.w.net.terrain.clone();
+        self.rasters.clone_from(&source.rasters);
+        self.world_water.clone_from(&source.world_water);
+        if !self.rasters.is_empty() || self.world_water.is_some() {
+            self.rebuild_water();
+        }
+    }
+
     /// T-2707: the boarding account's heap bytes by structure (benches; not exported).
     pub fn boarding_mem(&self) -> Vec<(&'static str, usize)> {
         self.boarding.mem_bytes()

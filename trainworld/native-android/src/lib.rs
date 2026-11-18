@@ -133,6 +133,7 @@ impl World {
         }
         let mut next = Self::open(&self.save(clock).ok_or("Simpanan sementara gagal")?)
             .ok_or("Jaringan gagal disalin")?;
+        next.api.copy_city_surface_from(&self.api);
         let api = &mut next.api;
         api.set_now(clock);
         api.set_unlimited(true);

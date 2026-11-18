@@ -25,7 +25,7 @@ public class CityPackStoreTest {
         CityPackStore wrong=new CityPackStore(root,Files.newBufferedReader(catalog),p->new ByteArrayInputStream(new byte[1]));
         try{wrong.load("lon");throw new AssertionError("wrong pack accepted");}catch(IOException expected){}
         if(!store.load("lon").network.isFile()||transfers.get()!=15)throw new AssertionError();
-        if(store.load("jak").network!=null||!offline.load("jak").terrain.isFile()||transfers.get()!=19)throw new AssertionError("Jakarta must open offline without a fictional network");
+        if(store.load("jak").network!=null||!offline.load("jak").terrain.isFile()||!offline.load("jak").places.isFile()||transfers.get()!=20)throw new AssertionError("Jakarta must open offline without a fictional network");
         System.out.println("37 real cities plus Jakarta sandbox, Tokyo and London verified, restart offline, failed downloads preserve both worlds, atomic repair passed");
     }
 }

@@ -22,6 +22,9 @@ for city in sorted([*networks, "jak"]):
             continue
         entry = inventory[path]
         row.extend((str(entry["bytes"]), entry["sha256"]))
+    if city == "jak":
+        places = inventory["jak.places.json"]
+        row.extend((str(places["bytes"]), places["sha256"]))
     rows.append("\t".join(row))
 target = native / "android-lib/src/main/assets/world-native/cities.tsv"
 target.write_text("\n".join(rows) + "\n", encoding="utf-8")

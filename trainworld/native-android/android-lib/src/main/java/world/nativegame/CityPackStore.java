@@ -19,17 +19,18 @@ public final class CityPackStore {
         public final boolean hasNetwork;
         private final List<Asset> assets;
         private City(String id, String name, List<Asset> assets) {
-            this.id=id; this.name=name; this.assets=assets; this.hasNetwork=assets.size()==5;
+            this.id=id; this.name=name; this.assets=assets; this.hasNetwork=assets.stream().anyMatch(a -> a.local.equals("network.save"));
             long count=0; for (Asset part: assets) count+=part.size; bytes=count;
         }
     }
     public static final class CityPack {
-        public final File header, cells, market, terrain, network;
+        public final File header, cells, market, terrain, network, places;
         public final City city;
         private CityPack(File dir, City city) {
             this.city=city;
             header=new File(dir,"header.json"); cells=new File(dir,"cells.bin");
             market=new File(dir,"market.json"); terrain=new File(dir,"zone.terrain");
+            places=new File(dir,"places.json");
             network=city.hasNetwork ? new File(dir,"network.save") : null;
         }
     }
@@ -51,12 +52,12 @@ public final class CityPackStore {
             while ((line=rows.readLine())!=null) {
                 if(line.isEmpty()||line.startsWith("#"))continue;
                 String[] v=line.split("\t",-1);
-                if(v.length!=12 || !v[0].matches("[a-z0-9]{2,12}") || v[1].isEmpty() || cities.containsKey(v[0]))throw new IOException("Invalid city catalog");
+                if((v.length!=12 && v.length!=14) || !v[0].matches("[a-z0-9]{2,12}") || v[1].isEmpty() || cities.containsKey(v[0]))throw new IOException("Invalid city catalog");
                 String id=v[0];
-                String[] rem={id+".json",id+".bin",id+".market.json","terrain/"+id+".terrain","real/"+id+".save"};
-                String[] loc={"header.json","cells.bin","market.json","zone.terrain","network.save"};
+                String[] rem={id+".json",id+".bin",id+".market.json","terrain/"+id+".terrain","real/"+id+".save",id+".places.json"};
+                String[] loc={"header.json","cells.bin","market.json","zone.terrain","network.save","places.json"};
                 List<Asset> parts=new ArrayList<>();
-                for(int i=0;i<loc.length;i++){
+                for(int i=0;i<(v.length-2)/2;i++){
                     long size=Long.parseLong(v[2+2*i]);String sha=v[3+2*i];
                     if(i==4 && size==0 && sha.equals("-")) continue;
                     if(size<=0||size>256L*1024*1024||!sha.matches("[a-f0-9]{64}"))throw new IOException("Invalid asset catalog");

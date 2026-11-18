@@ -476,6 +476,19 @@ private class NetworkView(context: Context):View(context) {
             paint.style=Paint.Style.FILL; paint.color=Color.WHITE;paint.isFilterBitmap=true
             c.drawBitmap(cityLayer?.bitmap ?: water,null,RectF(sx(waterBox[0]),sy(waterBox[3]),sx(waterBox[2]),sy(waterBox[1])),paint)
         }
+        cityLayer?.let { layer ->
+            val cells = mutableSetOf<Long>()
+            paint.style=Paint.Style.FILL
+            for (place in layer.places) {
+                val x=sx(place.x); val y=sy(place.y)
+                if (x<0 || x>=width || y<14*density || y>=height) continue
+                val cell=((x/(95*density)).toLong() shl 32) or (y/(30*density)).toLong()
+                if(!cells.add(cell)) continue
+                paint.textSize=(if(place.kind <= 1) 12f else 10f)*density
+                paint.color=0xff5a6c64.toInt()
+                c.drawText(place.name,x,y,paint)
+            }
+        }
         c.save();c.translate(width/2f,height/2f);c.scale(scale,-scale);c.translate(-centerX,-centerY)
         paint.style=Paint.Style.STROKE; paint.strokeWidth=2.6f*density/scale;paint.strokeJoin=Paint.Join.ROUND
         for((color,line) in lines){paint.color=color;c.drawPath(line,paint)}
