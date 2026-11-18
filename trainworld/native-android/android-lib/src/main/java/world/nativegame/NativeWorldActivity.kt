@@ -122,6 +122,43 @@ class NativeWorldActivity : Activity() {
                 }
             }
         }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        tools.addView(Button(this).apply {
+            text = "Penumpang"
+            setOnClickListener {
+                if (handle == 0L || closed) return@setOnClickListener
+                val snapshot = Engine.save(handle, clock)
+                val hour = (clock.toLong() / 3600 % 24).toInt()
+                val period = when (hour) {
+                    in 6..9 -> 0
+                    in 10..15 -> 1
+                    in 16..19 -> 2
+                    in 20..23 -> 3
+                    else -> 4
+                }
+                fun show(pack: CityPackStore.CityPack) {
+                    NativeRidership.show(this@NativeWorldActivity, snapshot, pack.header, pack.cells, period)
+                }
+                val pack = activePack
+                if (pack != null) show(pack) else {
+                    isEnabled = false
+                    text = "Memuat…"
+                    executor.execute {
+                        val result = runCatching { cityStore.load(city.id) { _, _ -> } }
+                        runOnUiThread {
+                            if (!closed) {
+                                isEnabled = true
+                                text = "Penumpang"
+                                result.onSuccess { activePack = it; show(it) }.onFailure {
+                                    AlertDialog.Builder(this@NativeWorldActivity)
+                                        .setTitle("Data penumpang ${city.name} belum tersedia")
+                                        .setMessage(it.localizedMessage).setPositiveButton("Tutup", null).show()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
         root.addView(tools)
         map.onLocation = { point -> if (drawing) selectPoint(point) }
         map.workshop = workshop
