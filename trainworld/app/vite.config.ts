@@ -237,7 +237,17 @@ export default defineConfig({
   worker: { format: "es" },
   // T-328: the app build, part of the demand cache's key: new at each build and dev-server start
   define: { __TW_BUILD__: JSON.stringify(Date.now().toString(36)), __TW_VERSION__: JSON.stringify(version()) },
-  build: { outDir: "dist", target: "es2022" },
+  build: {
+    outDir: "dist", target: "es2022",
+    rolldownOptions: {
+      output: {
+        // Static hosts consistently send .js as JavaScript with nosniff enabled.
+        // Assign the extension before hashing so all importers get fresh asset URLs.
+        assetFileNames: asset => asset.names.some(n => n.endsWith(".mjs"))
+          ? "assets/[name]-[hash].js" : "assets/[name]-[hash][extname]",
+      },
+    },
+  },
   // T-682: the real-network layer reads noritetsu's tiles beside the game (map/realNetwork.ts); 8800 serves them
   // at /noritetsu/ and sends no CORS headers, so the dev server passes the path through
   server: { proxy: { "/noritetsu": "http://localhost:8800" } },

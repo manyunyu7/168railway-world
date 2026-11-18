@@ -21,6 +21,7 @@ async function check(response:Response, expectedUser?:string) {
     throw Error("Sesi berakhir. Masuk kembali ke 168Railway.");
   }
   if(response.status===409) throw Error(failure.error==="account_changed" ? "Akun di browser berubah. Tutup lalu buka kembali panel ini." : "Akun atau versi simpanan berubah. Muat daftar terbaru atau simpan sebagai dunia baru.");
+  if(response.status===429) throw Error("Layanan akun sedang sibuk. Coba lagi sebentar.");
   if(response.status===413) throw Error("Ukuran berkas melewati batas akun.");
   throw Error("Permintaan gagal ("+response.status+"). Simpanan lokal tetap tersedia.");
 }
@@ -64,13 +65,16 @@ export function HostWorlds({active=false,openFile}:Props) {
     const file=new File([await r.blob()],w.name+".save",{type:"application/octet-stream"});
     await openFile(file);
   }
-  let login="/login";
+  let login=api+"/login";
   if(session?.loginUrl){const u=new URL(session.loginUrl,location.origin);if(u.origin===location.origin)login=u.pathname+u.search;}
   return <details class="host-worlds" onToggle={e=>{
     if(e.currentTarget.open)void action(refresh);
   }}><summary>Simpanan akun 168Railway</summary>
     <div class="host-cloud-body"><p aria-live="polite">{message || (busy?"Memuat…":session?.authenticated?"Akun 168Railway · "+session.userId:"Simpan di akun untuk membuka dunia pada perangkat lain.")}</p>
-    {session && !session.authenticated && <a class="btn" href={login}>Masuk ke 168Railway</a>}
+    {!session?.authenticated && !busy && <div class="host-save-row">
+      <a class="btn" href={login}>Masuk ke 168Railway</a>
+      {!session && <button class="btn" onClick={()=>void action(refresh)}>Coba lagi</button>}
+    </div>}
     {session?.authenticated && <>
       {active && <div class="host-save-row"><input aria-label="Nama dunia di akun" maxLength={90} placeholder="Nama dunia" value={name} onInput={e=>setName(e.currentTarget.value)}/>
         <button class="btn" disabled={busy} onClick={()=>void action(()=>put())}>Simpan sebagai dunia baru</button></div>}
