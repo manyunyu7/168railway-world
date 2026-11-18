@@ -23,3 +23,5 @@ Pada 18 November 2026, pengujian dengan SQLite dan penyimpanan lokal Laravel yan
 Tambahkan FORK_IMPORT_SAVE=/path/to/nyc.save pada uji host lokal untuk membuka file kompatibel melalui akun sebelum menguji perbaruan versi. Berkas 81.788 byte keluaran modul native NYC telah diuji pada Chrome, melalui login dan penyimpanan akun Laravel.
 
 Ukur interval requestAnimationFrame pada dunia terbuka dengan FORK_RAF=1 dan FORK_HEADED=1 (Chrome terlihat). Pada 18 November 2026 di Mac Apple M6, macOS 27, Chrome 157.0.8103.79, viewport 390×844 DPR2, save NYC 661 kereta SHA256 b6b6b8379e9231563002012b36a75cd82ef5f19b94abb8e1ab2a4366a31b5742, dua sampel singkat per 4,5 detik menghasilkan 56,0 fps saat jalan (p95 31,7 ms) serta 45,7 fps saat roda zoom (p95 50,3 ms). Mode headless menghasilkan 24,7 / 21,4 fps. Sampel ini mencakup pemrosesan permintaan perjalanan awal dan belum memvalidasi 60 fps di ponsel fisik.
+
+The optional Noritetsu regional map overlay is unavailable in the pinned provider release. Its discovery and tile requests are disabled. The mirrored official city packs, rail graphs and terrain remain available.
