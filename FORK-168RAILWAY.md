@@ -13,3 +13,9 @@ Dalam game, buka Simpanan akun 168Railway. Sesi masuk dan CSRF berasal dari /api
 Kode upstream © 2026 Anita Chen, AGPL-3.0. Lihat LICENSE serta NOTICE.md. Nama layanan, ikon, halaman privasi/kredit dan integrasi akun dikelola 168Railway. Kode sumber tersedia di https://github.com/manyunyu7/168railway-world . Kode dan perubahan dapat diperoleh dengan mengkloning repo ini. Tampilan awal dan pengaturan mencantumkan tautan tersebut.
 
 Empat bunyi konstruksi dibuat secara sintetis dengan trainworld/tools/fork/build-sounds.py, dengan lisensi kode fork. Berkas rekaman Pixabay milik versi asli tidak digunakan.
+
+## Uji simpanan
+
+trainworld/checks/168railway-host-saves.mjs menguji UI Chrome seluler, berkas gzip TWG1 asli dari worker Rust/WASM, konflik pembaruan, pergantian sesi, isolasi akun dan pembukaan salinan lokal. Atur FORK_URL ke URL frontend uji, FORK_DATA ke direktori dataset QA, serta PLAYWRIGHT_MODULE ke instalasi playwright-core. Secara default respons API akun menggunakan fixture HTTP dalam konteks browser. FORK_QA_HOST=1 hanya mengizinkan localhost dan menggunakan login Laravel /login/proc dengan dua akun sementara beralamat test-a@example.invalid dan test-b@example.invalid di database QA terisolasi. Jangan gunakan kredensial pengguna.
+
+Pada 18 November 2026, pengujian dengan SQLite dan penyimpanan lokal Laravel yang terisolasi menghasilkan save New York 10.462 byte. Akun kedua tidak dapat membaca daftar atau menulis simpanan akun pertama. Pengujian juga meliputi CSRF sesi lama dan penulisan dua perangkat dari versi yang sama.

@@ -9,10 +9,17 @@ const hostFetch = (path:string, init:RequestInit = {}) => fetch(api + path, {
   ...init, credentials:"same-origin", cache:"no-store",
   headers:{Accept:"application/json", ...init.headers},
 });
-async function check(response:Response) {
+async function check(response:Response, expectedUser?:string) {
   if (response.ok) return;
   const failure = await response.json().catch(()=>({}));
-  if(response.status===401 || response.status===419) throw Error("Sesi berakhir. Masuk kembali ke 168Railway.");
+  if(response.status===401 || response.status===419) {
+    if(expectedUser){
+      const fresh=await hostFetch("/session");
+      const current:Session|null=fresh.ok ? await fresh.json() : null;
+      if(current?.authenticated && current.userId!==expectedUser)throw Error("Akun di browser berubah. Muat ulang daftar untuk menggunakan akun aktif.");
+    }
+    throw Error("Sesi berakhir. Masuk kembali ke 168Railway.");
+  }
   if(response.status===409) throw Error(failure.error==="account_changed" ? "Akun di browser berubah. Tutup lalu buka kembali panel ini." : "Akun atau versi simpanan berubah. Muat daftar terbaru atau simpan sebagai dunia baru.");
   if(response.status===413) throw Error("Ukuran berkas melewati batas akun.");
   throw Error("Permintaan gagal ("+response.status+"). Simpanan lokal tetap tersedia.");
@@ -28,7 +35,7 @@ export function HostWorlds({active=false,openFile}:Props) {
     finally{working.current=false;setBusy(false);}
   }
   async function list(s:Session) {
-    const r=await hostFetch("/worlds",{headers:{"X-Studio-User":s.userId!}});await check(r);
+    const r=await hostFetch("/worlds",{headers:{"X-Studio-User":s.userId!}});await check(r,s.userId!);
     setWorlds((await r.json()).worlds);
   }
   async function refresh(){
@@ -48,12 +55,12 @@ export function HostWorlds({active=false,openFile}:Props) {
         "X-CSRF-TOKEN":s.csrfToken,"X-World-Version":String(world?.version||0),"X-World-Name":encodeURIComponent(worldName)},
       body:new Blob([new Uint8Array(bytes)]),
     });
-    await check(r);const saved=await r.json();setMessage("Tersimpan · versi "+saved.world.version);
+    await check(r,s.userId);const saved=await r.json();setMessage("Tersimpan · versi "+saved.world.version);
     await list(s);
   }
   async function open(w:World){
     if(!session?.userId)return;
-    const r=await hostFetch("/worlds/"+w.id,{headers:{"X-Studio-User":session.userId}});await check(r);
+    const r=await hostFetch("/worlds/"+w.id,{headers:{"X-Studio-User":session.userId}});await check(r,session.userId);
     const file=new File([await r.blob()],w.name+".save",{type:"application/octet-stream"});
     await openFile(file);
   }
