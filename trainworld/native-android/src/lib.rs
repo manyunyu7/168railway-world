@@ -1,3 +1,4 @@
+mod demand;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass},
