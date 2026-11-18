@@ -3,7 +3,7 @@
 
 import { tool } from "../game/ui";
 import { t } from "../i18n";
-import { Icon } from "./widgets";
+import { BuildGlyph } from "./BuildGlyph";
 import { BlueprintControls, BlueprintPick } from "./Blueprint";
 import { BUS_KEY, FERRY_KEY, pickTool, TOOLS } from "./toolKeys";
 import { newBusLine, newFerryLine } from "../game/lineActions";
@@ -12,31 +12,25 @@ import { live } from "../map/live";
 /** The building tools, then the blueprint's quote and construction. */
 export function BuildTab() {
   const cur = tool.value;
+  const standard = TOOLS.map(([id, label, , key, tip]) => ({
+    id, label, key, title: tip.replace(/\n|$/, ` (${key})$&`), pick: () => pickTool(id),
+  }));
+  const [track, station, remove, select] = standard;
+  const bus = { id: "bus", label: t("buildTab.bus"), key: BUS_KEY.toUpperCase(),
+    title: t("buildTab.busTip", { key: BUS_KEY.toUpperCase() }),
+    pick: () => cur === "bus" ? live.tools?.exit() : newBusLine() };
+  const ferry = { id: "ferry", label: t("buildTab.ferry"), key: FERRY_KEY.toUpperCase(),
+    title: t("buildTab.ferryTip", { key: FERRY_KEY.toUpperCase() }),
+    pick: () => cur === "ferry" ? live.tools?.exit() : newFerryLine() };
   return (
     <>
       <div class="build-options">
         <div class="group tool-pick">
-          {TOOLS.map(([id, label, I, key, title]) => (
-            <button class={"btn text" + (cur === id ? " on" : "")} data-guide={id === "track" ? "track" : id === "station" ? "stations" : undefined} data-tip={title.replace(/\n|$/, ` (${key})$&`)} onClick={() => pickTool(id)}>
-              <I />
-              <span class="tool-label">{label}</span>
-              <span class="key muted">{key}</span>
-            </button>
-          ))}
-          {/* T-1514: the bus tool, also on the Lines tab; it starts a new line, so it is no TOOLS entry */}
-          <button class={"btn text tool-bus" + (cur === "bus" ? " on" : "")} data-tip={t("buildTab.busTip", { key: BUS_KEY.toUpperCase() })}
-            onClick={() => (cur === "bus" ? live.tools?.exit() : newBusLine())}>
-            <Icon.bus />
-            <span class="tool-label">{t("buildTab.bus")}</span>
-            <span class="key muted">{BUS_KEY.toUpperCase()}</span>
-          </button>
-          {/* T-2194: the ferry tool beside it, placing ports */}
-          <button class={"btn text tool-ferry" + (cur === "ferry" ? " on" : "")} data-tip={t("buildTab.ferryTip", { key: FERRY_KEY.toUpperCase() })}
-            onClick={() => (cur === "ferry" ? live.tools?.exit() : newFerryLine())}>
-            <Icon.ferry />
-            <span class="tool-label">{t("buildTab.ferry")}</span>
-            <span class="key muted">{FERRY_KEY.toUpperCase()}</span>
-          </button>
+          {[track, station, bus, ferry, select, remove].map(({id,label,key,title,pick}) => <button key={id} class={"btn text build-tile tool-"+id+(cur===id?" on":"")}
+            data-guide={id==="track"?"track":id==="station"?"stations":undefined} aria-pressed={cur===id}
+            data-tip={title} onClick={pick}>
+            <BuildGlyph tool={id}/><span class="tool-label">{label}</span><kbd class="key muted">{key}</kbd>
+          </button>)}
         </div>
         <BlueprintPick />
       </div>

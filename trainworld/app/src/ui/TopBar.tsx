@@ -152,6 +152,7 @@ function Clock() {
     // T-3635: a page translator rewriting the date's text can break the holiday dot's diff and leave stale clocks behind
     <div class="clock" translate={false}>
       <div class="clock-text" data-tip={held ? t("topBar.clockHeld") : [dateTip, ...todayHols].join("\n")}>
+        <svg class="hud-symbol clock-symbol" aria-hidden="true" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M10 5.5V10l3 2"/></svg>
         <b class={"time lg" + (held ? " held" : "")}>{clockTime(minute)}</b>
         <span class="date"><HolidayDot today={todayHols.length > 0} />{dateName(day)}</span>
       </div>
@@ -180,10 +181,10 @@ function Cash() {
   const today = live.today;
   const tip = today ? t("topBar.cashTip", { fares: withFullSymbol(money(today.fares * 1e6)), running: withFullSymbol(money(-today.running * 1e6)), upkeep: withFullSymbol(money(-(today.upkeep ?? 0) * 1e6)) }) : undefined;
   // T-728: a sandbox shows no cash; the hover has the money since the start
-  if (m?.mode === "sandbox") return <div class="cash sandbox" data-tip={[t("topBar.infiniteMoney"), t("topBar.sinceDay1", { amount: money((live.cash - START_CASH) * 1e6) }), ...(tip ? [tip] : []), t("moneyTab.scaleTip")].join("\n")}>{t("topBar.sandbox")}</div>;
+  if (m?.mode === "sandbox") return <div class="cash sandbox" data-tip={[t("topBar.infiniteMoney"), t("topBar.sinceDay1", { amount: money((live.cash - START_CASH) * 1e6) }), ...(tip ? [tip] : []), t("moneyTab.scaleTip")].join("\n")}><span class="hud-symbol" aria-hidden="true"><Icon.money/></span>{t("topBar.sandbox")}</div>;
   // T-1865: after the split, in a box of fixed width (style.css .cash), so nothing beside it moves
   const shown = m ? moneyCash(live.cash * 1e6) : "";
-  return <div class={"cash num" + (usingUsd() ? "" : " cash-wide") + (shown.startsWith("−") ? " money-neg" : "")} data-tip={m ? [...(tip ? [tip] : []), t("moneyTab.scaleTip")].join("\n") : undefined}>{shown}</div>;
+  return <div class={"cash num" + (usingUsd() ? "" : " cash-wide") + (shown.startsWith("−") ? " money-neg" : "")} data-tip={m ? [...(tip ? [tip] : []), t("moneyTab.scaleTip")].join("\n") : undefined}><span class="hud-symbol" aria-hidden="true"><Icon.money/></span>{shown}</div>;
 }
 
 /** The city's name, the whole of it and its points (T-684, T-3465: its forecast weekday's) on hover. */
@@ -191,7 +192,7 @@ function CityName({ id, name, tip }: { id: string | null; name: string; tip?: st
   const score = id ? pointsScore.value.get(id) : undefined;
   const lines = [name];
   if (id && score) lines.push(t("topBar.pointsPast", { count: exact(score) }));
-  return <div class="city" data-tip={tip ?? (id ? lines.join("\n") : undefined)}>{name}</div>;
+  return <div class="city" data-tip={tip ?? (id ? lines.join("\n") : undefined)}>{name && <span class="hud-symbol" aria-hidden="true"><Icon.pin/></span>}{name}</div>;
 }
 
 /** A speed in times normal speed: "real" and "4real" for the two slowest (T-3327), else "16x". */
@@ -307,6 +308,17 @@ export function TopBar() {
     <><header id="topbar">
       {/* T-1108: the name takes what it needs up to a cap, on two lines at most, the whole name on hover */}
       {far ? <CityName id={null} name={t("topBar.world")} tip={worldTip} /> : <CityName id={city?.id ?? null} name={cityName} />}
+      <details class="hud-travel" onKeyDown={e=>{if(e.key==="Escape"){e.stopPropagation();e.preventDefault();e.currentTarget.open=false;e.currentTarget.querySelector("summary")?.focus();}}}>
+        <summary aria-label={t("tripText.modeShare",{mode:t("splitTip.train"),share:pct(s.train)})}>
+          <span class="hud-symbol" aria-hidden="true"><Icon.train/></span>{pct(s.train)}<span aria-hidden="true">⌄</span>
+        </summary>
+        <div class="hud-travel-detail">
+          <b>{t("splitTip.perDay",{where,note})}</b>
+          {([["train","splitTip.train"],["walk","splitTip.walking"],["drive","splitTip.driving"],["none","splitTip.noRoute"]] as const)
+            .filter(([mode])=>mode!=="none" || (s.none??0)>0)
+            .map(([mode,key])=><div key={mode}><span>{t(key)}</span><b>{known?tNumber(s[mode]??0,{maximumFractionDigits:1})+"%":"–"}</b></div>)}
+        </div>
+      </details>
       <div class="split">
         <div data-tip={total ? worldShareTip(total, dayPhrase, note) : splitTable(where, known, rides, city ? lengthsOf(city.id) : null, note)} class={"split-row" + (viewUpdating.value ? " updating" : "")}
           onPointerEnter={() => setOver(true)} onPointerLeave={() => setOver(false)}>

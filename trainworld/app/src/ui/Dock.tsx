@@ -160,7 +160,7 @@ export function Dock() {
       <nav class="tabs">
         {TABS.map(([id, key, Glyph]) => (
           <button class={"tab" + (cur === id ? " on" : "")} data-guide-tab={id} data-tip={t("dock.tabTip", { name: t(key), key: tabKeyName(id) })} aria-label={t(key)} aria-pressed={cur === id} onClick={() => selectTab(id)}>
-            <Glyph />
+            <Glyph />{cur === id && <span class="dock-tab-name">{t(key)}</span>}
           </button>
         ))}
         {/* T-251: the saved games open in their own panel, not as a tab */}
@@ -168,7 +168,7 @@ export function Dock() {
           <Icon.save />
         </button>
         <button class={"tab gear" + (cur === "settings" ? " on" : "")} data-tip={[t("dock.settings"), replyTip()].filter(Boolean).join("\n")} aria-label={t("dock.settings")} aria-pressed={cur === "settings"} onClick={() => selectTab("settings")}>
-          <Icon.gear />
+          <Icon.gear />{cur === "settings" && <span class="dock-tab-name">{t("dock.settings")}</span>}
           <NewReplyDot />
         </button>
       </nav>

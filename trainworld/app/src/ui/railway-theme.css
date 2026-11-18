@@ -146,3 +146,95 @@
 @media (pointer: coarse) {
   .build-options .tool-pick > .btn { min-height: calc(44px / var(--ui,1)); }
 }
+
+/* Build tools carry the same pictogram at narrow and wide widths. */
+.build-options .group.tool-pick { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; padding:0 0 3px; }
+.build-options .tool-pick .build-tile {
+  --tool-ink:#206550; --tool-face:#baf0c5; --glyph-light:#fbfffa;
+  margin:0; min-width:0; height:auto; min-height:60px; padding:5px 4px; gap:3px;
+  position:relative; display:flex; flex-direction:column; justify-content:center; align-items:center;
+  border:1px solid color-mix(in srgb,var(--tool-ink) 28%,var(--bg)); border-radius:11px;
+  box-shadow:0 3px 0 color-mix(in srgb,var(--tool-ink) 36%,var(--bg));
+  background:color-mix(in srgb,var(--tool-face) 19%,var(--bg)); color:var(--text);
+}
+.build-options .tool-pick .tool-station { --tool-ink:#195d91; --tool-face:#b0e3ff; }
+.build-options .tool-pick .tool-bus { --tool-ink:#8b4d04; --tool-face:#ffcf61; }
+.build-options .tool-pick .tool-ferry { --tool-ink:#0e6276; --tool-face:#94e9ed; }
+.build-options .tool-pick .tool-blueprint { --tool-ink:#6e4097; --tool-face:#e0c0ff; }
+.build-options .tool-pick .tool-delete { --tool-ink:#9a3e43; --tool-face:#ffc3bc; }
+.build-tile .build-token { display:grid; place-items:center; width:36px; height:29px; border-radius:9px; background:var(--tool-face);color:var(--tool-ink); }
+.build-options .tool-pick .build-token svg { width:27px;height:27px; }
+.build-options .tool-pick .tool-label {display:block; max-width:100%; font-size:12px; font-weight:900; line-height:1.15; white-space:normal; overflow-wrap:anywhere; }
+.build-options .tool-pick .key { position:absolute; top:3px; right:4px; font-family:inherit; font-weight:700; font-size:9px; line-height:1.1; opacity:.8; }
+.build-options .tool-pick .build-tile[aria-pressed="true"] {
+  border:2px solid var(--tool-ink); background:var(--tool-face); color:var(--tool-ink); box-shadow:0 3px 0 var(--tool-ink);
+}
+.build-options .tool-pick .build-tile[aria-pressed="true"]::after {
+  content:"✓"; position:absolute; left:3px; top:2px; font-weight:900; font-size:12px; line-height:1;
+}
+.build-options .tool-pick .build-tile:active,.pane .blueprint-construct:enabled:active { transform:translateY(2px); box-shadow:none; }
+#dock .tabs { gap:1px;align-items:stretch; }
+#dock .tab { display:flex;align-items:center;justify-content:center;gap:3px; min-width:0; }
+#dock .tab.on { flex-grow:1.7; background:color-mix(in srgb,var(--rail-green) 19%,var(--bg)); color:var(--text); box-shadow:inset 0 -3px 0 var(--rail-green-edge); }
+#dock .tab svg { flex-shrink:0; }
+.dock-tab-name { font-size:12px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#topbar .clock-text .time {font-weight:900; font-variant-numeric:tabular-nums;}
+#topbar .cash {color:var(--good); font-weight:850; font-variant-numeric:tabular-nums;}
+#topbar .cash.money-neg {color:var(--loss,var(--text));}
+#topbar .city {border-inline-start:4px solid var(--rail-green);padding-inline-start:6px;line-height:1.05;}
+#topbar .split-row .pct {font-weight:800;}
+.pane .blueprint-construct:enabled { color:var(--rail-ink);background:var(--rail-green);border-color:var(--rail-green-edge); border-radius:9px;box-shadow:0 2px 0 var(--rail-green-edge);font-weight:900;}
+#dock .pane.build-pane {overflow-y:auto;}
+#dock .pane.build-pane > .build-options {padding:8px 10px;}
+@media (max-width:600px) {
+  #dock .tabs .tab {padding:0 3px;}
+  .build-options .tool-pick .key {display:none;}
+  #dock .dock-grab { justify-content:center; height:calc(44px / var(--ui,1)); }
+  #dock .dock-grab > span:first-child {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);}
+  #dock .dock-grab .railway-chevron {position:absolute;right:15px;}
+  #dock .dock-grab::after {top:50%;transform:translateY(-50%);}
+  #topbar .city,#topbar .cash,#topbar .time {font-size:15px;}
+}
+@container pane (max-width:200px) {
+  .build-options .group.tool-pick {grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}
+  .build-options .tool-pick .build-tile {min-height:46px;}
+  .build-options .tool-pick .key {display:none;}
+}
+@media (prefers-reduced-motion:no-preference) {
+  .build-options .tool-pick .build-tile,.start-box .start-new {transition:transform .1s ease,box-shadow .1s ease,background .1s ease;}
+  .railway-brand:has(+ .railway-start-actions .start-new:hover) .brand-loco {translate:0 -1px;}
+}
+#topbar .hud-symbol { display:inline-flex; flex:none; align-items:center; justify-content:center; width:17px; height:17px; vertical-align:middle; }
+#topbar .hud-symbol svg,#topbar .clock-symbol {width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linejoin:round;stroke-linecap:round;}
+#topbar .city .hud-symbol {color:var(--accent);}
+#topbar .city,#topbar .cash { display:inline-flex; align-items:center; gap:4px; border:none;padding:0; }
+#topbar .cash {width:auto;min-width:0;}
+#topbar .cash.money-neg {color:var(--neg,#b74949);}
+#topbar .clock-text {width:auto;}
+.hud-travel { display:none; }
+@container map-column (max-width:700px) {
+  #topbar { grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); grid-template-areas:"city cash clock" "modes speed speed"; gap:3px 5px; padding:5px 7px; }
+  #topbar .city { min-width:0; max-width:100%; overflow:hidden; }
+  #topbar .clock { min-width:0; }
+  #topbar .clock-text {display:grid; grid-template-columns:auto auto;gap:0 4px;align-items:center;line-height:1.1;}
+  #topbar .date {grid-column:1/-1;text-align:end;font-size:10px;}
+  #topbar .bar-rule,#topbar .split {display:none;}
+  #topbar .hud-travel {grid-area:modes;display:block;position:relative;min-width:0;justify-self:start;}
+  .hud-travel > summary {display:inline-flex;align-items:center;gap:5px;min-height:calc(44px / var(--ui,1));padding:0 7px;color:var(--rail-blue);font-weight:900;list-style:none;cursor:pointer;}
+  .hud-travel > summary::-webkit-details-marker {display:none;}
+  .hud-travel-detail {position:absolute;top:100%;inset-inline-start:0;z-index:9;width:max-content;max-width:min(240px,80vw);background:var(--bg);padding:12px;border-radius:12px;border:1px solid var(--rule);box-shadow:var(--card-shadow);line-height:1.5;}
+  .hud-travel-detail > div {display:flex;gap:12px;justify-content:space-between;}
+  #topbar:has(.hud-travel[open]) {position:relative;z-index:10;}
+}
+.build-options .tool-pick .build-tile {min-height:70px; padding:6px 3px;}
+.build-options .tool-pick .build-token {width:45px;height:37px;}
+.build-options .tool-pick .build-token svg {width:35px;height:35px;}
+.build-options .tool-pick .tool-label {font-size:15px;font-weight:850;}
+@container pane (max-width:200px) {
+  .build-options .tool-pick .build-tile {min-height:58px;}
+  .build-options .tool-pick .build-token {width:36px;height:27px;}
+  .build-options .tool-pick .build-token svg {height:27px;width:27px;}
+}
+@media (max-width:360px) and (min-height:560px) {
+  #dock:not(.railway-folded) {height:calc(var(--phone-h,44dvh) / var(--ui,1));}
+}
