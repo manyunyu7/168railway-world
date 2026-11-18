@@ -63,8 +63,23 @@ if(!realHost)await page.route('**/api/web/studio/**',async route=>{
 });
 try{
   await page.goto(process.env.FORK_URL,{waitUntil:'domcontentloaded',timeout:120000});
+  if(realHost&&process.env.FORK_IMPORT_SAVE){
+    const bytes=await readFile(process.env.FORK_IMPORT_SAVE);
+    assert.equal(gunzipSync(bytes).subarray(0,4).toString(),'TWG1');
+    const session=await(await context.request.get(host+'/api/web/studio/session')).json();
+    const id=randomUUID(), title='Imported QA '+id.slice(0,8);
+    const res=await context.request.put(host+'/api/web/studio/worlds/'+id,{data:bytes,headers:{
+      'X-Studio-User':session.userId,'X-CSRF-TOKEN':session.csrfToken,
+      'Content-Type':'application/octet-stream','X-World-Name':encodeURIComponent(title),'X-World-Version':'0',
+    }});assert.equal(res.status(),201);
+    await page.locator('.host-worlds:visible summary').first().click();
+    await page.locator('.host-worlds:visible li').filter({hasText:title}).getByRole('button',{name:'Buka salinan lokal'}).click();
+    await page.locator('.clock-text .time:visible').first().waitFor({timeout:120000});
+    console.log('PASS imported file opened on web via account with its simulation clock.',bytes.length,'bytes');
+  }else{
   await page.getByRole('button',{name:'New game',exact:true}).tap();
   await page.getByRole('button',{name:'Start in New York',exact:true}).tap();
+  }
   await page.locator('.tab.gear.save:visible').first().waitFor({timeout:150000});
   if(process.env.FORK_PROOF)await page.screenshot({path:process.env.FORK_PROOF});
   await page.locator('.tab.gear.save:visible').first().tap();
