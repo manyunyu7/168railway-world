@@ -1,0 +1,24 @@
+# Android and web fork acceptance
+
+Reference: circularsquare/trainsworld at 405ecf55b1816994d7ec19a3a1834046db394940, data 2026-11-18. The public fork web reads these datasets and runs the upstream track, demand and diagram WASM. Android uses Kotlin and original Rust TrackApi over JNI. The table tracks the native implementation. A core test alone does not count as Android UI verification.
+
+| Feature in the reference | Android evidence | Remaining acceptance |
+|---|---|---|
+| Start menu, city picker, real maps | 37 real networks verified by city catalog, per-city files and hashes. Jakarta is a separate build-your-own zone. | Verify every network on-device, cross-zone play, search, camera state, basemap, imagery, accessibility and attribution. |
+| Topography, water, gradients, road network | Native pack loads original terrain and water. Tokyo/London engine projections and water samples tested. | Compare tunnel, viaduct, ferry and street geometry, prices and overlays at multiple zoom levels. |
+| Blueprint, construct and remove track, stations, lines | Native workshop builds connected stations, reuses transfer stops and creates running lines. | Match preview, curvature, track tiers, parallel tracks, demolition refunds, undo, station structures, underground levels and inspections. |
+| Rail service | Real NYC, London and Tokyo schedules move trains. Native form edits fleets, cars, headways, weekend, dwell and turnaround. | Compare peak transitions, depot/turnback, loop services, platforms, junction conflict and capacity. |
+| Ferry, bus, tram, high-speed | Original TrackApi can read route types. | Create, modify, run and reopen every supported mode through Android UI. |
+| Local residential/commuter and everyday trip assignment | City coordinates, timetable stops and directions feed both original Rust populations. Three crowding passes use summed train loads. A period is calculated on demand. | Parse station upgrades, passages, fares, walk access and bus catchments; add the same interactive station, corridor and day-kind figures as web. |
+| Travel between zones and markets | Market data in city pack. | Compose the registry and participating zones, run IntercityApi, include its loads in each iteration and verify cross-zone fares. |
+| Cash, fleet purchases, operating costs, upkeep, loans, day/hour ledger | Existing TWG1 financial headers survive re-save. | Verify same cash and day ledgers after construction, moving trains, borrowing and day rollover in web and native. |
+| Saves and login | Local native TWG1 imports into web under a 168Railway QA account. Web account API verifies two users, optimistic revisions and conflicts. | Native account selector, list/upload/download, conflict handling, multiple offline slots, import/export picker and round trip through Android UI. |
+| Lines/stations tabs, ridership overlays, search, diagrams, charts, goals, tutorial, language and settings | Native route and station geometry rendered and selectable controls available. | Reproduce each panel against reference UI, exercise touch, label placement, map gestures and restored selections. |
+| Frame rate and resource use | Original web simulation and native renderer exercised on separate emulators; a fresh NYC game clock advanced in public Chrome. | Compare large worlds on a physical 60 Hz Android phone; include touch, cold city load, memory and frame intervals. |
+| Online community/leaderboards | Upstream account service intentionally disconnected. | Product scope for 168Railway accounts, scores, submissions, moderation and visibility. Optional Noritetsu overlays are unavailable in the pinned data distribution. |
+
+## Reproduce the regional comparison
+
+Run the ignored Rust test with WORLD_CITY_DATA (directory containing ID.json and ID.bin), WORLD_CITY, WORLD_SAVE (a populated original TWG1 network), WORLD_NETWORK_EXPORT and WORLD_RESULT_EXPORT set to output files. Use cargo test --release --manifest-path trainworld/native-android/Cargo.toml city_commute -- --ignored --nocapture. Build the web demand module with npm run wasm:demand in trainworld/app. Run node trainworld/native-android/check-ridership.mjs with the generated sim.js, region header, binary, exported service and native result in that order.
+
+NYC morning (06–10), 109 lines and 1,756 stations: with the same local population inputs, three crowding rounds give 2,666,463.027 local rail trips natively versus 2,666,463.013 in WASM. Maximum relative difference for seven measured fields was below 0.000001%. This isolates the population kernel and packed service. Full-game figures can differ until the remaining market, fares, geographic transfers and zone inputs are connected.

@@ -1,0 +1,37 @@
+// Compare the native city assignment to the fork's browser WASM on identical packed services.
+// Arguments: sim.js, city.json, city.bin, exported native service.json, native result.json.
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import assert from 'node:assert/strict';
+const [modulePath,headerPath,cellsPath,servicePath,resultPath]=process.argv.slice(2);
+const js=pathToFileURL(resolve(modulePath));
+const {initSync,DemandApi,EverydayApi}=await import(js.href);
+initSync({module:readFileSync(new URL('sim_bg.wasm',js))});
+const json=path=>JSON.parse(readFileSync(path,'utf8'));
+const n=json(servicePath), expected=json(resultPath),q=expected.period;
+const h=readFileSync(headerPath,'utf8'), c=readFileSync(cellsPath);
+const work=new DemandApi(h,c), outings=EverydayApi.beside(work,h,c);
+try {
+  for(const p of [work,outings]){
+    p.set_back_stops(Uint32Array.from(n.back));
+    p.set_network(Float32Array.from(n.xy),Uint32Array.from(n.counts),Uint32Array.from(n.stops),Float32Array.from(n.times),Float32Array.from(n.tph),Float32Array.from(n.cars));
+    assert.ok(p.solve(q));
+  }
+  for(let round=0;round<3;round++){
+    const parts=['seg','board','alight'].map(key=>{
+      const a=work[key](q),b=outings[key](q);
+      return a.map((v,i)=>v+b[i]);
+    });
+    const sameLoad=Float32Array.from(parts.flatMap(v=>Array.from(v)));
+    assert.ok(work.crowd_with_external(q,sameLoad));
+    assert.ok(outings.crowd_with_external(q,sameLoad));
+  }
+  const a=work.summary(q),b=outings.summary(q);
+  const actual={trips:a[1]+b[1],rail:a[2]+b[2],commuteRail:a[2],outingsRail:b[2],walk:a[3]+b[3],unserved:a[13]+b[13],boardings:[...work.board(q),...outings.board(q)].reduce((x,y)=>x+y,0)};
+  for(const [key,val] of Object.entries(actual)){
+    const relative=Math.abs(val-expected[key])/Math.max(1,expected[key]);
+    console.log(key,JSON.stringify({wasm:val,native:expected[key],relative}));
+    assert.ok(relative<0.001,key+' deviates by more than 0.1%');
+  }
+}finally{outings.free();work.free()}
