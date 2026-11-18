@@ -630,6 +630,14 @@ impl TrackApi {
         true
     }
 
+    /// Install a full city terrain raster supplied by a native, offline city pack.
+    pub fn add_zone_classes(&mut self, bytes: &[u8]) -> bool {
+        let Some(grid) = ClassGrid::decode(bytes) else {return false};
+        let bounds = self.terrain_box(grid.bounds());
+        self.w.net.add_zone_terrain(Arc::new(grid), bounds);
+        true
+    }
+
     /// Take a terrain block out of the model, to free its memory (T-2901). False if an edge reaches
     /// into it: it stays, so the edge prices the same at its next re-derive.
     pub fn drop_terrain(&mut self, key: i32) -> bool {

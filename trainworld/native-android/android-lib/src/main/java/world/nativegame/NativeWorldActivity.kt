@@ -44,8 +44,14 @@ class NativeWorldActivity : Activity() {
     private var handle = 0L
     private val executor = Executors.newSingleThreadExecutor()
     private val workshop by lazy { intent.getBooleanExtra("workshop", false) }
+    private val cityStore by lazy { CityPackStore(filesDir,assets.open("world-native/cities.tsv").bufferedReader()) }
+    private val city by lazy {
+        val selected = if(workshop) "nyc" else intent.getStringExtra("city") ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
+        cityStore.city(selected)
+    }
+    private var activePack: CityPackStore.CityPack? = null
     private val local by lazy {
-        AtomicFile(File(filesDir, if (workshop) "world-native-workshop.save" else "world-native-nyc.save"))
+        AtomicFile(File(filesDir, if (workshop) "world-native-workshop.save" else "world-native-${city.id}.save"))
     }
     private lateinit var build: Button
     private var drawing = false
@@ -75,9 +81,13 @@ class NativeWorldActivity : Activity() {
         header.addView(TextView(this).apply {
             text = if (workshop) "Dunia bangun · New York" else "168Railway World · Native"; textSize = 20f
             setTextColor(Color.WHITE); gravity = android.view.Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(-1, dp(56)))
+        }, LinearLayout.LayoutParams(0, dp(56), 1f))
+        header.addView(Button(this).apply {
+            text = "Kota"
+            setOnClickListener { showCityPicker(this@NativeWorldActivity,cityStore,city.id) { handle==0L || !save.isEnabled || writeSave() } }
+        }, LinearLayout.LayoutParams(-2,dp(56)))
         root.addView(header)
-        info = TextView(this).apply { text = "Membuka jaringan New York…"; setTextColor(Color.WHITE); setPadding(dp(12),0,dp(12),dp(8)) }
+        info = TextView(this).apply { text = "Membuka jaringan ${city.name}…"; setTextColor(Color.WHITE); setPadding(dp(12),0,dp(12),dp(8)) }
         root.addView(info)
         map = NetworkView(this)
         root.addView(map, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -133,19 +143,44 @@ class NativeWorldActivity : Activity() {
         root.addView(toolbar); setContentView(root)
         executor.execute {
             try {
-                val restored = local.baseFile.exists()
+                var progressPercent = -1
+                val pack = if (workshop) null else try {
+                    cityStore.load(city.id) { done,total ->
+                        val percent=(done*100/total).toInt()
+                        if (percent!=progressPercent) {
+                            progressPercent=percent
+                            runOnUiThread { if(!closed) info.text="Mengunduh ${city.name} · $percent%" }
+                        }
+                    }
+                } catch (e: Exception) {
+                    if(city.id!="nyc") throw e
+                    null // Bundled legacy starter remains available on a first offline launch.
+                }
+                val snapshot = try { local.readFully() } catch (_: java.io.FileNotFoundException) { null }
+                val restored = snapshot != null
                 val loaded = when {
-                    restored -> Engine.open(local.readFully())
+                    snapshot != null -> Engine.open(snapshot)
                     workshop -> Engine.workshop()
+                    pack != null -> Engine.open(pack.network.readBytes())
                     else -> assets.open("world-native/nyc.save").use { Engine.open(it.readBytes()) }
                 }
                 check(loaded != 0L) { "Format simpanan tidak dikenali" }
-                val geometry = JSONObject(Engine.geometry(loaded))
+                val geometry: JSONObject
+                val layer: CitySurface.Layer?
+                try {
+                    geometry=JSONObject(Engine.geometry(loaded))
+                    layer=pack?.let { CitySurface.load(loaded,it) }
+                } catch (e: Throwable) {
+                    Engine.close(loaded)
+                    throw e
+                }
                 runOnUiThread {
                     if (closed) { Engine.close(loaded); return@runOnUiThread }
-                    handle = loaded; clock = geometry.getDouble("clock")
+                    handle = loaded; activePack=pack; clock = geometry.getDouble("clock")
+                    map.cityLayer=layer
                     map.load(geometry)
-                    info.text = "New York  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
+                    info.text = "${city.name}  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
+                    if(!workshop) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
                     build.isEnabled = true
                     play.isEnabled = !workshop || map.routeCount > 0
                     save.isEnabled = !workshop || map.routeCount > 0
@@ -158,7 +193,14 @@ class NativeWorldActivity : Activity() {
                     if (workshop && map.routeCount == 0) beginDrawing()
                 }
             } catch (e: Exception) {
-                runOnUiThread { if (!closed) info.text = "Jaringan gagal dibuka: ${e.message}" }
+                runOnUiThread {
+                    if (!closed) {
+                        info.text = "Jaringan ${city.name} gagal dibuka."
+                        AlertDialog.Builder(this).setTitle(info.text).setMessage(e.message)
+                            .setPositiveButton("Coba lagi") { _, _ -> recreate() }
+                            .setNegativeButton("Kembali") { _, _ -> finish() }.show()
+                    }
+                }
             }
         }
     }
@@ -233,7 +275,7 @@ class NativeWorldActivity : Activity() {
                 lastService = result.getString("name")
                 clock = max(clock, result.getDouble("departure"))
                 map.load(JSONObject(Engine.geometry(handle)))
-                info.text = "New York  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
+                info.text = "${city.name}  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
                 build.text = "Bangun jalur"
                 play.isEnabled = true
                 save.isEnabled = true
@@ -263,24 +305,30 @@ class NativeWorldActivity : Activity() {
             status.text = "%02d:%02d:%02d   ·   %d kereta%s".format(second/3600%24,second/60%60,second%60,positions.size/3,service)
         }
     }
-    private fun writeSave() {
+    private fun writeSave(): Boolean {
         val bytes = Engine.save(handle,clock)
-        val stream = runCatching { local.startWrite() }.getOrElse { status.text="Gagal menyimpan"; return }
+        val stream = runCatching { local.startWrite() }.getOrElse { status.text="Gagal menyimpan"; return false }
         try {
-            stream.write(bytes); local.finishWrite(stream); status.append("  ·  Tersimpan")
-        } catch (e: Exception) { local.failWrite(stream); status.text="Gagal menyimpan" }
+            if(bytes.isEmpty())throw java.io.IOException("Simpanan kosong")
+            stream.write(bytes); local.finishWrite(stream); status.append("  ·  Tersimpan"); return true
+        } catch (e: Exception) { local.failWrite(stream); status.text="Gagal menyimpan"; return false }
+    }
+    override fun onResume() {
+        super.onResume()
+        if (!workshop && handle != 0L) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
     }
     override fun onPause() {
         super.onPause(); running=false; play.text="Jalankan ×8"; map.removeCallbacks(tick)
     }
     override fun onDestroy() {
-        closed=true; map.removeCallbacks(tick); executor.shutdown()
+        closed=true; map.removeCallbacks(tick); executor.shutdownNow()
         if(handle!=0L) {Engine.close(handle); handle=0}
         super.onDestroy()
     }
 }
 
 private class NetworkView(context: Context):View(context) {
+    var cityLayer: CitySurface.Layer? = null
     var workshop = false
     var onLocation: ((PointF) -> Unit)? = null
     val draft = mutableListOf<PointF>()
@@ -303,7 +351,7 @@ private class NetworkView(context: Context):View(context) {
         lines.clear()
         stops.clear()
         val bounds=data.getJSONArray("waterBox")
-        for(i in 0..3) waterBox[i]=bounds.getDouble(i).toFloat()
+        for(i in 0..3) waterBox[i]=cityLayer?.bounds?.get(i) ?: bounds.getDouble(i).toFloat()
         val routes=data.getJSONArray("routes")
         for(i in 0 until routes.length()) {
             val row=routes.getJSONObject(i);val points=row.getJSONArray("points")
@@ -341,7 +389,7 @@ private class NetworkView(context: Context):View(context) {
         super.onDraw(c);c.drawColor(0xffeaf2ee.toInt())
         if(waterBox[0]!=waterBox[2]) {
             paint.style=Paint.Style.FILL; paint.color=Color.WHITE;paint.isFilterBitmap=true
-            c.drawBitmap(water,null,RectF(sx(waterBox[0]),sy(waterBox[3]),sx(waterBox[2]),sy(waterBox[1])),paint)
+            c.drawBitmap(cityLayer?.bitmap ?: water,null,RectF(sx(waterBox[0]),sy(waterBox[3]),sx(waterBox[2]),sy(waterBox[1])),paint)
         }
         c.save();c.translate(width/2f,height/2f);c.scale(scale,-scale);c.translate(-centerX,-centerY)
         paint.style=Paint.Style.STROKE; paint.strokeWidth=2.6f*density/scale;paint.strokeJoin=Paint.Join.ROUND

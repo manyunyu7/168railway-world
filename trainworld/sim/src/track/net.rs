@@ -1869,6 +1869,11 @@ impl Network {
         self.rework_ground(b, Ground::Terrain);
     }
 
+    pub fn add_zone_terrain(&mut self, grid: std::sync::Arc<cost::ClassGrid>, bounds: [f64; 4]) {
+        self.terrain.add_zone(grid);
+        self.rework_ground(bounds, Ground::Terrain);
+    }
+
     /// A terrain block taken out of those in use, unless an edge reaches into its bounds `b`: such a
     /// block's cells price that edge at its next re-derive (T-2901).
     pub fn drop_terrain(&mut self, key: i32, b: [f64; 4]) -> bool {

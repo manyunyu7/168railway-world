@@ -493,6 +493,18 @@ impl Terrain {
         self.blocks.insert((grid.row0.div_euclid(per) * 360 + grid.col0.div_euclid(per)) as i32, grid);
     }
 
+    /// A complete native city pack spans several degree keys, all sharing one immutable raster.
+    pub fn add_zone(&mut self, grid: Arc<ClassGrid>) {
+        let per = grid.per_deg as i64;
+        let xmax = grid.col0 + grid.w as i64 - 1;
+        let ymax = grid.row0 + grid.h as i64 - 1;
+        for y in grid.row0.div_euclid(per)..=ymax.div_euclid(per) {
+            for x in grid.col0.div_euclid(per)..=xmax.div_euclid(per) {
+                self.blocks.insert((y * 360 + x) as i32, Arc::clone(&grid));
+            }
+        }
+    }
+
     pub fn remove(&mut self, key: i32) {
         self.blocks.remove(&key);
     }
