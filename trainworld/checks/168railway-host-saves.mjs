@@ -10,7 +10,7 @@ import {gunzipSync} from 'node:zlib';
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright-core');
 if(!process.env.FORK_URL)throw Error('Set FORK_URL before running.');
-const browser=await chromium.launch({channel:'chrome',args:['--enable-unsafe-swiftshader']});
+const browser=await chromium.launch({channel:'chrome',headless:process.env.FORK_HEADED!=='1',args:['--enable-unsafe-swiftshader']});
 const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2});
 const page=await context.newPage();page.setDefaultTimeout(90000);
 const realHost=process.env.FORK_QA_HOST==='1';
@@ -81,6 +81,24 @@ try{
   await page.getByRole('button',{name:'Start in New York',exact:true}).tap();
   }
   await page.locator('.tab.gear.save:visible').first().waitFor({timeout:150000});
+  if(process.env.FORK_RAF==="1"){
+  const speed=page.locator("button.rate:visible").first();if(await speed.count())await speed.tap();await page.waitForTimeout(4500);
+  for(const camera of [false,true]){
+    const metrics=await page.evaluate(async (camera)=>{
+      const canvas=document.querySelector(".maplibregl-canvas");let last=performance.now(),dt=[];
+      const end=last+4500;let frame=0;
+      return await new Promise(done=>requestAnimationFrame(function sample(now){
+        if(frame>1)dt.push(now-last);last=now;
+        if(camera&&frame%15===0&&canvas)canvas.dispatchEvent(new WheelEvent("wheel",{deltaY:frame%30===0?-75:75,clientX:220,clientY:350,bubbles:true}));
+        frame++;
+        if(now<end)requestAnimationFrame(sample);else{
+          const sorted=[...dt].sort((a,b)=>a-b),avg=dt.reduce((a,b)=>a+b,0)/dt.length;
+          done({frames:dt.length,fps:1000/avg,medianMs:sorted[Math.floor(dt.length*.5)],p95Ms:sorted[Math.floor(dt.length*.95)],above33:dt.filter(x=>x>33).length});
+        }
+      }));
+    },camera);console.log("RAF",camera?"zoom":"running",metrics);
+  }
+  }
   if(process.env.FORK_PROOF)await page.screenshot({path:process.env.FORK_PROOF});
   await page.locator('.tab.gear.save:visible').first().tap();
   const panel=page.locator('.host-worlds:visible').first();
