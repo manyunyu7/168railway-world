@@ -1,5 +1,6 @@
 mod city_surface;
 mod demand;
+mod finance;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},
@@ -310,7 +311,8 @@ pub extern "system" fn Java_world_nativegame_Engine_save(
     handle: jlong,
     time: jdouble,
 ) -> jbyteArray {
-    let world = unsafe { &*(handle as *const World) };
+    let world = unsafe { &mut *(handle as *mut World) };
+    finance::tick(world, time);
     world
         .save(time)
         .and_then(|v| env.byte_array_from_slice(&v).ok())
