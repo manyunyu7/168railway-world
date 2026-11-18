@@ -167,6 +167,12 @@ class NativeWorldActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(48), 1f))
         root.addView(tools)
         map.onLocation = { point -> if (drawing) selectPoint(point) }
+        map.onStationTap = { station ->
+            if (!drawing && handle != 0L) {
+                StationInspector.show(this, handle, station, clock)
+                true
+            } else false
+        }
         map.onBend = { point ->
             if (drawing && map.draft.isNotEmpty() && map.bends.size < 64) {
                 map.bends.add(Pair(map.draft.lastIndex,point))
@@ -416,9 +422,10 @@ internal class NetworkView(context: Context):View(context) {
     var onLocation: ((PointF) -> Unit)? = null
     var onBend: ((PointF) -> Unit)? = null
     val bends = mutableListOf<Pair<Int,PointF>>()
+    var onStationTap: ((Int) -> Boolean)? = null
     val draft = mutableListOf<PointF>()
     val lines = mutableListOf<Pair<Int,Path>>()
-    data class Station(val x:Float,val y:Float,val name:String)
+    data class Station(val x:Float,val y:Float,val name:String,val id:Int)
     val stops=mutableListOf<Station>()
     var trains=FloatArray(0)
     val stationCount get()=stops.size
@@ -450,7 +457,7 @@ internal class NetworkView(context: Context):View(context) {
         val stations=data.getJSONArray("stations")
         for(i in 0 until stations.length()) {
             val s=stations.getJSONArray(i)
-            stops.add(Station(s.getDouble(0).toFloat(),s.getDouble(1).toFloat(),s.getString(2)))
+            stops.add(Station(s.getDouble(0).toFloat(),s.getDouble(1).toFloat(),s.getString(2),s.getInt(3)))
         }
         if(refit)fit(); invalidate()
     }
@@ -550,6 +557,13 @@ internal class NetworkView(context: Context):View(context) {
     private val pan=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){
         override fun onDown(e:MotionEvent)=true
         override fun onSingleTapConfirmed(e:MotionEvent):Boolean {
+            val range = 20f*density
+            val nearest = stops.asSequence().map { station ->
+                val dx = sx(station.x)-e.x
+                val dy = sy(station.y)-e.y
+                station to dx*dx+dy*dy
+            }.filter { it.second <= range*range }.minByOrNull { it.second }?.first
+            if (nearest != null && onStationTap?.invoke(nearest.id)==true) return true
             onLocation?.invoke(PointF(centerX+(e.x-width/2f)/scale,centerY-(e.y-height/2f)/scale))
             return true
         }
