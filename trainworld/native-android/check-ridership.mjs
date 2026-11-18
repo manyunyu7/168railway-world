@@ -17,20 +17,23 @@ let market,packs;
 const regionalInput=process.argv.slice(7); // index.json.gz, market-drives.bin, one or more zone.market.json
 try {
   const access=(p)=>{p.set_upgrades(Uint8Array.from(n.upgrades));p.set_passages(Uint32Array.from(n.passages));p.set_span(Float32Array.from(n.span));};
+  const fares=(p,f)=>{
+     p.set_fares(f.base,f.rate,Float32Array.from(n.hopKm));p.set_fare_mul(Float32Array.from(n.rateMul));p.set_base_mul(Float32Array.from(n.baseMul));p.set_fare_curve(Float32Array.from(f.curve));
+  };
   if(regionalInput.length){
     assert.ok(regionalInput.length>=3);const [index,drives,...zones]=regionalInput;
     packs=new MarketPacks(gunzipSync(readFileSync(index)).toString());
     packs.set_drives(readFileSync(drives));
     for(const z of zones)packs.add(readFileSync(z,'utf8'));
-    market=packs.market();access(market);market.set_bus_ll(Uint32Array.from(n.catchN),Float64Array.from(n.catchLL));market.set_sampled(true);market.set_back_stops(Uint32Array.from(n.back));
+    market=packs.market();market.set_fare_weight(n.marketFare.weight);market.set_fare_factors(JSON.stringify(n.marketFare.factors));access(market);market.set_bus_ll(Uint32Array.from(n.catchN),Float64Array.from(n.catchLL));market.set_sampled(true);market.set_back_stops(Uint32Array.from(n.back));
     market.set_network_ll(Float64Array.from(n.ll),Uint32Array.from(n.counts),Uint32Array.from(n.stops),Float32Array.from(n.times),Float32Array.from(n.tph),Float32Array.from(n.cars));
-    assert.ok(market.solve(q));
+    fares(market,n.marketFare);assert.ok(market.solve(q));
   }
   for(const p of [work,outings]){
-    access(p);p.set_bus(Uint32Array.from(n.catchN),Float32Array.from(n.catchXY));if(p===work)p.set_tram_lines(Uint8Array.from(n.tram));
+    p.set_fare_weight(n.localFare.weight);access(p);p.set_bus(Uint32Array.from(n.catchN),Float32Array.from(n.catchXY));if(p===work)p.set_tram_lines(Uint8Array.from(n.tram));
     p.set_back_stops(Uint32Array.from(n.back));
     p.set_network(Float32Array.from(n.xy),Uint32Array.from(n.counts),Uint32Array.from(n.stops),Float32Array.from(n.times),Float32Array.from(n.tph),Float32Array.from(n.cars));
-    if(p===outings)p.set_ferry(Uint8Array.from(n.ferry));
+    fares(p,n.localFare);p.set_transfer_fare(n.localFare.transfer);if(p===outings)p.set_ferry(Uint8Array.from(n.ferry));
     assert.ok(p.solve(q));
   }
   for(let round=0;round<3;round++){

@@ -1,4 +1,5 @@
 mod demand;
+mod fares;
 mod finance;
 mod regional;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};

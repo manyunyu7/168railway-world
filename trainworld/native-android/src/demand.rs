@@ -20,8 +20,10 @@ fn commute(
     cells: &[u8],
     period: usize,
     market_input: Option<MarketInput>,
+    country: &str,
 ) -> Result<Value, String> {
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
+    let fares = super::fares::Fares::read(&world.header["fares"], country);
     let mut api = world.api;
     let city: Value = serde_json::from_str(header).map_err(|e| e.to_string())?;
     let origin = &city["origin"];
@@ -157,17 +159,47 @@ fn commute(
             k += 2 * count;
         }
     }
+    let (mut hop_km, mut base_mul, mut rate_mul) = (vec![], vec![], vec![]);
+    for (id, _, ss, _) in &lines {
+        let (own, rate) =
+            fares.multiplier(*id, api.line_fast(*id), api.is_ferry(*id), api.is_bus(*id));
+        for run in 0..2 {
+            let hops = api.line_stop_s(*id, run);
+            for k in 0..ss.len() {
+                hop_km.push(if k + 1 < hops.len() {
+                    ((hops[k + 1] - hops[k]) / 1000.).max(0.) as f32
+                } else {
+                    0.
+                });
+                base_mul.push(own);
+                rate_mul.push(rate);
+            }
+        }
+    }
+    let to_curve = |v: &Value| {
+        v["curve"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_f64().unwrap() as f32)
+            .collect::<Vec<_>>()
+    };
+    let scalar = |v: &Value, k: &str| v[k].as_f64().unwrap() as f32;
     if span.iter().all(|&v| v == 1.) {
         span.clear();
     }
     #[cfg(test)]
     if let Ok(path) = std::env::var("WORLD_NETWORK_EXPORT") {
-        let packed = json!({"xy":xy,"ll":ll_all,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars,"upgrades":upgrades,"passages":passages,"span":span,"tram":tram,"ferry":ferry,"catchN":catch_n,"catchXY":catch_xy,"catchLL":catch_ll});
+        let packed = json!({"xy":xy,"ll":ll_all,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars,"upgrades":upgrades,"passages":passages,"span":span,"tram":tram,"ferry":ferry,"catchN":catch_n,"catchXY":catch_xy,"catchLL":catch_ll,"hopKm":hop_km,"baseMul":base_mul,"rateMul":rate_mul,"localFare":fares.local,"marketFare":fares.market,"rawFare":fares.raw,"country":country});
         std::fs::write(path, packed.to_string()).map_err(|e| e.to_string())?;
     }
     let mut solver = DemandApi::new(header, cells)?;
     let mut outings =
         trainworld_sim::demand::everyday::EverydayApi::beside(&solver, header, cells)?;
+    let local = &fares.local;
+    let wallet = scalar(local, "weight");
+    solver.set_fare_weight(wallet)?;
+    outings.set_fare_weight(wallet)?;
     solver.set_upgrades(&upgrades);
     outings.set_upgrades(&upgrades);
     solver.set_passages(&passages);
@@ -181,18 +213,38 @@ fn commute(
     outings.set_back_stops(&reverse);
     solver.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
     outings.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
+    let (base, rate) = (scalar(local, "base"), scalar(local, "rate"));
+    solver.set_fares(base, rate, &hop_km)?;
+    outings.set_fares(base, rate, &hop_km)?;
+    solver.set_fare_mul(&rate_mul)?;
+    outings.set_fare_mul(&rate_mul)?;
+    solver.set_base_mul(&base_mul)?;
+    outings.set_base_mul(&base_mul)?;
+    let curve = to_curve(local);
+    solver.set_fare_curve(&curve)?;
+    outings.set_fare_curve(&curve)?;
+    let transfer = scalar(local, "transfer");
+    solver.set_transfer_fare(transfer)?;
+    outings.set_transfer_fare(transfer)?;
     outings.set_ferry(&ferry)?;
     if !solver.solve(period) || !outings.solve(period) {
         return Err("Periode perjalanan tidak tersedia".into());
     }
     let mut market = if let Some((index, drives, zones)) = market_input {
         let mut m = super::regional::open(index, drives, zones)?;
+        let regional = &fares.market;
+        m.set_fare_weight(scalar(regional, "weight"))?;
+        m.set_fare_factors(&regional["factors"].to_string())?;
         m.set_upgrades(&upgrades);
         m.set_passages(&passages);
         m.set_span(&span);
         m.set_bus_ll(&catch_n, &catch_ll);
         m.set_back_stops(&reverse);
         m.set_network_ll(&ll_all, &counts, &stops, &times, &tph, &cars)?;
+        m.set_fares(scalar(regional, "base"), scalar(regional, "rate"), &hop_km)?;
+        m.set_fare_mul(&rate_mul)?;
+        m.set_base_mul(&base_mul)?;
+        m.set_fare_curve(&to_curve(regional))?;
         if !m.solve(period) {
             return Err("Perjalanan antarwilayah tidak tersedia".into());
         }
@@ -273,13 +325,27 @@ pub extern "system" fn Java_world_nativegame_NativeRidership_estimate(
         };
         let h = std::fs::read_to_string(path(&header)?).map_err(|e| e.to_string())?;
         let cells = std::fs::read(path(&cells)?).map_err(|e| e.to_string())?;
+        let z = std::fs::read_to_string(path(&zone)?).map_err(|e| e.to_string())?;
+        #[derive(serde::Deserialize)]
+        struct MarketZone {
+            country: Option<String>,
+        }
+        let zone_info: MarketZone = serde_json::from_str(&z).map_err(|e| e.to_string())?;
+        let country = zone_info.country.as_deref().unwrap_or("");
         if index.is_null() {
-            return commute(&save, &h, &cells, period as usize, None);
+            return commute(&save, &h, &cells, period as usize, None, country);
         }
         let idx = std::fs::read(path(&index)?).map_err(|e| e.to_string())?;
         let dr = std::fs::read(path(&drives)?).map_err(|e| e.to_string())?;
-        let z = std::fs::read_to_string(path(&zone)?).map_err(|e| e.to_string())?;
-        commute(&save, &h, &cells, period as usize, Some((&idx, &dr, &[&z])))
+
+        commute(
+            &save,
+            &h,
+            &cells,
+            period as usize,
+            Some((&idx, &dr, &[&z])),
+            country,
+        )
     })()
     .unwrap_or_else(|e| json!({"error":e}));
     env.new_string(result.to_string())
@@ -311,7 +377,16 @@ mod tests {
             .as_ref()
             .zip(drives.as_ref())
             .map(|(i, d)| (i.as_slice(), d.as_slice(), zones.as_slice()));
-        let r = commute(&save, &h, &b, 0, market).unwrap();
+        let info: Value = serde_json::from_str(&zone).unwrap();
+        let r = commute(
+            &save,
+            &h,
+            &b,
+            0,
+            market,
+            info["country"].as_str().unwrap_or(""),
+        )
+        .unwrap();
         if market.is_some() {
             assert!(r["regionalTrips"].as_f64().unwrap() > 0.)
         }

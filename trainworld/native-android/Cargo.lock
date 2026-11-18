@@ -471,6 +471,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "jni",
+ "serde",
  "serde_json",
  "trainworld-sim",
 ]
