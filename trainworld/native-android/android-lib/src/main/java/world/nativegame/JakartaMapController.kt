@@ -94,6 +94,34 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
     }
 
     fun command(name:String,args:Map<String,Any?>,done:(Map<String,Any?>)->Unit){
+        if(name=="finance" || name=="setFares"){
+            if(disposed || busy || handle==0L || drawing){done(mapOf("error" to "Peta belum siap."));return}
+            val response=runCatching {
+                if(name=="finance") JSONObject(NativeFinance.fares(handle,clock,"{}"))
+                else {
+                    val patch=args["patch"] as? Map<*,*> ?: error("Perubahan tarif kosong.")
+                    check(patch.isNotEmpty()){"Belum ada perubahan."}
+                    val candidate=Engine.forkCandidate(handle,clock,RoadTileStore.directory(app).absolutePath)
+                    check(candidate!=0L){"Gagal menyiapkan salinan Jakarta."}
+                    var committed=false
+                    try {
+                        val report=JSONObject(NativeFinance.fares(candidate,clock,JSONObject(patch).toString()))
+                        check(!report.has("error")){report.optString("error")}
+                        saveHandle(candidate)
+                        val previous=handle
+                        handle=candidate
+                        committed=true
+                        Engine.close(previous)
+                        message="Tarif Jakarta tersimpan di perangkat."
+                        publish()
+                        report
+                    } finally { if(!committed) Engine.close(candidate) }
+                }
+            }
+            done(response.fold({ if(it.has("error"))mapOf("error" to it.optString("error")) else mapOf("data" to it.toString()) },
+                {mapOf("error" to (it.localizedMessage ?: "Perubahan gagal disimpan."))}))
+            return
+        }
         if(name=="stations" || name=="station" || name=="diagram"){
             if(disposed || busy || handle==0L){done(mapOf("error" to "Peta belum siap."));return}
             val result=runCatching {
@@ -169,15 +197,19 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
                 "play"->{check(viewMap.routeCount>0){"Bangun jalur terlebih dahulu."};if(!running){running=true;lastTick=SystemClock.elapsedRealtime();ui.post(tick)};message="Kereta berjalan."}
                 "pause"->{pause();message="Permainan dijeda."}
                 "save"->{
-                    val bytes=Engine.save(handle,clock);check(bytes.isNotEmpty()){"Simpanan kosong."}
-                    val stream=slot.startWrite()
-                    try{stream.write(bytes);slot.finishWrite(stream)}catch(e:Exception){slot.failWrite(stream);throw e}
+                    saveHandle(handle)
                     message="Jakarta tersimpan di perangkat."
                 }
                 else->error("Perintah tidak dikenali.")
             }
         }catch(e:Exception){message=e.localizedMessage?:"Perintah gagal."}
         publish();done(snapshot())
+    }
+    private fun saveHandle(target:Long){
+        val bytes=Engine.save(target,clock)
+        check(bytes.isNotEmpty()){"Simpanan kosong."}
+        val stream=slot.startWrite()
+        try{stream.write(bytes);slot.finishWrite(stream)}catch(e:Exception){slot.failWrite(stream);throw e}
     }
     private fun clearDraft(){drawing=false;viewMap.draft.clear();viewMap.bends.clear();viewMap.invalidate()}
     private fun pause(){running=false;ui.removeCallbacks(tick)}

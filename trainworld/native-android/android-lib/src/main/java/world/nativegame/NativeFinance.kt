@@ -12,6 +12,7 @@ import java.util.Locale
 
 /** Engine calls use the same UI-thread ownership as track editing. */
 object NativeFinance {
+    @JvmStatic external fun fares(handle: Long, now: Double, patch: String): String
     @JvmStatic private external fun query(handle: Long, now: Double, op: Int): String
 
     fun show(activity: Activity, handle: Long, clock: () -> Double, persist: () -> Unit) {

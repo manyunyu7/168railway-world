@@ -62,6 +62,18 @@ fn fare_curve(n: &[[f64; 2]; 3], base: f64, rate: f64, mul: f64) -> Vec<f32> {
         .flat_map(|[k, v]| [*k as f32, (v * mul) as f32])
         .collect()
 }
+pub(super) fn currency_factor(f: &Value) -> f64 {
+    if f.is_object() && f["basis"] != "usd" {
+        legacy_factor()
+            / if f["baseline"].is_string() {
+                1.
+            } else {
+                old_scale("US")
+            }
+    } else {
+        1.
+    }
+}
 pub(super) struct Fares {
     pub local: Value,
     pub market: Value,
@@ -70,16 +82,7 @@ pub(super) struct Fares {
 impl Fares {
     pub fn read(f: &Value, country: &str) -> Self {
         let old = f.is_object() && f["basis"] != "usd";
-        let factor = if old {
-            legacy_factor()
-                / if f["baseline"].is_string() {
-                    1.
-                } else {
-                    old_scale("US")
-                }
-        } else {
-            1.
-        };
+        let factor = currency_factor(f);
         let mut scales = f["scales"].as_object().cloned().unwrap_or_default();
         for (id, v) in scales.iter_mut() {
             if let Some(x) = v.as_f64() {

@@ -82,7 +82,7 @@ pub(super) fn tick(w: &mut World, now: f64) {
     }
     w.header["clock"] = now.into();
 }
-fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String> {
+pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String> {
     if !clock.is_finite() {
         return Err("Jam tidak valid".into());
     }

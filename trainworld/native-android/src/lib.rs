@@ -1,8 +1,9 @@
 mod bus_plan;
 mod city_surface;
 mod demand;
-mod ferry_plan;
+mod fare_editor;
 mod fares;
+mod ferry_plan;
 mod finance;
 mod regional;
 mod station_inspection;
