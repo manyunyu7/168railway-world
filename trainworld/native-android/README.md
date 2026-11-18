@@ -24,8 +24,12 @@ Untuk membuat ulang katalog, unduh manifest dari `https://168railway.com/studio-
 
 Tes JVM menggunakan direktori berisi struktur unduhan Tokyo dan London. Jalankan `javac -d /tmp/world-tests android-lib/src/main/java/world/nativegame/CityPackStore.java tests/CityPackStoreTest.java` lalu `java -cp /tmp/world-tests world.nativegame.CityPackStoreTest /path/to/city-release`. Jalankan `NATIVE_CITY_RELEASE=/path/to/city-release cargo test --locked --release` untuk membandingkan lokasi, perjalanan, air, medan, dan pemuatan ulang kedua jaringan asli dengan kernel Rust.
 
+
 ### Arsip TWG1 dan akun Android
 
 Buka **Simpan ▾ → Arsip & akun**. Ekspor menyalin berkas TWG1 ke lokasi pilihan Android. Impor meminta peta asal karena beberapa simpanan hulu memakai ID bingkai bersama untuk berbagai kota. Setelah engine berhasil membuka berkas, aplikasi membuat slot privat baru. **Pulihkan dari akun** juga membuat slot baru. Saat memperbarui arsip di akun, versi yang ditampilkan dikirim bersama simpanan. Jika versi berubah, aplikasi meminta pemain mengambil versi terbaru atau membuat salinan.
 
 Login menggunakan browser sistem. Callback skema `com.railway168.studio://login/complete` membawa kode sekali pakai dan state. Aplikasi menukar kode melalui HTTPS dengan verifier S256. Token arsip berlaku satu jam dan disimpan terenkripsi dengan Android Keystore. Backend 168Railway yang mengimplementasikan kontrak ini diperlukan untuk fitur akun. Pemilih dokumen dan slot lokal tetap berfungsi tanpa backend.
+
+Jakarta tertera sebagai **Bangun sendiri**. Empat berkas Jakarta memuat medan, air, pasar dan sel permintaan. Rilis hulu tidak menyediakan jaringan rel awal untuk Jakarta. Saat dibuka, peta berpusat pada 106,8022° BT dan 6,1876° LS dengan nol stasiun. Jalur yang dibuat pemain tersimpan pada slot Jakarta.
+

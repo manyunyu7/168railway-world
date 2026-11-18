@@ -14,9 +14,12 @@ inventory = {entry["path"]: entry for entry in json.loads(manifest_bytes)["files
 names = {city["id"]: city["name"] for city in json.loads((game / "registry.json").read_text())["cities"]}
 networks = json.loads((game / "realNetworks.json").read_text())
 rows = ["# Release 2026-11-18. ID, name, then size and SHA256 for header, cells, market, terrain and network."]
-for city in sorted(networks):
+for city in sorted([*networks, "jak"]):
     row = [city, names[city]]
     for path in (f"{city}.json", f"{city}.bin", f"{city}.market.json", f"terrain/{city}.terrain", f"real/{city}.save"):
+        if city not in networks and path.startswith("real/"):
+            row.extend(("0", "-"))
+            continue
         entry = inventory[path]
         row.extend((str(entry["bytes"]), entry["sha256"]))
     rows.append("\t".join(row))

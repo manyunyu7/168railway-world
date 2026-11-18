@@ -120,6 +120,32 @@ pub(super) fn attach(
     Some(pixels)
 }
 
+fn empty_city(id: &str, header: &str) -> Option<World> {
+    let h: Value = serde_json::from_str(header).ok()?;
+    let lon = h["origin"]["lon"].as_f64()?;
+    let lat = h["origin"]["lat"].as_f64()?;
+    let mut world = World::workshop();
+    world.api = trainworld_sim::track::wasm::TrackApi::new(lon, lat, true);
+    world.api.set_unlimited(true);
+    world.header["city"] = serde_json::json!(id);
+    Some(world)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_empty(
+    mut env: JNIEnv,
+    _: JClass,
+    id: JString,
+    header: JString,
+) -> jlong {
+    let mut get = || -> Option<World> {
+        let id: String = env.get_string(&id).ok()?.into();
+        let header: String = env.get_string(&header).ok()?.into();
+        empty_city(&id, &header)
+    };
+    get().map_or(0, |world| Box::into_raw(Box::new(world)) as jlong)
+}
+
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_CitySurface_attach(
     mut env: JNIEnv,
@@ -149,6 +175,45 @@ pub extern "system" fn Java_world_nativegame_CitySurface_attach(
 mod tests {
     use super::*;
     use std::{fs, path::Path};
+    #[test]
+    fn jakarta_starts_empty_places_rail_at_real_coordinates_and_reopens() {
+        let Ok(dir) = std::env::var("NATIVE_CITY_RELEASE") else {
+            return;
+        };
+        let root = Path::new(&dir);
+        let header = fs::read_to_string(root.join("jak.json")).unwrap();
+        let mut world = empty_city("jak", &header).unwrap();
+        let pixels = attach(
+            &mut world,
+            &header,
+            &fs::read(root.join("jak.bin")).unwrap(),
+            &fs::read(root.join("terrain/jak.terrain")).unwrap(),
+        )
+        .unwrap();
+        assert!(pixels[6..].contains(&(0xffaccfdcu32 as i32)));
+        assert!(world.geometry()["stations"].as_array().unwrap().is_empty());
+        let a = world.api.from_lonlat(106.8236, -6.1861);
+        let b = world.api.from_lonlat(106.8311, -6.1964);
+        let result = world
+            .build_service([a[0], a[1]], [b[0], b[1]], "Uji Jakarta", 111600.)
+            .unwrap();
+        let t = result["departure"].as_f64().unwrap() + 20.;
+        let mut restored = World::open(&world.save(t).unwrap()).unwrap();
+        assert_eq!(restored.header["city"], "jak");
+        assert_eq!(restored.positions(t), world.positions(t));
+        assert!(!restored.positions(t).is_empty());
+        let geo = restored.geometry();
+        let stations = geo["stations"].as_array().unwrap();
+        assert_eq!(stations.len(), 2);
+        for station in stations {
+            let ll = restored
+                .api
+                .to_lonlat(station[0].as_f64().unwrap(), station[1].as_f64().unwrap());
+            assert!((ll[0] - 106.83).abs() < 0.02 && (ll[1] + 6.19).abs() < 0.02);
+        }
+        println!("Jakarta verified at 106.83 E / 6.19 S: starts empty, mapped water, 1 test service, 2 stations, save and moving trains reopened");
+    }
+
     #[test]
     fn city_release_worlds_match_geography_moves_and_offline_reopen() {
         let Ok(dir) = std::env::var("NATIVE_CITY_RELEASE") else {

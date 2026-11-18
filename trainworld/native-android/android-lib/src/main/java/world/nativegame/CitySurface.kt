@@ -4,6 +4,8 @@ package world.nativegame
 import android.graphics.Bitmap
 
 internal object CitySurface {
+    init { System.loadLibrary("world_native") }
+    @JvmStatic external fun empty(id: String, header: String): Long
     @JvmStatic external fun attach(handle: Long, header: String, cells: ByteArray, terrain: ByteArray): IntArray?
     data class Layer(val bitmap: Bitmap, val bounds: FloatArray)
     fun load(handle: Long, pack: CityPackStore.CityPack): Layer {

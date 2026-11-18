@@ -16,9 +16,10 @@ public final class CityPackStore {
     public static final class City {
         public final String id, name;
         public final long bytes;
+        public final boolean hasNetwork;
         private final List<Asset> assets;
         private City(String id, String name, List<Asset> assets) {
-            this.id=id; this.name=name; this.assets=assets;
+            this.id=id; this.name=name; this.assets=assets; this.hasNetwork=assets.size()==5;
             long count=0; for (Asset part: assets) count+=part.size; bytes=count;
         }
     }
@@ -29,7 +30,7 @@ public final class CityPackStore {
             this.city=city;
             header=new File(dir,"header.json"); cells=new File(dir,"cells.bin");
             market=new File(dir,"market.json"); terrain=new File(dir,"zone.terrain");
-            network=new File(dir,"network.save");
+            network=city.hasNetwork ? new File(dir,"network.save") : null;
         }
     }
     private static final class Asset {
@@ -57,6 +58,7 @@ public final class CityPackStore {
                 List<Asset> parts=new ArrayList<>();
                 for(int i=0;i<loc.length;i++){
                     long size=Long.parseLong(v[2+2*i]);String sha=v[3+2*i];
+                    if(i==4 && size==0 && sha.equals("-")) continue;
                     if(size<=0||size>256L*1024*1024||!sha.matches("[a-f0-9]{64}"))throw new IOException("Invalid asset catalog");
                     parts.add(new Asset(rem[i],loc[i],sha,size));
                 }
@@ -66,7 +68,7 @@ public final class CityPackStore {
     }
     public Collection<City> cities(){return Collections.unmodifiableCollection(cities.values());}
     public City city(String id){City c=cities.get(id);if(c==null)throw new IllegalArgumentException("Unknown city");return c;}
-    public boolean cached(String id){return new File(root,city(id).id+"/network.save").isFile();}
+    public boolean cached(String id){City c=city(id); return new File(root,c.id+(c.hasNetwork?"/network.save":"/zone.terrain")).isFile();}
     public CityPack load(String id) throws IOException {return load(id,(n,t)->{});}
     public CityPack load(String id, Progress progress) throws IOException {
         City city=city(id);

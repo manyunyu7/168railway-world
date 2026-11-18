@@ -11,7 +11,8 @@ internal fun showCityPicker(activity: Activity, store: CityPackStore, current: S
     val cities = store.cities().toList()
     val labels = cities.map { city ->
         val state = if (store.cached(city.id)) "offline" else "%.1f MB".format(Locale.getDefault(), city.bytes / 1_000_000.0)
-        "${city.name}  ·  $state"
+        val kind = if (city.hasNetwork) "" else " · Bangun sendiri"
+        "${city.name}$kind  ·  $state"
     }.toTypedArray()
     AlertDialog.Builder(activity).setTitle("Pilih jaringan kota")
         .setSingleChoiceItems(labels, cities.indexOfFirst { it.id == current }) { dialog, index ->

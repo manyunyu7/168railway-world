@@ -46,15 +46,16 @@ class NativeWorldActivity : Activity() {
     private val archiveSlot by lazy {
         intent.getStringExtra("archiveSlot")?.let { id -> WorldDocuments.list(this).firstOrNull { it.id == id } }
     }
-    private val workshop by lazy { archiveSlot?.workshop ?: intent.getBooleanExtra("workshop", false) }
+    private val legacyWorkshop by lazy { archiveSlot == null && intent.getBooleanExtra("workshop", false) }
+    private val workshop get() = archiveSlot?.workshop ?: (legacyWorkshop || !city.hasNetwork)
     private val cityStore by lazy { CityPackStore(filesDir,assets.open("world-native/cities.tsv").bufferedReader()) }
     private val city by lazy {
-        val selected = archiveSlot?.city ?: if(workshop) "nyc" else intent.getStringExtra("city") ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
+        val selected = archiveSlot?.city ?: if(legacyWorkshop) "nyc" else intent.getStringExtra("city") ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
         cityStore.city(selected)
     }
     private var activePack: CityPackStore.CityPack? = null
     private val local by lazy {
-        AtomicFile(archiveSlot?.let { WorldDocuments.path(this,it.id) } ?: File(filesDir, if (workshop) "world-native-workshop.save" else "world-native-${city.id}.save"))
+        AtomicFile(archiveSlot?.let { WorldDocuments.path(this,it.id) } ?: File(filesDir, if (legacyWorkshop) "world-native-workshop.save" else "world-native-${city.id}.save"))
     }
     private lateinit var build: Button
     private var draftMode = 0
@@ -84,7 +85,7 @@ class NativeWorldActivity : Activity() {
         val back = Button(this).apply { text = "‹"; contentDescription = "Kembali"; setOnClickListener { finish() } }
         header.addView(back, LinearLayout.LayoutParams(dp(52), dp(56)))
         header.addView(TextView(this).apply {
-            text = if (workshop) "Dunia bangun · New York" else "168Railway World · Native"; textSize = 20f
+            text = if (workshop) "Dunia bangun · ${city.name}" else "168Railway World · Native"; textSize = 20f
             setTextColor(Color.WHITE); gravity = android.view.Gravity.CENTER_VERTICAL
         }, LinearLayout.LayoutParams(0, dp(56), 1f))
         header.addView(Button(this).apply {
@@ -209,7 +210,7 @@ class NativeWorldActivity : Activity() {
         executor.execute {
             try {
                 var progressPercent = -1
-                val pack = if (workshop && archiveSlot==null) null else try {
+                val pack = try {
                     cityStore.load(city.id) { done,total ->
                         val percent=(done*100/total).toInt()
                         if (percent!=progressPercent) {
@@ -225,7 +226,8 @@ class NativeWorldActivity : Activity() {
                 val restored = snapshot != null
                 val loaded = when {
                     snapshot != null -> Engine.open(snapshot)
-                    workshop -> Engine.workshop()
+                    legacyWorkshop -> Engine.workshop()
+                    pack != null && !city.hasNetwork -> CitySurface.empty(city.id,pack.header.readText())
                     pack != null -> Engine.open(pack.network.readBytes())
                     else -> assets.open("world-native/nyc.save").use { Engine.open(it.readBytes()) }
                 }
@@ -245,7 +247,7 @@ class NativeWorldActivity : Activity() {
                     map.cityLayer=layer
                     map.load(geometry)
                     info.text = "${city.name}  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
-                    if(!workshop) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
+                    if(!legacyWorkshop) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
                     build.isEnabled = true
                     play.isEnabled = !workshop || map.routeCount > 0
                     save.isEnabled = !workshop || map.routeCount > 0
@@ -396,7 +398,7 @@ class NativeWorldActivity : Activity() {
     }
     override fun onResume() {
         super.onResume()
-        if (!workshop && handle != 0L) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
+        if (!legacyWorkshop && handle != 0L) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
     }
     override fun onPause() {
         super.onPause(); running=false; play.text="Jalankan ×8"; map.removeCallbacks(tick)
