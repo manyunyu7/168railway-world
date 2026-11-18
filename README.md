@@ -32,18 +32,7 @@ again when anything in `trainworld/sim/` changes. `npm run check` type-checks th
 
 ## Data
 
-The game needs city packs, terrain, outlines and real rail networks, about 6 GB in all. They are not in this repo.
-With no `trainworld/data/packs` folder, the dev server fetches the files the page asks for from
-https://data.anita.garden/trainworld/. A first session downloads tens of MB. The published version it reads is
-named in `trainworld/data-version.txt`. To pin another one, run `TW_DATA_VERSION=<folder> npm run dev`. To stay
-offline, run `TW_DATA=off npm run dev` and fill `trainworld/data/` yourself.
-
-The basemap tiles come from OpenFreeMap and need no key.
-
-A fork you host on your own site can read the same published data straight from
-https://data.anita.garden/trainworld/<version>/ (the data host allows any site to read it). A build names its data
-address in `index.html` (`tw-data`). Please keep to the published versions, and if your fork gets a lot of players,
-host your own copy of the data.
+168Railway World uses a version-pinned data mirror on the 168Railway domain. See [fork build instructions and licensing](FORK-168RAILWAY.md). The development server proxies the same mirror at /packs/, including terrain blocks, when there is no local data/packs directory. Set TW_DATA_ORIGIN to a local mirror origin for an offline development setup or TW_DATA=off to use local packs only. Production index.html selects the published release at https://168railway.com/studio-data/2026-11-18/.
 
 You can build packs yourself with the scripts in `trainworld/pipeline/`, but a world run needs 30 GB of raw
 downloads (OpenStreetMap extracts, GHSL, national censuses) and hours of compute. Treat the pipeline as a

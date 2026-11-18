@@ -192,7 +192,7 @@ function version(): string {
  * With a local `data/packs` (or TW_PACKS) this does nothing.
  */
 function dataFallback(): Plugin {
-  const ORIGIN = "https://data.anita.garden";
+  const ORIGIN = (process.env.TW_DATA_ORIGIN || "https://168railway.com").replace(/\/$/, "");
   const versionFile = resolve(here, "../data-version.txt");
   const version = process.env.TW_DATA_VERSION || (existsSync(versionFile) ? readFileSync(versionFile, "utf8").trim() : "");
   const on = process.env.TW_DATA !== "off" && !!version && !existsSync(PACKS);
@@ -200,15 +200,18 @@ function dataFallback(): Plugin {
   const KEEP = ["content-type", "content-range", "accept-ranges", "cache-control", "etag"];
   return {
     name: "trainsworld-data-fallback",
+    transformIndexHtml(html, ctx) {
+      return ctx.server ? html.replace(/<meta name="tw-data"[^>]*>/, '<meta name="tw-data" content="/packs/">') : html;
+    },
     configureServer(server) {
       if (!on) return;
-      console.log(`[data] no local data/packs: fetching the game's data from ${ORIGIN}/trainworld/${version}/ as the page asks`);
+      console.log(`[data] no local data/packs: fetching the game's data from ${ORIGIN}/studio-data/${version}/ as the page asks`);
       server.middlewares.use(async (req: any, res: any, next: () => void) => {
         const url: string = req.url ?? "";
         let target: string;
-        if (url.startsWith("/packs/terrain-world/")) target = `${ORIGIN}/trainworld/terrain-world/v2/${url.slice("/packs/terrain-world/".length)}`;
-        else if (url.startsWith("/packs/")) target = `${ORIGIN}/trainworld/${version}/${url.slice("/packs/".length)}`;
-        else if (url.startsWith("/noritetsu/")) target = `${ORIGIN}${url}`;
+        if (url.startsWith("/packs/terrain-world/")) target = `${ORIGIN}/studio-data/${version}/terrain-world/${url.slice("/packs/terrain-world/".length)}`;
+        else if (url.startsWith("/packs/")) target = `${ORIGIN}/studio-data/${version}/${url.slice("/packs/".length)}`;
+        else if (url.startsWith("/noritetsu/") || url.startsWith(`/studio-data/${version}/noritetsu/`)) target = `${ORIGIN}/studio-data/${version}/noritetsu/${url.split("/noritetsu/")[1]}`;
         else return next();
         try {
           const headers: Record<string, string> = {};
