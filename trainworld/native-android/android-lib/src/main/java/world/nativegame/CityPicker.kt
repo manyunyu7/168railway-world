@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package world.nativegame
 
+import android.net.Uri
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -18,5 +19,8 @@ internal fun showCityPicker(activity: Activity, store: CityPackStore, current: S
             if (beforeOpen()) {
                 activity.startActivity(Intent(activity, NativeWorldActivity::class.java).putExtra("city",cities[index].id))
             }
-        }.setNegativeButton("Batal", null).show()
+        }.setNegativeButton("Batal", null)
+        .setNeutralButton("Sumber data") { _, _ ->
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CityPackStore.ORIGIN + "DATA-CREDITS.txt")))
+        }.show()
 }

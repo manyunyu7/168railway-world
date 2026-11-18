@@ -429,7 +429,8 @@ private class NetworkView(context: Context):View(context) {
         }
         paint.color=0xc8ffffff.toInt();c.drawRect(0f,height-17*density,162*density,height.toFloat(),paint)
         paint.textSize=9*density;paint.color=0xff38575c.toInt()
-        c.drawText("Perairan · US Census TIGER/Line 2020",5*density,height-5*density,paint)
+        val credit = if (cityLayer == null) "Perairan · US Census TIGER/Line 2020" else "© OpenStreetMap contributors · ODbL"
+        c.drawText(credit,5*density,height-5*density,paint)
     }
     private val pinch=ScaleGestureDetector(context,object:ScaleGestureDetector.SimpleOnScaleGestureListener(){
         override fun onScale(d:ScaleGestureDetector):Boolean{
