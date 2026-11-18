@@ -21,7 +21,6 @@ import { display } from "../game/ui";
 import { language, t, tDate } from "../i18n";
 import { Modal } from "./Modal";
 import { showPassingNote } from "./PassingNote";
-import { Icon } from "./widgets";
 import "./account.css";
 
 declare const __TW_BUILD__: string | undefined;
@@ -92,9 +91,6 @@ export const replyTip = () => (feedbackUnread.value ? t("feedbackPanel.hasReply"
 export function FeedbackButton() {
   return <div class="pane-foot">
     <button class={"btn text fb-open" + (feedbackOpen.value ? " on" : "")} data-tip={replyTip()} onClick={() => (feedbackOpen.value = true)}>{t("feedbackPanel.open")}<NewReplyDot /></button>
-    <a class="btn icon discord-link" href="https://discord.gg/RemhwVcZFw" target="_blank" rel="noopener noreferrer" data-tip={t("settingsTab.discord")} aria-label={t("settingsTab.discord")}>
-      <Icon.discord />
-    </a>
   </div>;
 }
 

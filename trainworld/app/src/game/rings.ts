@@ -4,9 +4,8 @@
 /** Where noritetsu's data is served from, in the order to try: next to the page (8800, the dev
  * server's proxy), then Cloudflare R2; R2 first on the published page (`published`, dataBase.ts' PUBLISHED),
  * where nothing is beside it (T-941). `page`: the page's URL. */
-export function noritetsuBases(page: string, published: boolean): string[] {
-  const local = new URL("../noritetsu/", page).href, r2 = "https://data.anita.garden/noritetsu/";
-  return published ? [r2, local] : [local, r2];
+export function noritetsuBases(page: string, _published: boolean): string[] {
+  return [new URL("/studio-data/2026-11-18/noritetsu/", page).href];
 }
 
 /** A ring's box: west, south, east, north. */

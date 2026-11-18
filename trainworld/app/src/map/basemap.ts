@@ -96,8 +96,6 @@ function addUsgsProtocol() {
  * over the contiguous US on top of it. Each licence's credit is the source's attribution. The imagery's opacity is the
  * Base map slider, over the drawn map at its 0% look (T-3278). */
 const SAT_SOURCES: { id: string; tiles: string; maxzoom: number; bounds?: [number, number, number, number]; attribution: string }[] = [
-  { id: "sat-eox", tiles: "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg", maxzoom: 14,
-    attribution: 'Sentinel-2 cloudless by <a href="https://s2maps.eu" target="_blank">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2024)' },
   { id: "sat-gsi", tiles: "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg", maxzoom: 18, bounds: [122.5, 20.3, 154.5, 46.3],
     attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">GSI Japan (地理院タイル)</a>' },
   { id: "sat-usgs", tiles: `${USGS_PROTOCOL}://{z}/{y}/{x}`, maxzoom: 16, bounds: [-125, 24.3, -66.9, 49.5],

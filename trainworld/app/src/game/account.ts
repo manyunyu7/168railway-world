@@ -48,36 +48,15 @@ const MAX_CITIES = 64;
 const SEND_GAP_MS = 120_000;
 /** T-988: wall ms between two asks for the config while the server cannot be reached */
 const CONFIG_RETRY_MS = 120_000;
-const API_KEY = "trainworld.acct-api";
 const GAMES_KEY = "trainworld.score-games.v1";
 /** T-988: this browser profile's random device id, nothing about the machine */
 const DEVICE_KEY = "trainworld.device.v1";
 /** T-988: whether the server last said it keeps games */
 const GAMES_ON_KEY = "trainworld.games-on.v1";
 
-const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-
-function apiChoice(): "live" | "local" | null {
-  const q = new URLSearchParams(location.search).get("acct");
-  try {
-    if (q === "off") localStorage.removeItem(API_KEY);
-    else if (q === "live" || q === "local") localStorage.setItem(API_KEY, q);
-  } catch { /* storage blocked */ }
-  if (/(^|\.)anita\.garden$/.test(location.hostname)) return "live";
-  if (!LOCAL) return null;
-  try {
-    const v = localStorage.getItem(API_KEY);
-    return v === "live" || v === "local" ? v : null;
-  } catch { return null; }
-}
-
-const CHOICE = apiChoice();
-const BASE = CHOICE === "live" ? "https://market.anita.garden/" : CHOICE === "local" ? "http://127.0.0.1:8083/" : "";
-// noritetsu's key where noritetsu talks to the same server (the live site, or local with local), so
-// a sign-in is shared; a localhost page on the live server keeps its own, so it never signs a
-// local noritetsu out with a token its server refuses.
-const AUTH_KEY = (CHOICE === "live") === !LOCAL ? "noritetsu.auth.v1" : "trainworld.auth.live.v1";
-
+// Fork accounts use the host session. Upstream account services are disabled.
+const BASE = "";
+const AUTH_KEY = "168railway.fork.unused-auth";
 const lsGet = <T>(k: string): T | null => { try { return JSON.parse(localStorage.getItem(k) ?? "null") as T; } catch { return null; } };
 const lsSet = (k: string, v: unknown) => {
   try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch { /* this page only */ }

@@ -1,3 +1,4 @@
+import {HostWorlds} from "./HostWorlds";
 // The saved games panel (T-251; the cards from T-241; laid out by T-1395): a centred modal over the
 // page. The head's icon says where the games are kept; New game and Open a file are above the list
 // (each gets a new slot, T-743). One card per browser slot: a picture of its network, name, when it
@@ -539,6 +540,7 @@ export function SavesPanel() {
   useEffect(() => { if (open) { manageSaveSlot("refresh"); void refreshAccountGames(); void refreshMyShares(); } }, [open]);
   return (
     <Modal open={open} onClose={() => (savesOpen.value = false)} title={sheet ? t("savesPanel.newGame") : t("savesPanel.title")} head={sheet ? null : <><CommunityButton /><HeadMark /></>}>
+      {!sheet && open && <HostWorlds active openFile={file=>importGame(file)} />}
       {sheet
         ? <NewGameSheet heading={false} onBack={() => setSheet(false)} onStart={(game) => { newGame(game, "", startAtPicked()); savesOpen.value = false; }} />
         : <Saves onNewGame={() => setSheet(true)} />}

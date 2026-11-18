@@ -1,3 +1,4 @@
+import {HostWorlds} from "./HostWorlds";
 // T-677: the start menu. Every page load opens on it, unless a URL switch already says which game
 // (`choiceFromUrl`): New game (the new game sheet, T-728), then the saved games in this browser, the
 // most recent first, each a card as in the saves panel. Nothing heavy has started under it: main.ts
@@ -18,7 +19,7 @@ import { MemoryWarn } from "./MemoryWarn";
 import { blockKeysOutside } from "./keys";
 import { NewGameSheet } from "./NewGame";
 import { newGameEnd, setStartAt } from "./locate";
-import { StartLogo } from "./StartLogo";
+
 import { AboutLink } from "./Credits";
 import { AccountButton, startAccountUi } from "./AccountPanel";
 import { LanguageSelect } from "./LanguageSelect";
@@ -83,7 +84,7 @@ export function worldCover(el: HTMLElement): { center: [number, number]; zoom: n
 
 /** T-1567: the logo over the menu, in place of the welcome heading; `?logo=0` leaves it out (the
  * menu as before, heading and all). */
-const LOGO = new URLSearchParams(location.search).get("logo") !== "0";
+const LOGO = false;
 /** the logo is shown: main.ts hides the basemap's names behind it */
 export const START_LOGO = LOGO;
 
@@ -190,15 +191,25 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
   // T-728: the new game sheet; its game gets a slot of its own named after its start, so no saved game is replaced
   // T-1567: the logo stays mounted over both, so its trains run on when the sheet opens
   // with the logo the welcome heading goes (Anita), the logo naming the menu
-  return <div class={LOGO ? "start-menu with-logo" : "start-menu"} role="dialog" aria-modal="true" aria-labelledby={LOGO && !sheet ? undefined : "start-title"} aria-label={LOGO && !sheet ? "trainsworld" : undefined}>
-    {LOGO && <StartLogo />}
+  return <div class={LOGO ? "start-menu with-logo" : "start-menu"} role="dialog" aria-modal="true" aria-labelledby={LOGO && !sheet ? undefined : "start-title"} aria-label={LOGO && !sheet ? "168Railway World" : undefined}>
+    {LOGO && <span>168Railway World</span>}
     <p class="start-version muted small">{t("startMenu.build", { version: VERSION })}<AboutLink class="start-about" /></p>
     {/* T-2753: the language on the card's first row at the right, so a new player (who lands on the sheet) sets it first */}
     {sheet ? <div class="start-box new-game-box">
       <div class="start-titlebar"><h1 id="start-title" class="big">{t("startMenu.newGame")}</h1><div class="start-top"><LanguageSelect /><AccountButton kind="start" /></div></div>
       <NewGameSheet heading={false} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
     </div> : <div class="start-box">
-      {!LOGO && <h1 id="start-title" class="big">{t("startMenu.welcome")}</h1>}
+      {!LOGO && <h1 id="start-title" class="big">168Railway World</h1>}
+      <a href="./about.html" target="_blank" rel="noopener">Tentang fork, lisensi &amp; kode sumber</a>
+      <HostWorlds openFile={async file=>{
+        await Promise.race([settling,new Promise(r=>setTimeout(r,SETTLE_WAIT_MS))]);
+        const result=await fileChoice(file,undefined,true);
+        if(typeof result==="string")throw Error(result);
+        if("warn" in result){setWarned({text:result.warn,go:async lite=>{
+          const choice=await fileChoice(file);
+          if(typeof choice==="string")setRefused(choice);else if(!("warn" in choice))pick(choice,lite);
+        }});}else pick(result);
+      }} />
       <div class="save-files">
         <button ref={first} class="btn start-new" onClick={() => setSheet(true)}>{t("startMenu.newGame")}</button>
         {returning && <button class="btn start-file" onClick={load}>{t("startMenu.loadFile")}</button>}

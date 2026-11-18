@@ -7,7 +7,7 @@ import { t } from "../i18n";
 import { Changelog } from "./Changelog";
 
 // absolute, so it works from dev servers and 8800 too
-const ABOUT_URL = "https://anita.garden/projects/trainsworld/";
+const ABOUT_URL = "./about.html";
 
 /** The game's about page on Anita's site, in a new tab so the game stays open. */
 export function AboutLink({ class: cls }: { class?: string }) {
