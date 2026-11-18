@@ -23,10 +23,21 @@ impl World {
         let trips: Vec<f64> = at.chunks_exact(3).take(6).map(|r| r[2]).collect();
         let names: Vec<_> = stops.iter().map(|&n| self.api.node_name(n)).collect();
         let weekend = self.api.line_weekend(id);
+        let vehicle = if self.api.is_bus(id) {
+            "Bus"
+        } else if self.api.is_ferry(id) {
+            "Feri"
+        } else if self.api.line_tram(id) {
+            "Trem"
+        } else if self.api.line_fast(id) {
+            "Kereta cepat"
+        } else {
+            "Kereta komuter"
+        };
         Some(
             json!({"name":self.api.line_name(id),"color":r[1],"cars":r[8],"count":[r[13],r[14],r[15]],"headway":self.api.line_auto(id),
           "weekend":weekend.first().copied().unwrap_or(100.),"dwell":r[19],"turn":r[20],"cycle":r[10],"length":r[9],"limit":self.api.line_limit(id),
-          "stops":names,"depart":trips,"running":r[3]==1.}),
+          "vehicle":vehicle,"stops":names,"depart":trips,"running":r[3]==1.}),
         )
     }
 

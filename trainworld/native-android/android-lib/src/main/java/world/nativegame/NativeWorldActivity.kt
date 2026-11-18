@@ -32,7 +32,7 @@ import kotlin.math.min
 internal object Engine {
     init { System.loadLibrary("world_native") }
     @JvmStatic external fun workshop(): Long
-    @JvmStatic external fun build(handle: Long, points: DoubleArray, name: String, clock: Double): String
+    @JvmStatic external fun build(handle: Long, points: DoubleArray, name: String, clock: Double, mode: Int): String
     @JvmStatic external fun open(bytes: ByteArray): Long
     @JvmStatic external fun geometry(handle: Long): String
     @JvmStatic external fun positions(handle: Long, time: Double): FloatArray
@@ -54,6 +54,8 @@ class NativeWorldActivity : Activity() {
         AtomicFile(File(filesDir, if (workshop) "world-native-workshop.save" else "world-native-${city.id}.save"))
     }
     private lateinit var build: Button
+    private var draftMode = 0
+    private var draftName = ""
     private var drawing = false
     private var lastService = ""
     private lateinit var info: TextView
@@ -255,6 +257,8 @@ class NativeWorldActivity : Activity() {
         play.isEnabled = false
         save.isEnabled = false
         drawing = true
+        draftName = "Lintas " + (map.routeCount + 1)
+        draftMode = 0
         map.draft.clear()
         map.invalidate()
         build.text = "Batalkan"
@@ -283,10 +287,20 @@ class NativeWorldActivity : Activity() {
         val input = EditText(this).apply {
             setSingleLine()
             filters = arrayOf(InputFilter.LengthFilter(48))
-            setText("Lintas " + (map.routeCount + 1))
+            setText(draftName)
             selectAll()
         }
-        val form = LinearLayout(this).apply { setPadding(dp(20),0,dp(20),0); addView(input, LinearLayout.LayoutParams(-1,-2)) }
+        val vehicle = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(this@NativeWorldActivity, android.R.layout.simple_spinner_dropdown_item,
+                listOf("Kereta komuter", "Kereta cepat", "Trem · rel khusus"))
+            setSelection(draftMode)
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20),0,dp(20),0)
+            addView(input, LinearLayout.LayoutParams(-1,-2))
+            addView(vehicle)
+        }
         var keepStops = false
         val dialog = AlertDialog.Builder(this)
             .setTitle("Buat layanan")
@@ -300,16 +314,18 @@ class NativeWorldActivity : Activity() {
             .setNegativeButton("Pilih ulang", null)
             .create()
         dialog.setOnDismissListener {
+            draftMode = vehicle.selectedItemPosition
+            draftName = input.text.toString()
             if (drawing && !keepStops && map.draft.size >= 2) {
                 map.draft.removeAt(map.draft.lastIndex)
                 map.invalidate()
-                status.text = "Ketuk lokasi lain untuk stasiun akhir B."
+                status.text = "Ketuk lokasi lain untuk stasiun ${('A'.code + map.draft.size).toChar()}."
             }
         }
         dialog.show()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val coords = map.draft.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
-            val result = JSONObject(Engine.build(handle, coords, input.text.toString(), clock))
+            val result = JSONObject(Engine.build(handle, coords, input.text.toString(), clock, listOf(0,1,3)[vehicle.selectedItemPosition]))
             if (result.has("error")) {
                 input.error = result.getString("error")
             } else {

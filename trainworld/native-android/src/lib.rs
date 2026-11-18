@@ -42,6 +42,8 @@ impl World {
         if header["nativeWorkshop"] == true {
             api.set_cash(header["cash"].as_f64().unwrap_or(6000.));
             api.set_fleet(header["fleet"].as_u64().unwrap_or(0) as u32);
+            api.set_fleet_fast(header["fleetFast"].as_u64().unwrap_or(0) as u32);
+            api.set_fleet_tram(header["fleetTram"].as_u64().unwrap_or(0) as u32);
             api.set_unlimited(true);
         }
         Some(Self {
@@ -74,7 +76,22 @@ impl World {
         self.build_path(&[a, b], name, clock)
     }
 
+    #[cfg(test)]
     fn build_path(&mut self, points: &[[f64; 2]], name: &str, clock: f64) -> Result<Value, String> {
+        self.build_rail(points, name, clock, 0)
+    }
+
+    fn build_rail(
+        &mut self,
+        points: &[[f64; 2]],
+        name: &str,
+        clock: f64,
+        mode: u8,
+    ) -> Result<Value, String> {
+        if !matches!(mode, 0 | 1 | 3) {
+            return Err("Jenis rel belum didukung.".into());
+        }
+
         if self.header["nativeWorkshop"] != true || !clock.is_finite() {
             return Err("Buka Dunia bangun untuk mengedit.".into());
         }
@@ -96,6 +113,15 @@ impl World {
         let api = &mut next.api;
         api.set_now(clock);
         api.set_unlimited(true);
+        api.set_route_kind(mode);
+        api.set_route_hsr(mode == 1);
+        api.set_design_speed(if mode == 1 {
+            320.
+        } else if mode == 3 {
+            80.
+        } else {
+            160.
+        });
         let node_at = |api: &TrackApi,
                        point: [f64; 2],
                        radius: f64,
@@ -104,7 +130,10 @@ impl World {
             let nodes = api.nodes_info();
             nodes
                 .chunks_exact(10)
-                .filter(|r| !station_only || r[7] > 0.)
+                .filter(|r| {
+                    !station_only
+                        || (r[7] > 0. && ((api.node_kind(r[0] as u32) >= 2) == (mode == 3)))
+                })
                 .filter_map(|r| {
                     let d = (r[1] - point[0]).hypot(r[2] - point[1]);
                     (d <= radius).then_some((d, r[0] as u32, r[1], r[2]))
@@ -143,7 +172,15 @@ impl World {
                         let (id, x, y) = node_at(api, point, 1., false)
                             .ok_or("Ujung jalur tidak ditemukan. Geser calon stasiun.")?;
                         let label = (b'A' + (i + j) as u8) as char;
-                        if api.add_station(1, id, x, y, 160, format!("{name} {label}")) != 0 {
+                        if api.add_station(
+                            1,
+                            id,
+                            x,
+                            y,
+                            if mode == 3 { 40 } else { 160 },
+                            format!("{name} {label}"),
+                        ) != 0
+                        {
                             return Err(format!("Stasiun {label} ditolak: {}", api.issue_kinds()));
                         }
                         (id, x, y)
@@ -159,18 +196,20 @@ impl World {
         }
         let line = api.new_line_id();
         let colors = [0x007866, 0xcf5823, 0x6944ad, 0x0876b6, 0xbd3a62];
+        let defaults = TrackApi::kind_defaults(mode);
         if api.set_line_with_trains(
             line,
             &stops,
             4,
             3,
             2,
-            20.,
-            60.,
+            if mode == 0 { 20. } else { defaults[0] as f32 },
+            if mode == 0 { 60. } else { defaults[1] as f32 },
             4,
             colors[line as usize % colors.len()],
             name.into(),
         ) != 0
+            || (mode == 1 && api.set_line_fast(line, true) != 0)
             || (needs_construction && api.construct_line(line) != 0)
         {
             return Err(format!("Layanan ditolak: {}", api.issue_kinds()));
@@ -198,6 +237,10 @@ impl World {
     fn save(&self, clock: f64) -> Option<Vec<u8>> {
         let mut header = self.header.clone();
         header["clock"] = json!(clock);
+        if header["nativeWorkshop"] == true {
+            header["fleetFast"] = json!(self.api.fleet_fast());
+            header["fleetTram"] = json!(self.api.fleet_tram());
+        }
         let bytes = serde_json::to_vec(&header).ok()?;
         let mut out = GzEncoder::new(Vec::new(), Compression::fast());
         out.write_all(b"TWG1").ok()?;
@@ -336,6 +379,7 @@ pub extern "system" fn Java_world_nativegame_Engine_build(
     points: jni::objects::JDoubleArray,
     name: JString,
     clock: jdouble,
+    mode: jni::sys::jint,
 ) -> jstring {
     let w = unsafe { &mut *(handle as *mut World) };
     let name: String = env.get_string(&name).map(|v| v.into()).unwrap_or_default();
@@ -350,7 +394,7 @@ pub extern "system" fn Java_world_nativegame_Engine_build(
         vec![]
     };
     let result = w
-        .build_path(&pairs, &name, clock)
+        .build_rail(&pairs, &name, clock, u8::try_from(mode).unwrap_or(255))
         .unwrap_or_else(|reason| json!({"error":reason}));
     env.new_string(result.to_string())
         .map_or(std::ptr::null_mut(), |v| v.into_raw())
@@ -359,6 +403,22 @@ pub extern "system" fn Java_world_nativegame_Engine_build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stock_and_tracks_drive_distinct_times_and_survive_save() {
+        let t = 111600.;
+        let coords = [[0., 0.], [15000., 0.]];
+        let mut peaks = vec![];
+        for mode in [0, 1, 3] {
+            let mut w = World::workshop();
+            w.build_rail(&coords, "Uji", t, mode).unwrap();
+            let w = World::open(&w.save(t).unwrap()).unwrap();
+            assert_eq!(w.api.line_fast(0), mode == 1);
+            assert_eq!(w.api.line_tram(0), mode == 3);
+            assert_eq!(w.api.edge_kind(0), mode);
+            peaks.push(w.api.line_stretch_speeds(0)[0]);
+        }
+        assert!(peaks[1] > peaks[0] && peaks[0] > peaks[2], "{peaks:?}");
+    }
     #[test]
     fn multiple_stops_and_existing_corridor_are_preserved() {
         let mut w = World::workshop();

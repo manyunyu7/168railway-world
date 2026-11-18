@@ -44,6 +44,7 @@ internal object ServicePanel {
             "%02d:%02d".format(Locale.ROOT,t/3600%24,t/60%60)
         }
         val summary = buildString {
+            append(service.getString("vehicle") + "\n")
             append(String.format(Locale.ROOT,"%.1f km  ·  %d stasiun  ·  %.0f menit per putaran\n",
                 service.getDouble("length")/1000,stations.length(),service.getDouble("cycle")/60))
             if (stations.length()>0) {
