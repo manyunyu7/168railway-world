@@ -21,7 +21,7 @@ import { homeCountry } from "../game/flags";
 
 /** The suggested starts (T-728), easy starts (T-2690); Guangzhou for Toronto, for a start outside the West with
  * many cities near it (Anita, 2026-11-06). */
-const START_CITIES = ["nyc", "lon", "par", "gua", "tyo"];
+const START_CITIES = ["nyc", "jak", "lon", "par", "gua", "tyo"];
 /** The cities with a real network a sandbox can start from (`packs/real/<id>.save`; the list is
  * written by pipeline/realauto.py ship). */
 const REAL_NETWORKS = new Set<string>(realNetworks);

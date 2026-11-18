@@ -1,4 +1,8 @@
 {
+  "railway.credits": "Crèdits, llicències i codi",
+  "railway.expand": "Obre el tauler",
+  "railway.collapse": "Plega el tauler",
+  "railway.continue": "Continua",
   "account.answered": "El servidor ha respost {status}.",
   "account.feedbackNotYet": "Encara no es poden enviar comentaris. Torna-ho a provar d’aquí a uns dies.",
   "account.noServer": "Aquesta còpia del joc no té cap servidor on enviar-ho.",

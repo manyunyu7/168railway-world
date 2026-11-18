@@ -1,0 +1,148 @@
+/* 168Railway World. The existing mode and service colors keep their map meaning. */
+:root {
+  --rail-green: #58cc02;
+  --rail-green-edge: #46a302;
+  --rail-ink: #163b12;
+  --rail-blue: #0981b3;
+  --focus-ring: #087da4;
+  --card-shadow: 0 4px 0 color-mix(in srgb,var(--text) 11%,var(--bg)), 0 12px 36px rgb(20 49 39 / 11%);
+}
+:root[data-theme="green"] { --bg: #fbfdf9; --text: #243b33; --accent: #367b13; --good: #2a7314; }
+:root[data-theme="blue"] { --bg: #f8fcff; --text: #243949; --accent: #076d9b; }
+:root[data-theme="pink"] { --bg: #fffafd; --text: #49323c; --accent: #a73667; }
+:root[data-shade="dark"][data-theme="green"] { --bg: #192823; --text: #e2f2e9; --accent: #a0e774; --good: #a0e774; }
+:root[data-shade="dark"][data-theme="blue"] { --bg: #17252c; --text: #e2f3fb; --accent: #81d8fa; }
+:root[data-shade="dark"][data-theme="pink"] { --bg: #2d2028; --text: #f8e9ee; --accent: #ffaccc; }
+:root[data-shade="dark"] { --focus-ring: #7fdaff; --rail-blue: #7fdaff; }
+:root { --muted: color-mix(in srgb,var(--text) 75%,var(--bg)); }
+:where(button,a,input,select,textarea,summary,[tabindex]):focus-visible {
+  outline: 3px solid var(--focus-ring) !important; outline-offset: 2px;
+}
+.start-menu {
+  padding: 30px 20px 74px;
+  background-color: color-mix(in srgb,var(--bg) 93%,var(--accent));
+  background-image: radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--accent) 15%,transparent) 1px,transparent 1.5px);
+  background-size: 18px 18px;
+}
+.start-box {
+  width: min(410px,100%); min-width: 0; zoom: 1;
+  max-height: calc(100dvh - 116px); border: 1px solid var(--rule); border-radius: 24px;
+  background: var(--bg); padding: 20px; gap: 13px; box-shadow: var(--card-shadow);
+}
+.railway-brand { margin: -20px -20px 3px; padding-bottom: 0; background: var(--bg); }
+.railway-brand-lines { width: 100%; height: 96px; display: block; background: #103e32; stroke-linecap: round; }
+.route-grid { stroke: #2a5748; stroke-width: 1; }
+.route-blue { stroke: #63d7ee; stroke-width: 7; }
+.route-green { stroke: #94e74e; stroke-width: 7; }
+.route-stops { fill: #fff; stroke: #214d40; stroke-width: 3; }
+.railway-brand-title { display: flex; align-items: center; gap: 12px; margin: 19px 20px 4px; }
+.start-box .railway-brand h1 { font-size: clamp(24px,5vw,30px); line-height: 1.1; letter-spacing: -.8px; font-weight: 850; padding: 0; }
+.railway-brand h1 strong { color: var(--accent); font-weight: inherit; }
+.railway-mark { display: grid; place-items: center; width: 41px; height: 41px; flex: none; border-radius: 12px; background: var(--rail-green); color: var(--rail-ink); box-shadow: 0 3px 0 var(--rail-green-edge); }
+.railway-mark svg { width: 25px; height: 25px; stroke-width: 1.8; }
+.railway-start-actions { display: grid; gap: 8px; }
+.railway-start-actions .start-new { width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px; }
+.railway-start-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 5px 12px; }
+.railway-start-footer a { color: var(--rail-blue); font-size: 13px; font-weight: 700; text-underline-offset: 3px; }
+.railway-start-footer .start-top { margin-left: auto; }
+.railway-start-footer select, .start-titlebar select { max-width: 100%; border-radius: 9px; border: 1px solid var(--rule); padding: 4px 6px; }
+.btn { border-radius: 8px; font-weight: 700; }
+.btn.on { color: var(--accent); }
+.start-box .btn, .saves-panel .btn.text, .host-cloud-body .btn { min-height: 36px; padding-inline: 12px; border-radius: 10px; }
+.start-box .start-new, .save-actions .save-open, .save-files .save-new {
+  min-height: 47px; padding-inline: 18px; color: var(--rail-ink); background: var(--rail-green);
+  border: 1px solid var(--rail-green-edge); border-bottom-width: 4px; border-radius: 12px;
+  font-weight: 850; font-size: 16px;
+}
+.start-box .start-new:hover:not(:disabled), .save-actions .save-open:hover { background: #72da23; }
+.start-box .start-new:active:not(:disabled) { transform: translateY(2px); border-bottom-width: 2px; }
+.start-box .btn:disabled { background: var(--shade); border-color: var(--rule); color: var(--muted); }
+.host-worlds { border: 1px solid var(--rule); border-radius: 12px; background: var(--shade); }
+.host-worlds summary { padding: 12px 13px; cursor: pointer; font-weight: 800; }
+.host-worlds .host-cloud-body { padding: 0 13px 12px; }
+.start-saves li, .start-save, .save-card, .save-slots > li, .callout, .loading-card, .loading-box { border-radius: 12px; }
+.start-box.new-game-box { width: min(485px,100%); }
+.start-titlebar .big { color: var(--text); font-size: 24px; line-height: 1.1; font-weight: 850; }
+.new-game-mode { background: var(--shade); padding: 4px; gap: 4px; border-radius: 12px; }
+.new-game-mode .btn { flex: 1; border-color: transparent; background: transparent; }
+.new-game-mode .btn.on { border: 1px solid var(--rule); background: var(--bg); box-shadow: 0 2px 0 var(--rule); }
+.new-game-cities { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+.new-game-cities .btn { padding: 5px 6px; height: auto; white-space: normal; line-height: 1.15; border-bottom-width: 2px; }
+.new-game-find, .map-search input, .host-save-row input, .saves-panel input[type="text"] { border-radius: 9px; padding-inline: 9px; }
+.new-game-hits { border-radius: 9px; }
+.new-game-hits li { padding: 7px 9px; }
+.new-game-foot { gap: 8px; align-items: center; }
+.new-game-start { flex: 1; }
+.start-update { border-color: var(--rule); border-radius: 9px; }
+.tabs { padding: 3px; gap: 2px; }
+.tab { border: 0; border-radius: 8px; font-weight: 750; }
+.tab.on { color: var(--accent); background: var(--tint); box-shadow: inset 0 -2px 0 var(--accent); }
+.tab.gear { border-left: 0; }
+#topbar { background: var(--bg); border-bottom: 1px solid var(--rule); }
+#topbar .cash, #topbar .city { font-weight: 800; }
+.group.speed, .tool-bar .group { padding: 2px; gap: 2px; border-radius: 9px; background: var(--shade); }
+.group.speed > .btn, .tool-bar .group > .btn { margin: 0; }
+.group.speed .btn.on { background: var(--tint); }
+.tool-bar, .tool-bar-pop, .map-zoom, .map-search, .slider.speed-pop, .help-panel, .touch-bar .btn { border-radius: 11px; }
+.tool-bar, .tool-bar-pop, .map-zoom, .map-search-results { box-shadow: 0 2px 7px rgb(20 49 39 / 12%); }
+.saves-panel, dialog.acct-panel { border-radius: 17px; border: 1px solid var(--rule); box-shadow: var(--card-shadow); }
+.saves-head h2, .acct-panel h2 { font-weight: 850; }
+.h { color: var(--text); font-weight: 800; }
+.map-search-results, .purpose-filter, .stepper, .pane-foot .btn { border-radius: 8px; }
+@media (pointer: coarse), (max-width: 600px) {
+  .start-box :is(.btn,select,.new-game-find), .new-game-hits li, .host-worlds summary, .railway-start-footer a {
+    min-height: 44px;
+  }
+  .railway-start-footer a { display: inline-flex; align-items: center; }
+  .start-box .start-new { min-height: 49px; }
+  #dock .tab, .saves-panel .btn.text, dialog.acct-panel .btn:not(.icon), .pane-foot .btn.text {
+    min-height: calc(44px / var(--ui,1));
+  }
+  .group.speed .btn, .map-zoom .btn { min-height: calc(44px / var(--ui,1)); min-width: calc(44px / var(--ui,1)); }
+  .group.speed .btn svg { width: 15px; height: 15px; }
+  .saves-panel { max-height: calc(94dvh / var(--ui,1)); }
+}
+@media (max-width: 600px) and (min-height:560px) {
+  #dock { border-radius: 16px 16px 0 0; box-shadow: 0 -3px 12px rgb(20 49 39 / 11%); }
+  .dock-grab { border-radius: 16px 16px 0 0; }
+  .dock-grab::after { width: 42px; left: calc(50% - 21px); background: var(--muted); }
+}
+@media (max-height: 600px) {
+  .start-menu { padding: 8px 16px 38px; }
+  .start-box { max-height: calc(100dvh - 54px); }
+  .railway-brand-lines { height: 54px; }
+}
+@media (forced-colors: active) {
+  .btn.on, .tab.on, .start-box .start-new { outline: 1px solid SelectedItem; }
+}
+.railway-start-actions .btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.railway-start-actions .railway-resume span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.start-box .lang-row .purpose-filter { border: 0; background: transparent; height: auto; padding: 0; }
+.start-box .lang-row select { height: auto; background: var(--bg); }
+@media (max-width: 600px) and (min-height: 560px) {
+  #dock .dock-grab { width: 100%; height: calc(44px / var(--ui,1)); padding: 0 14px; border: 0;
+    display: flex; justify-content: space-between; align-items: center; background: var(--bg); color: var(--text);
+    font-weight: 800; font-size: 14px; }
+  .dock-grab::after { top: 7px; }
+  .railway-chevron { border: solid currentColor; border-width: 0 2px 2px 0; width: 8px; height: 8px; transform: rotate(45deg); }
+  .railway-folded .railway-chevron { transform: rotate(225deg); }
+  #dock.railway-folded { height: auto; grid-template-rows: auto auto; }
+  #dock.railway-folded > :is(.pane,.pane-resize,#inspector) { display: none; }
+  #dock:has(#inspector:empty) > .pane { grid-column: 1/-1; }
+  #dock:has(#inspector:empty) > :is(.pane-resize,#inspector) { display:none; }
+  .guide:not(.open) .guide-steps, .guide:not(.open) .guide-end { display: none; }
+  .guide:not(.open) { width: auto; }
+  #dock .build-pane .build-tools .btn, #dock .build-pane [data-guide="track"], #dock .build-pane [data-guide="stations"] {
+    min-height: calc(44px / var(--ui,1));
+  }
+}
+@media (max-width: 600px) {
+  .start-menu { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr) auto auto;
+    justify-items:center; align-items:center; row-gap:5px; padding: max(10px,env(safe-area-inset-top)) 12px max(6px,env(safe-area-inset-bottom)); }
+  .start-box { grid-row:1; grid-column:1; max-height:100%; }
+  .start-update { grid-row:2; grid-column:1; position:static; width:100%; max-width:440px; }
+  .start-version { grid-row:3; grid-column:1; position:static; justify-self:start; padding-inline:4px; }
+}
+@media (pointer: coarse) {
+  .build-options .tool-pick > .btn { min-height: calc(44px / var(--ui,1)); }
+}

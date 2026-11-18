@@ -1,4 +1,8 @@
 {
+  "railway.credits": "Credits, licences & source",
+  "railway.expand": "Expand panel",
+  "railway.collapse": "Collapse panel",
+  "railway.continue": "Continue",
   "account.unreachable": "The server seems to be down. Try again later.",
   "account.answered": "The server answered {status}.",
   "account.noServer": "This copy of the game has no server to send to.",

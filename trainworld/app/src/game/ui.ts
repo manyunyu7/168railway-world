@@ -276,7 +276,7 @@ export const marketOff = () => droppedHere || (mobileDevice() && !display.peek()
 effect(() => setBubbleColours(display.value.bubbleColours, display.value.rampFrom, display.value.rampTo));
 export const dockLayout = signal<DockLayout>({ dockW: saved.dock?.dockW ?? null, paneH: saved.dock?.paneH ?? null, paneW: saved.dock?.paneW ?? null, phoneH: saved.dock?.phoneH ?? null });
 const savedTheme = OLD_THEME[saved.theme as string] ?? saved.theme;
-export const theme = signal<Theme>(THEMES.includes(savedTheme as Theme) ? (savedTheme as Theme) : "pink");
+export const theme = signal<Theme>(THEMES.includes(savedTheme as Theme) ? (savedTheme as Theme) : "green");
 export const shade = signal<Shade>(saved.shade === "dark" ? "dark" : "light");
 /** T-3249, T-3267: the shade the map's own ink is drawn in: the dark theme's over satellite imagery shown at half strength or more, the panels' own below it (a faded image reads as the theme's background) */
 export const SAT_INK_FLIP = 0.5;

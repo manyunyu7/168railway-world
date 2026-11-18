@@ -1,4 +1,8 @@
 {
+  "railway.credits": "Авторы, лицензии и код",
+  "railway.expand": "Развернуть панель",
+  "railway.collapse": "Свернуть панель",
+  "railway.continue": "Продолжить",
   "account.answered": "Ответ сервера: {status}.",
   "account.feedbackNotYet": "Отзыв пока нельзя отправить. Попробуйте через несколько дней.",
   "account.noServer": "В этой копии игры нет сервера, куда можно отправить отзыв.",

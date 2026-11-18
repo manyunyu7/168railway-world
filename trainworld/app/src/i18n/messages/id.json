@@ -1,4 +1,8 @@
 {
+  "railway.credits": "Kredit, lisensi & kode sumber",
+  "railway.expand": "Buka panel",
+  "railway.collapse": "Lipat panel",
+  "railway.continue": "Lanjutkan",
   "account.answered": "Server menjawab {status}.",
   "account.feedbackNotYet": "Masukan belum bisa dikirim. Coba lagi dalam beberapa hari.",
   "account.noServer": "Salinan game ini tidak punya server tujuan.",

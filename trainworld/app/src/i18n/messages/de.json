@@ -1,4 +1,8 @@
 {
+  "railway.credits": "Mitwirkende, Lizenzen und Quellcode",
+  "railway.expand": "Bereich öffnen",
+  "railway.collapse": "Bereich einklappen",
+  "railway.continue": "Weiterspielen",
   "account.answered": "Der Server antwortete mit {status}.",
   "account.feedbackNotYet": "Feedback kann noch nicht gesendet werden. Versuch es in ein paar Tagen noch mal.",
   "account.noServer": "Diese Kopie des Spiels hat keinen Server zum Senden.",

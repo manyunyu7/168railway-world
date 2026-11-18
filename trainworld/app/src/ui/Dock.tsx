@@ -87,6 +87,10 @@ export function Dock() {
   const lay = dockLayout.value;
   const ref = useRef<HTMLElement>(null);
   const [phone, setPhone] = useState(PHONE.matches);
+  const [collapsed, setCollapsed] = useState(false);
+  const dragged = useRef(false);
+  const selectTab = (id: Tab) => { setCollapsed(false); tab.value = id; };
+  useEffect(() => { setCollapsed(false); }, [cur]);
   useEffect(() => {
     const f = () => setPhone(PHONE.matches);
     PHONE.addEventListener("change", f);
@@ -97,7 +101,7 @@ export function Dock() {
   const scale = uiScale.value;
   useEffect(() => {
     live.map?.resize();
-  }, [lay.dockW, lay.phoneH, scale]);
+  }, [lay.dockW, lay.phoneH, scale, collapsed, phone]);
   // T-215: each tab keeps its own scroll position (this session), so a tab opens where it was
   // left, at its top the first time, never at another tab's scroll. The Build tab scrolls its
   // options list, the others the whole tab area.
@@ -132,14 +136,30 @@ export function Dock() {
   if (lay.phoneH) style["--phone-h"] = Math.round(phoneShare(lay.phoneH) * 1000) / 10 + "dvh";
   const dragHeight = (e: PointerEvent) => {
     const off = ref.current!.getBoundingClientRect().top - e.clientY;
-    startDrag(e, (_, y) => (dockLayout.value = { ...dockLayout.value, phoneH: phoneShare((innerHeight - y - off) / innerHeight) }));
+    const start = e.clientY;
+    dragged.current = false;
+    startDrag(e, (_, y) => {
+      if (Math.abs(y - start) < 6 && !dragged.current) return;
+      dragged.current = true;
+      const share = (innerHeight - y - off) / innerHeight;
+      setCollapsed(share < 0.14);
+      if (share >= 0.14) dockLayout.value = { ...dockLayout.value, phoneH: phoneShare(share) };
+    });
   };
   return (
-    <aside id="dock" ref={ref} style={style}>
-      <div class="dock-grab" onPointerDown={dragHeight} />
+    <aside id="dock" ref={ref} style={style} class={phone && collapsed ? "railway-folded" : undefined}>
+      <button type="button" class="dock-grab" aria-expanded={!collapsed} aria-controls="railway-pane inspector"
+        aria-label={t(collapsed ? "railway.expand" : "railway.collapse")}
+        onPointerDown={dragHeight} onClick={e => {
+          if (!dragged.current || e.detail === 0) setCollapsed(!collapsed);
+          dragged.current = false;
+        }}>
+        <span>{t(cur === "settings" ? "dock.settings" : TABS.find(([id]) => id === cur)![1])}</span>
+        <span class="railway-chevron" aria-hidden="true" />
+      </button>
       <nav class="tabs">
         {TABS.map(([id, key, Glyph]) => (
-          <button class={"tab" + (cur === id ? " on" : "")} data-guide-tab={id} data-tip={t("dock.tabTip", { name: t(key), key: tabKeyName(id) })} aria-label={t(key)} aria-pressed={cur === id} onClick={() => (tab.value = id)}>
+          <button class={"tab" + (cur === id ? " on" : "")} data-guide-tab={id} data-tip={t("dock.tabTip", { name: t(key), key: tabKeyName(id) })} aria-label={t(key)} aria-pressed={cur === id} onClick={() => selectTab(id)}>
             <Glyph />
           </button>
         ))}
@@ -147,7 +167,7 @@ export function Dock() {
         <button class="tab gear save" data-tip={t("dock.saves")} aria-label={t("dock.saves")} onClick={() => (savesOpen.value = true)}>
           <Icon.save />
         </button>
-        <button class={"tab gear" + (cur === "settings" ? " on" : "")} data-tip={[t("dock.settings"), replyTip()].filter(Boolean).join("\n")} aria-label={t("dock.settings")} aria-pressed={cur === "settings"} onClick={() => (tab.value = "settings")}>
+        <button class={"tab gear" + (cur === "settings" ? " on" : "")} data-tip={[t("dock.settings"), replyTip()].filter(Boolean).join("\n")} aria-label={t("dock.settings")} aria-pressed={cur === "settings"} onClick={() => selectTab("settings")}>
           <Icon.gear />
           <NewReplyDot />
         </button>
@@ -156,7 +176,7 @@ export function Dock() {
       <HelpPanel />
       <MareyPanel />
       <SchedulePanel />
-      <section class={"pane" + (cur === "build" ? " build-pane" : "")} ref={paneRef}
+      <section id="railway-pane" class={"pane" + (cur === "build" ? " build-pane" : "")} ref={paneRef}
         onScrollCapture={(e) => { if (!restoring.current) scrolls.current[cur] = (e.target as HTMLElement).scrollTop; }}>
         <Pane />
       </section>

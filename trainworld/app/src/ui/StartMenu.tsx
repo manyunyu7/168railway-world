@@ -20,11 +20,12 @@ import { blockKeysOutside } from "./keys";
 import { NewGameSheet } from "./NewGame";
 import { newGameEnd, setStartAt } from "./locate";
 
-import { AboutLink } from "./Credits";
+
 import { AccountButton, startAccountUi } from "./AccountPanel";
 import { LanguageSelect } from "./LanguageSelect";
 import { DeleteAsk, pickSaveFile, SlotFacts, SlotThumb, SlotTitle, useBackups, VersionsLine, type VersionActions } from "./SavesPanel";
 import { Icon } from "./widgets";
+import { RailwayBrand } from "./RailwayBrand";
 import { Changelog } from "./Changelog";
 import { CommunityButton } from "./Community";
 import { dismissUpdate, updateToShow } from "./updates";
@@ -91,9 +92,8 @@ export const START_LOGO = LOGO;
 /** T-988: the start menu waits this long at most for the account before opening a game anyway. */
 const SETTLE_WAIT_MS = 10_000;
 
-/** Whether a game was played in this browser before (the remembered slot, clockClient.ts). */
-function playedBefore(): boolean {
-  try { return !!localStorage.getItem("anitabuilder-save-slot"); } catch { return false; }
+function lastPlayedSlot(): string | null {
+  try { return localStorage.getItem("anitabuilder-save-slot"); } catch { return null; }
 }
 
 /** T-2810: the newest update, with its changelog and a way to hide it (ui/updates.ts). */
@@ -114,9 +114,6 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
   const first = useRef<HTMLButtonElement>(null);
   // T-2810: out in the menu's own element, away from the card's zoom
   const [changelog, setChangelog] = useState(false);
-  // T-1612: Load from file is for someone who has played here: a saved game, or a game played before
-  // (the slot opened last is remembered even once its save is deleted)
-  const [returning] = useState(() => first0.length + accountOnly(first0).length > 0 || playedBefore() || unread0);
   // T-1441: a first visit, with no saved game to pick, opens on the new game sheet
   const [sheet, setSheet] = useState(false);
   useEffect(() => { if (!sheet) first.current?.focus(); }, [sheet]);
@@ -170,6 +167,14 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
   // T-2037: one card per game, its version with the latest player change on top
   const backups = useBackups(slots.map((s) => s.key), slots.length);
   const groups = groupVersions(slots, accountOnly(slots), backups, "", accountList.value?.games ?? [], damagedAccount.value);
+  const last = lastPlayedSlot();
+  const resume = groups.find(g => !g.damaged && g.top.kind === "slot" && g.top.slot.key === last)
+    ?? groups.find(g => !g.damaged);
+  const resumeCard = resume ? (resume.top.kind === "slot" ? resume.top.slot : cardOf(resume.top.game)) : null;
+  const openCard = (s: ReturnType<typeof cardOf>) => {
+    if (overBudget(s.stations)) setMemWarn({ key: s.key, stations: s.stations! });
+    else void open(s.key);
+  };
   const wait = () => Promise.race([settling, new Promise((r) => setTimeout(r, SETTLE_WAIT_MS))]);
   const chose = (c: GameChoice | string | { warn: string }) => { if (typeof c === "string") return c; if ("warn" in c) return c.warn; pick(c); return ""; };
   const actions = (g: GameGroup): VersionActions => ({
@@ -193,14 +198,20 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
   // with the logo the welcome heading goes (Anita), the logo naming the menu
   return <div class={LOGO ? "start-menu with-logo" : "start-menu"} role="dialog" aria-modal="true" aria-labelledby={LOGO && !sheet ? undefined : "start-title"} aria-label={LOGO && !sheet ? "168Railway World" : undefined}>
     {LOGO && <span>168Railway World</span>}
-    <p class="start-version muted small">{t("startMenu.build", { version: VERSION })}<AboutLink class="start-about" /></p>
+    <p class="start-version muted small">{t("startMenu.build", { version: VERSION })}</p>
     {/* T-2753: the language on the card's first row at the right, so a new player (who lands on the sheet) sets it first */}
     {sheet ? <div class="start-box new-game-box">
       <div class="start-titlebar"><h1 id="start-title" class="big">{t("startMenu.newGame")}</h1><div class="start-top"><LanguageSelect /><AccountButton kind="start" /></div></div>
       <NewGameSheet heading={false} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
     </div> : <div class="start-box">
-      {!LOGO && <h1 id="start-title" class="big">168Railway World</h1>}
-      <a href="./about.html" target="_blank" rel="noopener">Tentang fork, lisensi &amp; kode sumber</a>
+      {!LOGO && <RailwayBrand />}
+      <div class="railway-start-actions">
+        {resumeCard && <button ref={first} class="btn start-new railway-resume" onClick={() => openCard(resumeCard)}>
+          <Icon.train/><span>{t("railway.continue")} · {resumeCard.name}</span>
+        </button>}
+        <button ref={resumeCard ? undefined : first} class={resumeCard ? "btn railway-new" : "btn start-new"} onClick={() => setSheet(true)}><Icon.train/>{t("startMenu.newGame")}</button>
+        <button class="btn start-file" onClick={load}>{t("startMenu.loadFile")}</button>
+      </div>
       <HostWorlds openFile={async file=>{
         await Promise.race([settling,new Promise(r=>setTimeout(r,SETTLE_WAIT_MS))]);
         const result=await fileChoice(file,undefined,true);
@@ -210,9 +221,8 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
           if(typeof choice==="string")setRefused(choice);else if(!("warn" in choice))pick(choice,lite);
         }});}else pick(result);
       }} />
-      <div class="save-files">
-        <button ref={first} class="btn start-new" onClick={() => setSheet(true)}>{t("startMenu.newGame")}</button>
-        {returning && <button class="btn start-file" onClick={load}>{t("startMenu.loadFile")}</button>}
+      <div class="railway-start-footer">
+        <a href="./about.html" target="_blank" rel="noopener">{t("railway.credits")}</a>
         <div class="start-top"><LanguageSelect /><AccountButton kind="start" /><CommunityButton start /></div>
       </div>
       {(refused || deleteOwed.value) && <p class="muted small start-refused" role="alert">{refused || t("cloud.deleteOwed")}</p>}
@@ -225,7 +235,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
             const s = g.top.kind === "slot" ? g.top.slot : cardOf(g.top.game);
             return <li key={g.origin} data-origin={g.origin} class={g.others.length ? "has-versions" : undefined}>
               <div class="start-slot">
-                <button class="start-save" data-slot={s.key} onClick={() => { if (overBudget(s.stations)) setMemWarn({ key: s.key, stations: s.stations! }); else void open(s.key); }}>
+                <button class="start-save" data-slot={s.key} onClick={() => openCard(s)}>
                   <SlotThumb slot={s} />
                   <span class="save-info"><SlotTitle slot={s} /><SlotFacts slot={s} now={now} /></span>
                 </button>

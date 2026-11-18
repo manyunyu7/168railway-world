@@ -1,4 +1,8 @@
 {
+  "railway.credits": "제작진, 라이선스 및 소스 코드",
+  "railway.expand": "패널 펼치기",
+  "railway.collapse": "패널 접기",
+  "railway.continue": "계속하기",
   "account.answered": "서버가 {status} 코드로 응답했어요.",
   "account.feedbackNotYet": "아직 피드백을 보낼 수 없어요. 며칠 뒤에 다시 시도해 주세요.",
   "account.noServer": "이 버전의 게임에는 피드백을 보낼 서버가 없어요.",

@@ -1,4 +1,8 @@
 {
+  "railway.credits": "Créditos, licencias y código",
+  "railway.expand": "Abrir panel",
+  "railway.collapse": "Plegar panel",
+  "railway.continue": "Continuar",
   "account.answered": "El servidor respondió {status}.",
   "account.feedbackNotYet": "Aún no se pueden enviar comentarios. Inténtalo de nuevo en unos días.",
   "account.noServer": "Esta copia del juego no tiene un servidor para enviar comentarios.",

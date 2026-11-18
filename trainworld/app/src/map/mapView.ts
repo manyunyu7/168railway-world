@@ -66,7 +66,11 @@ export function createMap(container: HTMLElement): maplibregl.Map {
   wheelGapsByEventTime(map);
   loadBasemap(map);
   map.on("load", () => {
-    document.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
+    const credits = container.querySelector<HTMLDetailsElement>("details.maplibregl-ctrl-attrib");
+    if (credits && credits.classList.contains("maplibregl-compact")) {
+      credits.classList.remove("maplibregl-compact-show");
+      credits.open = false;
+    }
   });
   followProjection(map);
   map.on("moveend", () => { const c = map.getCenter(); rememberView(c.lng, c.lat, map.getZoom()); });

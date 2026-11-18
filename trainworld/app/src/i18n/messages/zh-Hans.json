@@ -1,4 +1,8 @@
 {
+  "railway.credits": "致谢、许可与源代码",
+  "railway.expand": "展开面板",
+  "railway.collapse": "收起面板",
+  "railway.continue": "继续",
   "account.answered": "服务器返回了{status}。",
   "account.feedbackNotYet": "暂时还不能发送反馈。过几天再试试。",
   "account.noServer": "这个版本的游戏没有可以发送的服务器。",

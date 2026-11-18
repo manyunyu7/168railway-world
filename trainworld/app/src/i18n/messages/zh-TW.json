@@ -1,4 +1,8 @@
 {
+  "railway.credits": "致謝、授權與原始碼",
+  "railway.expand": "展開面板",
+  "railway.collapse": "收合面板",
+  "railway.continue": "繼續",
   "account.answered": "伺服器回應{status}。",
   "account.feedbackNotYet": "目前還不能送出意見回饋，請過幾天再試。",
   "account.noServer": "這個版本的遊戲沒有可以傳送的伺服器。",

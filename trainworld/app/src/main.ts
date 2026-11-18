@@ -8,6 +8,7 @@
 // URL parameters: docs/code-map.md, "URL switches".
 
 import "./ui/style.css";
+import "./ui/railway-theme.css";
 import "./ui/zenmaru.css";
 // each language's font faces (T-2636); here, not in i18n/index.ts, which the workers import and where CSS injection throws
 import "./i18n/huninn.css";

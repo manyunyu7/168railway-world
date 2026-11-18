@@ -1,4 +1,8 @@
 {
+  "railway.credits": "Katkılar, lisanslar ve kaynak kod",
+  "railway.expand": "Paneli aç",
+  "railway.collapse": "Paneli daralt",
+  "railway.continue": "Devam et",
   "account.answered": "Sunucu şu yanıtı verdi: {status}.",
   "account.feedbackNotYet": "Geri bildirim henüz gönderilemiyor. Birkaç gün sonra tekrar dene.",
   "account.noServer": "Oyunun bu kopyasında veri gönderilecek sunucu yok.",

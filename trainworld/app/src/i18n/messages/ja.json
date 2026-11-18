@@ -1,4 +1,8 @@
 {
+  "railway.credits": "クレジット・ライセンス・ソースコード",
+  "railway.expand": "パネルを開く",
+  "railway.collapse": "パネルを閉じる",
+  "railway.continue": "つづきから",
   "account.answered": "サーバーがエラー{status}を返しました。",
   "account.feedbackNotYet": "フィードバックはまだ送れません。数日後にもう一度試してください。",
   "account.noServer": "このゲームには送信先のサーバーがありません。",
