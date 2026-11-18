@@ -1,3 +1,4 @@
+mod station_inspection;
 mod city_surface;
 mod demand;
 mod finance;
@@ -300,7 +301,8 @@ impl World {
             stops.push(json!([
                 row[1].round() as i32,
                 row[2].round() as i32,
-                self.api.node_name(row[0] as u32)
+                self.api.node_name(row[0] as u32),
+                row[0] as u32
             ]));
         }
         let water: Value = serde_json::from_str(include_str!("../assets/nyc-water.json")).unwrap();
