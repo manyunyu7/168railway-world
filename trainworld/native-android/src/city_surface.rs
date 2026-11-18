@@ -223,6 +223,7 @@ mod tests {
             .unwrap();
         let dep = r["departure"].as_f64().unwrap();
         assert!(w.api.is_bus(0));
+        assert!(w.geometry()["stations"].as_array().unwrap().len() >= 2);
         let route = w.api.bus_route(0);
         assert!(route.len() > 20);
         assert_ne!(w.positions(dep + 5.), w.positions(dep + 25.));

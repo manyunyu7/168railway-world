@@ -1,10 +1,10 @@
 mod bus_plan;
-mod station_inspection;
 mod city_surface;
 mod demand;
 mod ferry_plan;
 mod finance;
 mod regional;
+mod station_inspection;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},
@@ -346,6 +346,18 @@ impl World {
                 self.api.node_name(row[0] as u32),
                 row[0] as u32
             ]));
+        }
+        for id in self.api.bus_lines() {
+            for (i, s) in self.api.bus_stops(id).chunks_exact(8).enumerate() {
+                if s[5] < 0. {
+                    stops.push(json!([
+                        s[1].round() as i32,
+                        s[2].round() as i32,
+                        format!("Halte {} · {}", i + 1, self.api.line_name(id)),
+                        -1
+                    ]));
+                }
+            }
         }
         let water: Value = serde_json::from_str(include_str!("../assets/nyc-water.json")).unwrap();
         let b = water["bounds"].as_array().unwrap();

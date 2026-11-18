@@ -560,7 +560,7 @@ internal class NetworkView(context: Context):View(context) {
         override fun onDown(e:MotionEvent)=true
         override fun onSingleTapConfirmed(e:MotionEvent):Boolean {
             val range = 20f*density
-            val nearest = stops.asSequence().map { station ->
+            val nearest = stops.asSequence().filter { it.id >= 0 }.map { station ->
                 val dx = sx(station.x)-e.x
                 val dy = sy(station.y)-e.y
                 station to dx*dx+dy*dy
