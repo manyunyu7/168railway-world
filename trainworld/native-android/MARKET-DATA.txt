@@ -1,0 +1,10 @@
+168Railway World Android regional market index, data release 2026-11-18
+Source: circularsquare/trainsworld, revision 405ecf55b1816994d7ec19a3a1834046db394940, trainworld/app/src/game/registry.json, market-rows.json, income.ts, countryIncome.json and attractions.json.
+Contains the upstream world market rule, 4,135 place rows with original income weights, and the attraction visitor counts. The JS generator is in trainworld/native-android/build-market.mjs in the public fork.
+This geographic database derivative is distributed under ODbL 1.0. Source attribution and licenses for the original inputs:
+https://168railway.com/studio-fork/about.html
+https://168railway.com/studio-data/2026-11-18/DATA-CREDITS.txt
+https://opendatacommons.org/licenses/odbl/1-0/
+Source and modifications: https://github.com/manyunyu7/168railway-world
+This index is separate from the dated provider data mirror. Android also reads the mirrored market-drives.bin and licensed zone packs. The registry defines the worldwide market even if only a single city's pack is open.
+SHA256 893a04a231b47f82e4245f2974d7d927cb9cbfc8a687042bbb18ce3e0ab69a7e (3,135,062 gzip bytes)

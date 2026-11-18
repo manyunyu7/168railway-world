@@ -1,6 +1,7 @@
 mod city_surface;
 mod demand;
 mod finance;
+mod regional;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},
