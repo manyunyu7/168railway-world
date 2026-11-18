@@ -18,7 +18,7 @@ object NativeRidership {
     fun show(activity: Activity, currentSave: ByteArray, cityHeader: File, cells: File, period: Int) {
         require(period in periods.indices)
         val panel = AlertDialog.Builder(activity)
-            .setTitle("Komuter · " + periods[period])
+            .setTitle("Perjalanan kota · " + periods[period])
             .setMessage("Menghitung perjalanan dari penduduk, lokasi kerja, dan jadwal layanan…")
             .setPositiveButton("Tutup", null).show()
         val task = executor.submit {
@@ -28,8 +28,10 @@ object NativeRidership {
                     val numbers = NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID"))
                     fun n(key: String) = numbers.format(result.getDouble(key))
                     listOf(
-                        "Perjalanan komuter: " + n("trips"),
+                        "Total perjalanan: " + n("trips"),
                         "Naik angkutan umum: " + n("rail"),
+                        "Komuter naik angkutan umum: " + n("commuteRail"),
+                        "Perjalanan lain naik angkutan umum: " + n("outingsRail"),
                         "Berjalan kaki: " + n("walk"),
                         "Tanpa akses: " + n("unserved"),
                         "Jumlah naik kendaraan termasuk transit: " + n("boardings"),

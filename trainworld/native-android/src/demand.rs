@@ -91,16 +91,51 @@ fn commute(save: &[u8], header: &str, cells: &[u8], period: usize) -> Result<Val
             }
         }
     }
+    #[cfg(test)]
+    if let Ok(path) = std::env::var("WORLD_NETWORK_EXPORT") {
+        let packed = json!({"xy":xy,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars});
+        std::fs::write(path, packed.to_string()).map_err(|e| e.to_string())?;
+    }
     let mut solver = DemandApi::new(header, cells)?;
+    let mut outings =
+        trainworld_sim::demand::everyday::EverydayApi::beside(&solver, header, cells)?;
     solver.set_back_stops(&reverse);
+    outings.set_back_stops(&reverse);
     solver.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
-    if !solver.solve(period) {
+    outings.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
+    if !solver.solve(period) || !outings.solve(period) {
         return Err("Periode perjalanan tidak tersedia".into());
     }
-    let s = solver.summary(period);
-    let board = solver.board(period);
+    // Match the web worker's three rounds: freeze the combined loads before advancing
+    // either population, since each shares the same seats and boarding capacity.
+    for _ in 0..3 {
+        let mut frozen = Vec::new();
+        for (commute, everyday) in [
+            (solver.seg(period), outings.seg(period)),
+            (solver.board(period), outings.board(period)),
+            (solver.alight(period), outings.alight(period)),
+        ] {
+            if commute.len() != everyday.len() {
+                return Err("Susunan ruas perjalanan berbeda".into());
+            }
+            frozen.extend(commute.iter().zip(everyday).map(|(a, b)| a + b));
+        }
+        if !solver.crowd_with_external(period, &frozen)
+            || !outings.crowd_with_external(period, &frozen)
+        {
+            return Err("Perhitungan kapasitas tidak tersedia".into());
+        }
+    }
+    let work = solver.summary(period);
+    let other = outings.summary(period);
+    let boardings = solver
+        .board(period)
+        .into_iter()
+        .chain(outings.board(period))
+        .map(f64::from)
+        .sum::<f64>();
     Ok(
-        json!({"period":period,"lines":lines.len(),"stations":xy.len()/2,"trips":s[1],"rail":s[2],"walk":s[3],"unserved":s[13],"boardings":board.iter().map(|x|*x as f64).sum::<f64>()}),
+        json!({"period":period,"lines":lines.len(),"stations":xy.len()/2,"rounds":work[0],"commuteRail":work[2],"outingsRail":other[2],"trips":work[1]+other[1],"rail":work[2]+other[2],"walk":work[3]+other[3],"unserved":work[13]+other[13],"boardings":boardings}),
     )
 }
 #[no_mangle]
@@ -138,6 +173,11 @@ mod tests {
         let b = read(dir.join(format!("{id}.bin"))).unwrap();
         let r = commute(&save, &h, &b, 0).unwrap();
         eprintln!("{r}");
+        if let Ok(path) = std::env::var("WORLD_RESULT_EXPORT") {
+            std::fs::write(path, r.to_string()).unwrap();
+        }
+        assert_eq!(r["rounds"].as_f64(), Some(3.0));
+        assert!(r["outingsRail"].as_f64().unwrap() > 0.);
         assert!(r["rail"].as_f64().unwrap() > 0.);
         assert!(r["rail"].as_f64().unwrap() < r["trips"].as_f64().unwrap());
         assert!(r["boardings"].as_f64().unwrap() > 0.);
