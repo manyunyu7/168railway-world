@@ -4,6 +4,9 @@ cd "$(dirname "$0")"
 : "${ANDROID_NDK_HOME:?Path to Android NDK}"
 host_dir=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d | head -1)
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$host_dir/bin/aarch64-linux-android24-clang"
+export CC_aarch64_linux_android="$host_dir/bin/aarch64-linux-android24-clang"
+export AR_aarch64_linux_android="$host_dir/bin/llvm-ar"
+export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--target=aarch64-linux-android24 --sysroot=$host_dir/sysroot -isystem $host_dir/sysroot/usr/include/aarch64-linux-android"
 cargo build --locked --release --target aarch64-linux-android
 mkdir -p build/jniLibs/arm64-v8a build/assets/world-native
 cp target/aarch64-linux-android/release/libworld_native.so build/jniLibs/arm64-v8a/

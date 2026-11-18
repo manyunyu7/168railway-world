@@ -1,3 +1,4 @@
+mod bus_plan;
 mod city_surface;
 mod demand;
 mod ferry_plan;
@@ -20,6 +21,7 @@ struct World {
     header: Value,
     hour: i64,
     trips: Vec<f32>,
+    roads_dir: Option<std::path::PathBuf>,
 }
 
 impl World {
@@ -45,6 +47,7 @@ impl World {
             api.set_cash(header["cash"].as_f64().unwrap_or(6000.));
             api.set_fleet(header["fleet"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_fast(header["fleetFast"].as_u64().unwrap_or(0) as u32);
+            api.set_fleet_bus(header["fleetBus"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_ferry(header["fleetFerry"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_tram(header["fleetTram"].as_u64().unwrap_or(0) as u32);
             api.set_unlimited(true);
@@ -54,6 +57,7 @@ impl World {
             header,
             hour: i64::MIN,
             trips: vec![],
+            roads_dir: None,
         })
     }
     fn workshop() -> Self {
@@ -64,6 +68,7 @@ impl World {
             header: json!({"game":"anitabuilder","format":1,"city":"nyc","clock":111600,"cash":6000.0,"fleet":0,"mode":"sandbox","fares":{"base":1.5,"perKm":0.1},"ledger":[],"nativeWorkshop":true}),
             hour: i64::MIN,
             trips: vec![],
+            roads_dir: None,
         }
     }
 
@@ -113,7 +118,7 @@ impl World {
         {
             return Err("Titik lengkung berada di luar ruas.".into());
         }
-        if !matches!(mode, 0 | 1 | 3 | 4) {
+        if !matches!(mode, 0 | 1 | 3 | 4 | 5) {
             return Err("Jenis rel belum didukung.".into());
         }
 
@@ -139,6 +144,25 @@ impl World {
         let api = &mut next.api;
         api.set_now(clock);
         api.set_unlimited(true);
+        next.roads_dir = self.roads_dir.clone();
+        if mode == 5 {
+            let dir = next
+                .roads_dir
+                .as_deref()
+                .ok_or("Data jalan belum tersedia.")?;
+            let mut via = vec![points[0]];
+            for (i, stop) in points[1..].iter().enumerate() {
+                via.extend(
+                    bends
+                        .iter()
+                        .filter(|b| b[0] as usize == i)
+                        .map(|b| [b[1], b[2]]),
+                );
+                via.push(*stop);
+            }
+            let line = bus_plan::build(api, &via, name, dir)?;
+            return self.accept_service(next, line, clock, name);
+        }
         if mode == 4 {
             let line = ferry_plan::build(api, points, bends, name)?;
             return self.accept_service(next, line, clock, name);
@@ -287,6 +311,7 @@ impl World {
         header["clock"] = json!(clock);
         if header["nativeWorkshop"] == true {
             header["fleetFast"] = json!(self.api.fleet_fast());
+            header["fleetBus"] = json!(self.api.fleet_bus());
             header["fleetFerry"] = json!(self.api.fleet_ferry());
             header["fleetTram"] = json!(self.api.fleet_tram());
         }
@@ -419,6 +444,26 @@ pub extern "system" fn Java_world_nativegame_Engine_close(_: JNIEnv, _: JClass, 
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_Engine_workshop(_: JNIEnv, _: JClass) -> jlong {
     Box::into_raw(Box::new(World::workshop())) as jlong
+}
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_Engine_forkCandidate(
+    env: JNIEnv,
+    _: JClass,
+    handle: jlong,
+    clock: jdouble,
+    dir: JString,
+) -> jlong {
+    let mut env = env;
+    let w = unsafe { (handle as *const World).as_ref() };
+    let candidate = (|| {
+        let w = w?;
+        let mut next = World::open(&w.save(clock)?)?;
+        next.api.copy_city_surface_from(&w.api);
+        let directory: String = env.get_string(&dir).ok()?.into();
+        next.roads_dir = Some(directory.into());
+        Some(next)
+    })();
+    candidate.map_or(0, |v| Box::into_raw(Box::new(v)) as jlong)
 }
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_Engine_build(

@@ -208,6 +208,79 @@ mod tests {
     use super::*;
     use std::{fs, path::Path};
     #[test]
+    #[ignore = "requires the Jakarta pack and pinned OpenFreeMap road tiles"]
+    fn jakarta_bus_follows_original_road_graph_moves_and_reopens() {
+        let root = std::path::PathBuf::from(std::env::var("NATIVE_CITY_RELEASE").unwrap());
+        let header = fs::read_to_string(root.join("jak.json")).unwrap();
+        let mut w = empty_city("jak", &header).unwrap();
+        w.roads_dir = Some(std::env::var("WORLD_ROADS").unwrap().into());
+        let points = [[106.8171, -6.1988], [106.8227, -6.18825]].map(|p| {
+            let a = w.api.from_lonlat(p[0], p[1]);
+            [a[0], a[1]]
+        });
+        let r = w
+            .build_alignment(&points, "Bus Sudirman", 111600., 5, &[])
+            .unwrap();
+        let dep = r["departure"].as_f64().unwrap();
+        assert!(w.api.is_bus(0));
+        let route = w.api.bus_route(0);
+        assert!(route.len() > 20);
+        assert_ne!(w.positions(dep + 5.), w.positions(dep + 25.));
+        let mut reopened = World::open(&w.save(dep + 25.).unwrap()).unwrap();
+        assert_eq!(reopened.api.bus_route(0), route);
+        assert_eq!(reopened.positions(dep + 25.), w.positions(dep + 25.));
+        eprintln!("Bus route: {} points", (route.len() - 1) / 3);
+    }
+    #[test]
+    #[ignore = "requires the pinned Jakarta data pack"]
+    fn jakarta_ferry_stays_on_water_moves_and_reopens() {
+        let root = std::path::PathBuf::from(std::env::var("NATIVE_CITY_RELEASE").unwrap());
+        let header = fs::read_to_string(root.join("jak.json")).unwrap();
+        let mut w = empty_city("jak", &header).unwrap();
+        attach(
+            &mut w,
+            &header,
+            &fs::read(root.join("jak.bin")).unwrap(),
+            &fs::read(root.join("terrain/jak.terrain")).unwrap(),
+        )
+        .unwrap();
+        let to_xy = |lon: f64, lat: f64| {
+            let p = w.api.from_lonlat(lon, lat);
+            [p[0], p[1]]
+        };
+        let ports = [to_xy(106.81375, -6.1211), to_xy(106.8268, -6.1173)];
+        let inland = [to_xy(106.823, -6.179), to_xy(106.836, -6.182)];
+        assert!(w
+            .build_alignment(&inland, "Daratan", 111600., 4, &[])
+            .is_err());
+        assert!(w.api.ports().is_empty());
+        let r = w
+            .build_alignment(&ports, "Feri Ancol", 111600., 4, &[])
+            .unwrap();
+        let dep = r["departure"].as_f64().unwrap();
+        assert!(w.api.is_ferry(0));
+        assert_eq!(w.api.ports().len(), 2);
+        let route = w.api.ferry_route(0);
+        assert!(route.len() > 8);
+        for pair in route[1..].chunks_exact(4).collect::<Vec<_>>().windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let n = ((a[0] - b[0]).hypot(a[1] - b[1]) / 5.).ceil() as usize;
+            for i in 0..=n {
+                let t = i as f64 / (n.max(1) as f64);
+                assert_eq!(
+                    w.api
+                        .native_pack_water_at(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])),
+                    Some(true)
+                );
+            }
+        }
+        assert_ne!(w.positions(dep + 5.), w.positions(dep + 25.));
+        let mut reopened = World::open(&w.save(dep + 25.).unwrap()).unwrap();
+        assert_eq!(reopened.api.ferry_route(0), route);
+        assert_eq!(reopened.positions(dep + 25.), w.positions(dep + 25.));
+    }
+
+    #[test]
     fn jakarta_starts_empty_places_rail_at_real_coordinates_and_reopens() {
         let Ok(dir) = std::env::var("NATIVE_CITY_RELEASE") else {
             return;

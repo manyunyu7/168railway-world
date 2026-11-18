@@ -35,14 +35,14 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
     init {
         viewMap.workshop=true
         viewMap.onLocation={p->
-            if(drawing && viewMap.draft.size<24){
+            if(!busy && drawing && viewMap.draft.size<24){
                 viewMap.draft.add(p);viewMap.invalidate()
                 message=if(viewMap.draft.size==1)"Ketuk lokasi stasiun kedua." else "Rute siap dibangun."
                 publish()
             }
         }
         viewMap.onBend={p->
-            if(drawing && viewMap.draft.isNotEmpty() && viewMap.bends.size<64){
+            if(!busy && drawing && viewMap.draft.isNotEmpty() && viewMap.bends.size<64){
                 viewMap.bends.add(viewMap.draft.lastIndex to p);viewMap.invalidate()
                 message="Titik lengkung ditambahkan.";publish()
             }
@@ -105,9 +105,42 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
                     val service=(args["name"] as? String)?.trim().orEmpty()
                     check(service.isNotEmpty()){"Isi nama layanan."}
                     val mode=(args["mode"] as? Number)?.toInt()?:0
-                    check(mode in listOf(0,1,3)){"Moda belum tersedia."}
+                    check(mode in listOf(0,1,3,4,5)){"Moda belum tersedia."}
                     val coords=viewMap.draft.flatMap {listOf(it.x.toDouble(),it.y.toDouble())}.toDoubleArray()
                     val bends=viewMap.bends.flatMap {(leg,p)->listOf(leg.toDouble(),p.x.toDouble(),p.y.toDouble())}.toDoubleArray()
+                    if(mode==4 || mode==5) {
+                        val directory=RoadTileStore.directory(app)
+                        val candidate=Engine.forkCandidate(handle,clock,directory.absolutePath)
+                        check(candidate!=0L){"Gagal menyiapkan salinan dunia."}
+                        val via=buildList {
+                            viewMap.draft.forEachIndexed { i,p->
+                                add(p.x.toDouble());add(p.y.toDouble())
+                                viewMap.bends.filter { it.first==i }.forEach { (_,q)->add(q.x.toDouble());add(q.y.toDouble()) }
+                            }
+                        }.toDoubleArray()
+                        val now=clock
+                        busy=true; message=if(mode==5)"Memuat jaringan jalan OpenStreetMap…" else "Mencari lintasan perairan…";publish()
+                        worker.execute {
+                            val r=runCatching {
+                                if(mode==5) RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,via))
+                                JSONObject(Engine.build(candidate,coords,service,now,mode,bends)).also {
+                                    check(!it.has("error")){it.optString("error")}
+                                }
+                            }
+                            ui.post {
+                                if(disposed){Engine.close(candidate);done(snapshot());return@post}
+                                busy=false
+                                r.onSuccess {
+                                    Engine.close(handle);handle=candidate
+                                    clock=max(clock,it.getDouble("departure"))
+                                    clearDraft();viewMap.load(JSONObject(Engine.geometry(handle)),false);refresh()
+                                    message="Layanan " + it.getString("name") + " siap dijalankan."
+                                }.onFailure { Engine.close(candidate);message=it.localizedMessage ?: "Layanan belum dapat dibangun." }
+                                publish();done(snapshot())
+                            }
+                        }
+                        return
+                    }
                     val r=JSONObject(Engine.build(handle,coords,service,clock,mode,bends))
                     check(!r.has("error")){r.optString("error")}
                     clock=max(clock,r.getDouble("departure"))

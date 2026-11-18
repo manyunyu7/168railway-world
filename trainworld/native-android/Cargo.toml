@@ -13,8 +13,12 @@ trainworld-sim = { path = "../sim", default-features = false, features = ["track
 flate2 = "1"
 serde_json = "1"
 jni = "0.21"
+rquickjs = { version = "0.14.0", features = ["array-buffer"] }
 
 [profile.release]
 opt-level = 3
 lto = "thin"
 strip = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+rquickjs = { version = "0.14.0", features = ["bindgen", "array-buffer"] }
