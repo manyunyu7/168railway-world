@@ -400,7 +400,7 @@ function hold(lease: SlotLease | null) {
   });
 }
 /** the start menu's new game (T-677): its slot's name, given at its first write */
-let newSlotName: { key: string; name: string } | null = null;
+let newSlotName: { key: string; name: string; keepEmpty?: boolean } | null = null;
 /** the active slot while nothing is stored under it (a new game's, T-677) */
 let unwritten: string | null = null;
 let storageReady = true;
@@ -573,7 +573,7 @@ async function intoNewSlot(name: string, load: () => Promise<unknown> | void, wr
   hold(lease);
   viewing = viewCard = null;
   unwritten = key;
-  newSlotName = { key, name };
+  newSlotName = { key, name, keepEmpty: writeNow };
   saveFailure = undefined;
   dirty = writeNow;
   savedAt = Date.now();
@@ -2711,8 +2711,8 @@ function autosave(): Promise<boolean> {
   if (saveInFlight) return saveInFlight.then(ok => dirty && ok ? autosave() : ok);
   if (!api || !dirty) return Promise.resolve(true);
   if (!activeLease || switching || cloudTaken === activeSlot || newer) return Promise.resolve(false);
-  // T-677: a new game whose slot was never written is not kept while its network is empty
-  if (unwritten === activeSlot && !api.nodes_info().length && !api.lines_info().length) {
+  // T-677: skip untouched new games. An explicitly imported file or restored backup owns a slot even with no track.
+  if (unwritten === activeSlot && !(newSlotName?.key === activeSlot && newSlotName.keepEmpty) && !api.nodes_info().length && !api.lines_info().length) {
     dirty = edited = false;
     return Promise.resolve(true);
   }
