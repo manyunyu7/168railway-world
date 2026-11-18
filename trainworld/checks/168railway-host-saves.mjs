@@ -127,9 +127,27 @@ try{
   await panel.getByText(/Akun di browser berubah/).waitFor();
   await panel.getByRole('button',{name:'Muat ulang daftar'}).click();
   await panel.getByText(/Belum ada simpanan/).waitFor();
+  const slotKeys=()=>new Promise((resolve,reject)=>{
+    const request=indexedDB.open('anitabuilder',1);
+    request.onerror=()=>reject(request.error);
+    request.onsuccess=()=>{
+      const db=request.result,tx=db.transaction('saves','readonly'),keys=tx.objectStore('saves').getAllKeys();
+      keys.onsuccess=()=>resolve(keys.result.filter(k=>k==='autosave'||String(k).startsWith('slot-')));
+      tx.oncomplete=()=>db.close();tx.onerror=()=>reject(tx.error);
+    };
+  });
+  const before=await page.evaluate(slotKeys);
+  if(process.env.FORK_IMPORT_SAVE)assert.ok(before.length>=1);
   user='qa-a';if(realHost)await login('a');await panel.getByRole('button',{name:'Muat ulang daftar'}).click();
   await row.getByRole('button',{name:'Buka salinan lokal'}).click();
   await page.waitForFunction(()=>document.querySelector('.host-worlds[open]')===null,{},{timeout:90000});
+  const timeout=Date.now()+60000;let after=[];
+  while(Date.now()<timeout){
+    try{after=await page.evaluate(slotKeys);}catch{/* game reload tears down the previous document */}
+    if(after.length>before.length&&before.every(k=>after.includes(k)))break;
+    await page.waitForTimeout(250);
+  }
+  assert.ok(after.length>before.length&&before.every(k=>after.includes(k)),'opening an account save preserves existing local slots and adds a separate one');
   if(!realHost)assert.equal(opened,1);console.log('PASS actual Rust/WASM gzip TWG1 snapshot, explicit account upload, stale version, switched account, isolation, and open local copy.',realHost?world.size:stored.values().next().value.bytes.length,'bytes', realHost?'Laravel session, storage and CSRF':'isolated HTTP fixtures');
 } catch (error) {
   console.error((await page.locator('body').innerText()).slice(-1500));throw error;
