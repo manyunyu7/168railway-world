@@ -2,7 +2,7 @@
 
 Prototipe ini membuka berkas asli `T-007-real-nyc.save` di Activity Android. Rust `trainworld-sim` di direktori sebelah berjalan sebagai instruksi ARM64 melalui JNI. Kotlin menggambar stasiun, geometri jalur dan posisi perjalanan dari Rust. Tombol Jalankan memajukan waktu permainan delapan kali kecepatan nyata. Jeda dan perpindahan aplikasi menghentikan jam. Cubit untuk memperbesar, seret untuk menggeser, dan ketuk dua kali untuk mengembalikan tampilan awal.
 
-Tombol Simpan menulis `TWG1` gzip menggunakan `TrackApi.save()` dan format header asli. Membuka kembali Activity melanjutkan berkas lokal terakhir. Tombol simpan ini belum tersambung ke akun. Peta memuat rel, nama stasiun dan perairan NYC secara offline. Kota lain, konstruksi lintasan, permintaan penumpang dan simulasi finansial dari antarmuka web belum diport.
+Tombol Simpan menulis `TWG1` gzip menggunakan `TrackApi.save()` dan format header asli. Membuka kembali Activity melanjutkan berkas lokal terakhir. Tombol simpan ini belum tersambung ke akun. Peta memuat rel, nama stasiun dan perairan NYC secara offline. Dalam menu Dunia bangun, ketuk dua lokasi untuk stasiun A dan B serta beri nama layanan. Engine membuat ruas ganda, peron dan perjalanan terjadwal. Simpanan dunia bangun memakai slot tersendiri. Di panel Layanan, cek keberangkatan atau atur jumlah kereta, selang keberangkatan, susunan rangkaian, waktu berhenti, balik arah, dan persentase akhir pekan.
 
 ## Build modul
 

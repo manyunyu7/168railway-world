@@ -8,6 +8,8 @@ use serde_json::{json, Value};
 use std::io::{Read, Write};
 use trainworld_sim::track::wasm::TrackApi;
 
+mod service;
+
 struct World {
     api: TrackApi,
     header: Value,

@@ -96,7 +96,23 @@ class NativeWorldActivity : Activity() {
                 }
             }
         }
-        root.addView(build, LinearLayout.LayoutParams(-1, dp(48)))
+        val tools = LinearLayout(this)
+        tools.addView(build, LinearLayout.LayoutParams(0, dp(48), 1f))
+        tools.addView(Button(this).apply {
+            text = "Layanan"
+            setOnClickListener {
+                if (handle == 0L) return@setOnClickListener
+                running = false
+                map.removeCallbacks(tick)
+                play.text = "Jalankan ×8"
+                ServicePanel.open(this@NativeWorldActivity,handle,clock,workshop) { name ->
+                    lastService = name
+                    lastStatus = -1
+                    refresh()
+                }
+            }
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        root.addView(tools)
         map.onLocation = { point -> if (drawing) selectPoint(point) }
         map.workshop = workshop
         val toolbar = LinearLayout(this)
