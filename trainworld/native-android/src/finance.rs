@@ -171,7 +171,11 @@ mod tests {
         assert!(apply(&mut w, now, 1000).is_ok());
         assert!(apply(&mut w, now, 1000).is_err());
         let later = now + 86400.;
+        let mut candidate = w.edit_candidate(later).unwrap();
+        let from_edit = apply(&mut candidate, later, 0).unwrap();
         let r = apply(&mut w, later, 0).unwrap();
+        assert_eq!(from_edit, r);
+        assert_eq!(candidate.header["ledger"], w.header["ledger"]);
         let paid = payment(1000.);
         assert!((r["cash"].as_f64().unwrap() - (7000. - paid)).abs() < 1e-8);
         assert_eq!(w.header["ledger"].as_array().unwrap().len(), 2);

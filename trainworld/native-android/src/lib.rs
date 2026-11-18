@@ -6,8 +6,8 @@ mod fares;
 mod ferry_plan;
 mod finance;
 mod regional;
-mod station_inspection;
 mod station_facilities;
+mod station_inspection;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},
@@ -310,6 +310,16 @@ impl World {
         Ok(json!({"line":line,"departure":departure,"name":name}))
     }
 
+    fn edit_candidate(&self, clock: f64) -> Option<Self> {
+        // Keep the last accounted time until the clone has booked the intervening interest.
+        let accounted = self.header["clock"].as_f64().unwrap_or(clock);
+        let mut next = World::open(&self.save(accounted)?)?;
+        finance::tick(&mut next, clock);
+        next.header["clock"] = json!(clock);
+        next.api.copy_city_surface_from(&self.api);
+        Some(next)
+    }
+
     fn save(&self, clock: f64) -> Option<Vec<u8>> {
         let mut header = self.header.clone();
         header["clock"] = json!(clock);
@@ -474,8 +484,7 @@ pub extern "system" fn Java_world_nativegame_Engine_forkCandidate(
     let w = unsafe { (handle as *const World).as_ref() };
     let candidate = (|| {
         let w = w?;
-        let mut next = World::open(&w.save(clock)?)?;
-        next.api.copy_city_surface_from(&w.api);
+        let mut next = w.edit_candidate(clock)?;
         let directory: String = env.get_string(&dir).ok()?.into();
         next.roads_dir = Some(directory.into());
         Some(next)
