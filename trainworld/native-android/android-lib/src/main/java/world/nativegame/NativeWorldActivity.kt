@@ -32,7 +32,7 @@ import kotlin.math.min
 internal object Engine {
     init { System.loadLibrary("world_native") }
     @JvmStatic external fun workshop(): Long
-    @JvmStatic external fun build(handle: Long, points: DoubleArray, name: String, clock: Double, mode: Int): String
+    @JvmStatic external fun build(handle: Long, points: DoubleArray, name: String, clock: Double, mode: Int, bends: DoubleArray): String
     @JvmStatic external fun open(bytes: ByteArray): Long
     @JvmStatic external fun geometry(handle: Long): String
     @JvmStatic external fun positions(handle: Long, time: Double): FloatArray
@@ -163,6 +163,13 @@ class NativeWorldActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(48), 1f))
         root.addView(tools)
         map.onLocation = { point -> if (drawing) selectPoint(point) }
+        map.onBend = { point ->
+            if (drawing && map.draft.isNotEmpty() && map.bends.size < 64) {
+                map.bends.add(Pair(map.draft.lastIndex,point))
+                map.invalidate()
+                status.text = "Titik lengkung ditambahkan. Ketuk stasiun berikutnya atau tahan untuk titik berikutnya."
+            }
+        }
         map.workshop = workshop
         val toolbar = LinearLayout(this)
         play = Button(this).apply {
@@ -259,7 +266,7 @@ class NativeWorldActivity : Activity() {
         drawing = true
         draftName = "Lintas " + (map.routeCount + 1)
         draftMode = 0
-        map.draft.clear()
+        map.draft.clear(); map.bends.clear()
         map.invalidate()
         build.text = "Batalkan"
         status.text = "Ketuk peta untuk menempatkan stasiun awal A."
@@ -267,7 +274,7 @@ class NativeWorldActivity : Activity() {
 
     private fun cancelDrawing() {
         drawing = false
-        map.draft.clear()
+        map.draft.clear(); map.bends.clear()
         map.invalidate()
         build.text = "Bangun jalur"
         play.isEnabled = map.routeCount > 0
@@ -281,7 +288,7 @@ class NativeWorldActivity : Activity() {
         map.draft.add(point)
         map.invalidate()
         if (map.draft.size == 1) {
-            status.text = "Ketuk lokasi stasiun akhir B, minimal 350 m dari A."
+            status.text = "Ketuk stasiun B (minimal 350 m), atau tahan peta untuk menambah titik lengkung."
             return
         }
         val input = EditText(this).apply {
@@ -318,6 +325,7 @@ class NativeWorldActivity : Activity() {
             draftName = input.text.toString()
             if (drawing && !keepStops && map.draft.size >= 2) {
                 map.draft.removeAt(map.draft.lastIndex)
+                map.bends.removeAll { it.first >= map.draft.lastIndex }
                 map.invalidate()
                 status.text = "Ketuk lokasi lain untuk stasiun ${('A'.code + map.draft.size).toChar()}."
             }
@@ -325,13 +333,14 @@ class NativeWorldActivity : Activity() {
         dialog.show()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val coords = map.draft.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
-            val result = JSONObject(Engine.build(handle, coords, input.text.toString(), clock, listOf(0,1,3)[vehicle.selectedItemPosition]))
+            val bends = map.bends.flatMap { (leg,p) -> listOf(leg.toDouble(),p.x.toDouble(),p.y.toDouble()) }.toDoubleArray()
+            val result = JSONObject(Engine.build(handle, coords, input.text.toString(), clock, listOf(0,1,3)[vehicle.selectedItemPosition], bends))
             if (result.has("error")) {
                 input.error = result.getString("error")
             } else {
                 drawing = false
                 dialog.dismiss()
-                map.draft.clear()
+                map.draft.clear(); map.bends.clear()
                 lastService = result.getString("name")
                 clock = max(clock, result.getDouble("departure"))
                 map.load(JSONObject(Engine.geometry(handle)))
@@ -391,6 +400,8 @@ private class NetworkView(context: Context):View(context) {
     var cityLayer: CitySurface.Layer? = null
     var workshop = false
     var onLocation: ((PointF) -> Unit)? = null
+    var onBend: ((PointF) -> Unit)? = null
+    val bends = mutableListOf<Pair<Int,PointF>>()
     val draft = mutableListOf<PointF>()
     val lines = mutableListOf<Pair<Int,Path>>()
     data class Station(val x:Float,val y:Float,val name:String)
@@ -476,10 +487,18 @@ private class NetworkView(context: Context):View(context) {
             c.drawRoundRect(x-1.5f*radius,y-radius,x+1.5f*radius,y+radius,density,density,paint)
             paint.color=0xffffeb85.toInt();c.drawCircle(x,y,1.25f*density,paint)
         }
-        if (draft.size>=2) {
+        if (draft.isNotEmpty()) {
             paint.color=0xffdd692e.toInt()
             paint.strokeWidth=3*density
-            draft.zipWithNext().forEach { (a,b) -> c.drawLine(sx(a.x),sy(a.y),sx(b.x),sy(b.y),paint) }
+            draft.forEachIndexed { i,start ->
+                var last=start
+                for ((leg,p) in bends) if (leg==i) {
+                    c.drawLine(sx(last.x),sy(last.y),sx(p.x),sy(p.y),paint)
+                    c.drawCircle(sx(p.x),sy(p.y),3*density,paint)
+                    last=p
+                }
+                draft.getOrNull(i+1)?.let { c.drawLine(sx(last.x),sy(last.y),sx(it.x),sy(it.y),paint) }
+            }
         }
         for ((index,p) in draft.withIndex()) {
             val x=sx(p.x);val y=sy(p.y)
@@ -509,6 +528,9 @@ private class NetworkView(context: Context):View(context) {
         }
         override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean {
             if(!pinch.isInProgress){centerX+=dx/scale;centerY-=dy/scale;invalidate()};return true
+        }
+        override fun onLongPress(e:MotionEvent) {
+            onBend?.invoke(PointF(centerX+(e.x-width/2f)/scale,centerY-(e.y-height/2f)/scale))
         }
         override fun onDoubleTap(e:MotionEvent):Boolean{fit();invalidate();return true}
     })

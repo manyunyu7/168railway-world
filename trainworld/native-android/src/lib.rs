@@ -81,6 +81,7 @@ impl World {
         self.build_rail(points, name, clock, 0)
     }
 
+    #[cfg(test)]
     fn build_rail(
         &mut self,
         points: &[[f64; 2]],
@@ -88,6 +89,27 @@ impl World {
         clock: f64,
         mode: u8,
     ) -> Result<Value, String> {
+        self.build_alignment(points, name, clock, mode, &[])
+    }
+
+    fn build_alignment(
+        &mut self,
+        points: &[[f64; 2]],
+        name: &str,
+        clock: f64,
+        mode: u8,
+        bends: &[[f64; 3]],
+    ) -> Result<Value, String> {
+        if bends.len() > 64
+            || bends.iter().any(|b| {
+                b.iter().any(|v| !v.is_finite())
+                    || b[0] < 0.
+                    || b[0].fract() != 0.
+                    || b[0] as usize >= points.len().saturating_sub(1)
+            })
+        {
+            return Err("Titik lengkung berada di luar ruas.".into());
+        }
         if !matches!(mode, 0 | 1 | 3) {
             return Err("Jenis rel belum didukung.".into());
         }
@@ -148,6 +170,14 @@ impl World {
             let a = previous.or_else(|| node_at(api, pair[0], 120., true));
             let b = node_at(api, pair[1], 120., true);
             let connected = matches!((a,b),(Some((first,_,_)),Some((second,_,_))) if first!=second && api.order_fault(&[first,second]).is_empty());
+            let pis: Vec<f64> = bends
+                .iter()
+                .filter(|p| p[0] as usize == i)
+                .flat_map(|p| [p[1], p[2], 0., 0.])
+                .collect();
+            if connected && !pis.is_empty() {
+                return Err("Ruas ini sudah memiliki sambungan. Hapus titik lengkung untuk memakai rel yang ada.".into());
+            }
             if !connected {
                 needs_construction = true;
                 let end = |point: [f64; 2], node: Option<(u32, f64, f64)>| {
@@ -159,7 +189,7 @@ impl World {
                 };
                 let mut ends = end(pair[0], a).to_vec();
                 ends.extend(end(pair[1], b));
-                if api.add_route(&ends, &[], 2, false) != 0 {
+                if api.add_route(&ends, &pis, 2, false) != 0 {
                     return Err(format!("Ruas {} ditolak: {}", i + 1, api.issue_kinds()));
                 }
             }
@@ -380,6 +410,7 @@ pub extern "system" fn Java_world_nativegame_Engine_build(
     name: JString,
     clock: jdouble,
     mode: jni::sys::jint,
+    bends: jni::objects::JDoubleArray,
 ) -> jstring {
     let w = unsafe { &mut *(handle as *mut World) };
     let name: String = env.get_string(&name).map(|v| v.into()).unwrap_or_default();
@@ -393,9 +424,29 @@ pub extern "system" fn Java_world_nativegame_Engine_build(
     } else {
         vec![]
     };
-    let result = w
-        .build_rail(&pairs, &name, clock, u8::try_from(mode).unwrap_or(255))
-        .unwrap_or_else(|reason| json!({"error":reason}));
+    let len = env.get_array_length(&bends).unwrap_or(-1);
+    let mut bend_values = vec![0.; len.clamp(0, 192) as usize];
+    let valid_bends = (0..=192).contains(&len)
+        && len % 3 == 0
+        && env
+            .get_double_array_region(&bends, 0, &mut bend_values)
+            .is_ok();
+    let curve: Vec<[f64; 3]> = bend_values
+        .chunks_exact(3)
+        .map(|p| [p[0], p[1], p[2]])
+        .collect();
+    let result = if valid_bends {
+        w.build_alignment(
+            &pairs,
+            &name,
+            clock,
+            u8::try_from(mode).unwrap_or(255),
+            &curve,
+        )
+    } else {
+        Err("Titik lengkung tidak dapat dibaca.".into())
+    }
+    .unwrap_or_else(|reason| json!({"error":reason}));
     env.new_string(result.to_string())
         .map_or(std::ptr::null_mut(), |v| v.into_raw())
 }
@@ -403,6 +454,29 @@ pub extern "system" fn Java_world_nativegame_Engine_build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_curve_is_part_of_the_train_path_and_tw_g_save() {
+        let mut w = World::workshop();
+        w.build_alignment(
+            &[[0., 0.], [7000., 0.]],
+            "Busur",
+            111600.,
+            0,
+            &[[0., 3500., 1700.]],
+        )
+        .unwrap();
+        let path = w.api.run_polyline(0, 0, 12.);
+        assert!(path.chunks_exact(2).any(|p| p[1] > 900.));
+        assert_eq!(w.api.line_stops(0).len(), 2);
+        assert_eq!(
+            World::open(&w.save(111600.).unwrap())
+                .unwrap()
+                .api
+                .run_polyline(0, 0, 12.),
+            path
+        );
+    }
+
     #[test]
     fn stock_and_tracks_drive_distinct_times_and_survive_save() {
         let t = 111600.;
