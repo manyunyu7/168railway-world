@@ -2,6 +2,7 @@ mod bus_plan;
 mod city_surface;
 mod demand;
 mod ferry_plan;
+mod fares;
 mod finance;
 mod regional;
 mod station_inspection;
