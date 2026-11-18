@@ -64,7 +64,7 @@ fn station(w: &World, node: u32, now: f64) -> Value {
     }
     departures.sort_by(|a, b| a.0.total_cmp(&b.0));
     let platforms:Vec<_>=complex.iter().filter(|&&id|net.node_built[id as usize]).map(|&id|json!({
-        "id":id, "name":w.api.node_name(id), "meters":net.node_platform[id as usize], "level":net.node_level[id as usize]
+        "facilities":super::station_facilities::offered(w,id),"id":id, "name":w.api.node_name(id), "meters":net.node_platform[id as usize], "level":net.node_level[id as usize]
     })).collect();
     json!({"id":node,"name":w.api.node_name(node),"platforms":platforms,"lines":lines,
         "departures":departures.into_iter().take(12).map(|(_,d)|d).collect::<Vec<_>>()})

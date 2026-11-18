@@ -29,3 +29,14 @@ For the original world market, also set WORLD_MARKET_INDEX to the gzip generated
 After enabling service spans, passages, bus geometry and mode flags, NYC morning gives 2,710,240.407 transit trips including 60,149.486 regional trips. The prior results above describe their respective inputs. Shared packed-input WASM replay agrees within 0.000001% for nine fields.
 
 Native service assignment also reads fare nodes and transfer charges from TWG1, applies local income and price-level scaling, and sends line multipliers and segment distances to the population models. Run check-fare-terms.mjs to compare five independent fare contexts with the browser implementation. With fares enabled, the NYC morning fixture yields 2,459,382.021 transit trips, of which 38,607.366 are regional. The nine packed-input replay measures agree within 0.000001% relative. The check covers passenger choice and does not measure fare revenue settlement.
+
+The embedded Jakarta station inspector offers installed platform upgrades through
+TrackApi's station_upgrade_cost and set_station_upgrade. It filters port, tram, one-track,
+passing-track and station building availability before editing a constructed platform.
+Construction is booked in US$M in TWG1's day, hour and default regional ledgers.
+Removal has no refund. Shared-complex purchases, passages and building layouts are separate tools.
+
+For a desktop round trip, set STATION_FACILITY_TEST_SAVE to an output save path while running
+cargo test --lib paid_upgrade_survives_twg1_and_removal_never_refunds in native-android.
+Run node check-station-facility.mjs PATH_TO_WEB_APP/src/wasm/track OUTPUT_SAVE using the
+web game's generated module to verify the purchased bit, price, balance and ledger.

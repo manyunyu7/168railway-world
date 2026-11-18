@@ -13,6 +13,7 @@ import org.json.JSONObject
 import java.util.Locale
 
 internal object StationInspector {
+    @JvmStatic external fun upgrade(handle:Long,node:Int,bit:Int,on:Int,clock:Double):String
     @JvmStatic external fun read(handle: Long, node: Int, line: Int, run: Int, clock: Double): String
     private fun JSONArray.rows() = List(length()) { getJSONObject(it) }
     private fun clock(seconds: Double): String {
