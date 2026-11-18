@@ -43,15 +43,18 @@ internal object Engine {
 class NativeWorldActivity : Activity() {
     private var handle = 0L
     private val executor = Executors.newSingleThreadExecutor()
-    private val workshop by lazy { intent.getBooleanExtra("workshop", false) }
+    private val archiveSlot by lazy {
+        intent.getStringExtra("archiveSlot")?.let { id -> WorldDocuments.list(this).firstOrNull { it.id == id } }
+    }
+    private val workshop by lazy { archiveSlot?.workshop ?: intent.getBooleanExtra("workshop", false) }
     private val cityStore by lazy { CityPackStore(filesDir,assets.open("world-native/cities.tsv").bufferedReader()) }
     private val city by lazy {
-        val selected = if(workshop) "nyc" else intent.getStringExtra("city") ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
+        val selected = archiveSlot?.city ?: if(workshop) "nyc" else intent.getStringExtra("city") ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
         cityStore.city(selected)
     }
     private var activePack: CityPackStore.CityPack? = null
     private val local by lazy {
-        AtomicFile(File(filesDir, if (workshop) "world-native-workshop.save" else "world-native-${city.id}.save"))
+        AtomicFile(archiveSlot?.let { WorldDocuments.path(this,it.id) } ?: File(filesDir, if (workshop) "world-native-workshop.save" else "world-native-${city.id}.save"))
     }
     private lateinit var build: Button
     private var drawing = false
@@ -172,8 +175,17 @@ class NativeWorldActivity : Activity() {
             }
         }
         save = Button(this).apply {
-            text = "Simpan"; isEnabled = false
-            setOnClickListener { writeSave() }
+            text = "Simpan ▾"; isEnabled = false
+            setOnClickListener {
+                AlertDialog.Builder(this@NativeWorldActivity).setTitle("Simpanan")
+                    .setItems(arrayOf("Simpan di perangkat","Arsip & akun")) { _,index ->
+                        if(index==0) writeSave()
+                        else if(writeSave()) {
+                            startActivity(Intent(this@NativeWorldActivity,WorldArchiveActivity::class.java)
+                                .putExtra("archiveSource",archiveSlot?.id ?: local.baseFile.name).putExtra("city",city.id))
+                        }
+                    }.show()
+            }
         }
         toolbar.addView(play, LinearLayout.LayoutParams(0,dp(56),1f))
         toolbar.addView(Button(this).apply {
@@ -188,7 +200,7 @@ class NativeWorldActivity : Activity() {
         executor.execute {
             try {
                 var progressPercent = -1
-                val pack = if (workshop) null else try {
+                val pack = if (workshop && archiveSlot==null) null else try {
                     cityStore.load(city.id) { done,total ->
                         val percent=(done*100/total).toInt()
                         if (percent!=progressPercent) {
