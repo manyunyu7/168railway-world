@@ -22,7 +22,7 @@ fn commute(
     market_input: Option<MarketInput>,
 ) -> Result<Value, String> {
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
-    let api = world.api;
+    let mut api = world.api;
     let city: Value = serde_json::from_str(header).map_err(|e| e.to_string())?;
     let origin = &city["origin"];
     let frame = Frame::new(
@@ -31,7 +31,7 @@ fn commute(
         origin["lat"].as_f64().ok_or("Lintang tidak ada")?,
     );
     let nodes = api.nodes_info();
-    let coords: HashMap<u32, (f64, f64)> = nodes
+    let mut coords: HashMap<u32, (f64, f64)> = nodes
         .chunks_exact(10)
         .map(|r| (r[0] as u32, (r[1], r[2])))
         .collect();
@@ -40,6 +40,11 @@ fn commute(
     let mut ids = BTreeSet::new();
     for row in rows.chunks_exact(22).filter(|r| r[3] == 1.) {
         let id = row[0] as u32;
+        if api.is_bus(id) {
+            for stop in api.bus_stops(id).chunks_exact(8).filter(|s| s[5] < 0.) {
+                coords.entry(stop[0] as u32).or_insert((stop[1], stop[2]));
+            }
+        }
         let stops = api.line_stops(id);
         let reverse = api.line_back_stops(id);
         if stops.len() < 2 || !stops.iter().all(|id| coords.contains_key(id)) {
@@ -100,23 +105,92 @@ fn commute(
             }
         }
     }
+    let mut upgrades = vec![0u8; ix.len()];
+    for pair in api.station_upgrades().chunks_exact(2) {
+        if let Some(i) = ix.get(&pair[0]) {
+            upgrades[*i as usize] = pair[1] as u8;
+        }
+    }
+    let mut passages = vec![];
+    for pair in api.station_links().chunks_exact(2) {
+        if let (Some(a), Some(b)) = (ix.get(&pair[0]), ix.get(&pair[1])) {
+            passages.extend([*a, *b]);
+        }
+    }
+    let mut span = vec![1.; 10 * stops.len()];
+    let mut off = 0;
+    let (mut tram, mut ferry, mut catch_n, mut catch_xy, mut catch_ll) =
+        (vec![], vec![], vec![], vec![], vec![]);
+    for (id, _, ss, _) in &lines {
+        let n = ss.len();
+        let part = api.line_span(*id);
+        if part.len() == 10 * n {
+            for q in 0..5 {
+                span[2 * (q * stops.len() + off)..2 * (q * stops.len() + off + n)]
+                    .copy_from_slice(&part[2 * q * n..2 * (q + 1) * n]);
+            }
+        }
+        off += n;
+        tram.push(api.line_tram(*id) as u8);
+        ferry.push(api.is_ferry(*id) as u8);
+        let catches = if api.is_bus(*id) {
+            api.bus_catches(*id)
+        } else {
+            vec![]
+        };
+        let mut k = 0;
+        for _ in 0..n {
+            let count = catches.get(k).copied().unwrap_or(0.) as usize;
+            catch_n.push(count as u32);
+            if k < catches.len() {
+                k += 1;
+            }
+            if count > (catches.len() - k) / 2 {
+                return Err("Koridor bus tidak lengkap".into());
+            }
+            for v in catches[k..k + 2 * count].chunks_exact(2) {
+                let ll = api.to_lonlat(v[0], v[1]);
+                catch_ll.extend_from_slice(&ll[..2]);
+                let (x, y) = frame.from_lonlat(ll[0], ll[1]);
+                catch_xy.extend([x as f32, y as f32]);
+            }
+            k += 2 * count;
+        }
+    }
+    if span.iter().all(|&v| v == 1.) {
+        span.clear();
+    }
     #[cfg(test)]
     if let Ok(path) = std::env::var("WORLD_NETWORK_EXPORT") {
-        let packed = json!({"xy":xy,"ll":ll_all,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars});
+        let packed = json!({"xy":xy,"ll":ll_all,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars,"upgrades":upgrades,"passages":passages,"span":span,"tram":tram,"ferry":ferry,"catchN":catch_n,"catchXY":catch_xy,"catchLL":catch_ll});
         std::fs::write(path, packed.to_string()).map_err(|e| e.to_string())?;
     }
     let mut solver = DemandApi::new(header, cells)?;
     let mut outings =
         trainworld_sim::demand::everyday::EverydayApi::beside(&solver, header, cells)?;
+    solver.set_upgrades(&upgrades);
+    outings.set_upgrades(&upgrades);
+    solver.set_passages(&passages);
+    outings.set_passages(&passages);
+    solver.set_span(&span);
+    outings.set_span(&span);
+    solver.set_tram_lines(&tram);
+    solver.set_bus(&catch_n, &catch_xy);
+    outings.set_bus(&catch_n, &catch_xy);
     solver.set_back_stops(&reverse);
     outings.set_back_stops(&reverse);
     solver.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
     outings.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
+    outings.set_ferry(&ferry)?;
     if !solver.solve(period) || !outings.solve(period) {
         return Err("Periode perjalanan tidak tersedia".into());
     }
     let mut market = if let Some((index, drives, zones)) = market_input {
         let mut m = super::regional::open(index, drives, zones)?;
+        m.set_upgrades(&upgrades);
+        m.set_passages(&passages);
+        m.set_span(&span);
+        m.set_bus_ll(&catch_n, &catch_ll);
         m.set_back_stops(&reverse);
         m.set_network_ll(&ll_all, &counts, &stops, &times, &tph, &cars)?;
         if !m.solve(period) {
