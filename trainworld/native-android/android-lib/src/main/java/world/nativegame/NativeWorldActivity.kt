@@ -410,7 +410,7 @@ class NativeWorldActivity : Activity() {
     }
 }
 
-private class NetworkView(context: Context):View(context) {
+internal class NetworkView(context: Context):View(context) {
     var cityLayer: CitySurface.Layer? = null
     var workshop = false
     var onLocation: ((PointF) -> Unit)? = null
@@ -432,7 +432,7 @@ private class NetworkView(context: Context):View(context) {
     private var scale=0.01f; private var homeScale=0.01f
     private fun sx(x:Float)=(x-centerX)*scale+width/2f
     private fun sy(y:Float)=(centerY-y)*scale+height/2f
-    fun load(data:JSONObject) {
+    fun load(data:JSONObject, refit:Boolean = true) {
         lines.clear()
         stops.clear()
         val bounds=data.getJSONArray("waterBox")
@@ -452,7 +452,7 @@ private class NetworkView(context: Context):View(context) {
             val s=stations.getJSONArray(i)
             stops.add(Station(s.getDouble(0).toFloat(),s.getDouble(1).toFloat(),s.getString(2)))
         }
-        fit(); invalidate()
+        if(refit)fit(); invalidate()
     }
     private fun fit() {
         if (width == 0 || height == 0) return
