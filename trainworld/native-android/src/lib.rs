@@ -6,6 +6,7 @@ mod fares;
 mod finance;
 mod regional;
 mod station_inspection;
+mod station_facilities;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},
@@ -45,14 +46,14 @@ impl World {
         if !api.load(raw.get(8 + n..)?) {
             return None;
         }
-        if header["nativeWorkshop"] == true {
+        {
             api.set_cash(header["cash"].as_f64().unwrap_or(6000.));
             api.set_fleet(header["fleet"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_fast(header["fleetFast"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_bus(header["fleetBus"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_ferry(header["fleetFerry"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_tram(header["fleetTram"].as_u64().unwrap_or(0) as u32);
-            api.set_unlimited(true);
+            api.set_unlimited(header["mode"] == "sandbox");
         }
         Some(Self {
             api,

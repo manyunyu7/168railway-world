@@ -94,13 +94,14 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
     }
 
     fun command(name:String,args:Map<String,Any?>,done:(Map<String,Any?>)->Unit){
-        if(name=="stations" || name=="station" || name=="diagram"){
+        if(name=="upgradeStation" || name=="stations" || name=="station" || name=="diagram"){
             if(disposed || busy || handle==0L){done(mapOf("error" to "Peta belum siap."));return}
             val result=runCatching {
                 when(name){
                     "stations" -> org.json.JSONArray().apply {
                         for(stop in viewMap.stops) put(JSONObject().put("id",stop.id).put("name",stop.name))
                     }.toString()
+                    "upgradeStation" -> StationInspector.upgrade(handle,(args["id"] as Number).toInt(),(args["bit"] as Number).toInt(),(args["on"] as Number).toInt(),clock)
                     "station" -> StationInspector.read(handle,(args["id"] as Number).toInt().also { require(it>=0) },-1,0,clock)
                     else -> StationInspector.read(handle,-1,(args["line"] as Number).toInt(),(args["run"] as Number).toInt(),clock)
                 }
