@@ -1,5 +1,6 @@
 mod city_surface;
 mod demand;
+mod ferry_plan;
 mod finance;
 mod regional;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
@@ -44,6 +45,7 @@ impl World {
             api.set_cash(header["cash"].as_f64().unwrap_or(6000.));
             api.set_fleet(header["fleet"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_fast(header["fleetFast"].as_u64().unwrap_or(0) as u32);
+            api.set_fleet_ferry(header["fleetFerry"].as_u64().unwrap_or(0) as u32);
             api.set_fleet_tram(header["fleetTram"].as_u64().unwrap_or(0) as u32);
             api.set_unlimited(true);
         }
@@ -111,7 +113,7 @@ impl World {
         {
             return Err("Titik lengkung berada di luar ruas.".into());
         }
-        if !matches!(mode, 0 | 1 | 3) {
+        if !matches!(mode, 0 | 1 | 3 | 4) {
             return Err("Jenis rel belum didukung.".into());
         }
 
@@ -137,6 +139,10 @@ impl World {
         let api = &mut next.api;
         api.set_now(clock);
         api.set_unlimited(true);
+        if mode == 4 {
+            let line = ferry_plan::build(api, points, bends, name)?;
+            return self.accept_service(next, line, clock, name);
+        }
         api.set_route_kind(mode);
         api.set_route_hsr(mode == 1);
         api.set_design_speed(if mode == 1 {
@@ -246,6 +252,16 @@ impl World {
         {
             return Err(format!("Layanan ditolak: {}", api.issue_kinds()));
         }
+        self.accept_service(next, line, clock, name)
+    }
+    fn accept_service(
+        &mut self,
+        mut next: Self,
+        line: u32,
+        clock: f64,
+        name: &str,
+    ) -> Result<Value, String> {
+        let api = &next.api;
         let lines = api.lines_info();
         if !lines
             .chunks_exact(22)
@@ -271,6 +287,7 @@ impl World {
         header["clock"] = json!(clock);
         if header["nativeWorkshop"] == true {
             header["fleetFast"] = json!(self.api.fleet_fast());
+            header["fleetFerry"] = json!(self.api.fleet_ferry());
             header["fleetTram"] = json!(self.api.fleet_tram());
         }
         let bytes = serde_json::to_vec(&header).ok()?;

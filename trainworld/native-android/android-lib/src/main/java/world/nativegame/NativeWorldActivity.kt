@@ -313,7 +313,7 @@ class NativeWorldActivity : Activity() {
         }
         val vehicle = android.widget.Spinner(this).apply {
             adapter = android.widget.ArrayAdapter(this@NativeWorldActivity, android.R.layout.simple_spinner_dropdown_item,
-                listOf("Kereta komuter", "Kereta cepat", "Trem · rel khusus"))
+                listOf("Kereta komuter", "Kereta cepat", "Trem · rel khusus", "Feri · pilih pesisir"))
             setSelection(draftMode)
         }
         val form = LinearLayout(this).apply {
@@ -348,7 +348,7 @@ class NativeWorldActivity : Activity() {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val coords = map.draft.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
             val bends = map.bends.flatMap { (leg,p) -> listOf(leg.toDouble(),p.x.toDouble(),p.y.toDouble()) }.toDoubleArray()
-            val result = JSONObject(Engine.build(handle, coords, input.text.toString(), clock, listOf(0,1,3)[vehicle.selectedItemPosition], bends))
+            val result = JSONObject(Engine.build(handle, coords, input.text.toString(), clock, listOf(0,1,3,4)[vehicle.selectedItemPosition], bends))
             if (result.has("error")) {
                 input.error = result.getString("error")
             } else {

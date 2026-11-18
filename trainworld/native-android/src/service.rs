@@ -78,6 +78,7 @@ impl World {
         let turn = number("turn", 15, 1800)?;
         let mut next = Self::open(&self.save(now).ok_or("Gagal mencadangkan permainan.")?)
             .ok_or("Gagal membaca permainan.")?;
+        next.api.copy_city_surface_from(&self.api);
         let api = &mut next.api;
         api.set_now(now);
         let color = old["color"].as_f64().unwrap_or(0.) as u32;
