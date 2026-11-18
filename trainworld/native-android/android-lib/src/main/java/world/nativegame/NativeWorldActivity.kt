@@ -1,6 +1,11 @@
 package world.nativegame
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
+import android.graphics.PointF
+import android.widget.EditText
+import android.text.InputFilter
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.RectF
@@ -26,6 +31,8 @@ import kotlin.math.min
 
 internal object Engine {
     init { System.loadLibrary("world_native") }
+    @JvmStatic external fun workshop(): Long
+    @JvmStatic external fun build(handle: Long, ax: Double, ay: Double, bx: Double, by: Double, name: String, clock: Double): String
     @JvmStatic external fun open(bytes: ByteArray): Long
     @JvmStatic external fun geometry(handle: Long): String
     @JvmStatic external fun positions(handle: Long, time: Double): FloatArray
@@ -36,7 +43,13 @@ internal object Engine {
 class NativeWorldActivity : Activity() {
     private var handle = 0L
     private val executor = Executors.newSingleThreadExecutor()
-    private val local by lazy { AtomicFile(File(filesDir, "world-native-nyc.save")) }
+    private val workshop by lazy { intent.getBooleanExtra("workshop", false) }
+    private val local by lazy {
+        AtomicFile(File(filesDir, if (workshop) "world-native-workshop.save" else "world-native-nyc.save"))
+    }
+    private lateinit var build: Button
+    private var drawing = false
+    private var lastService = ""
     private lateinit var info: TextView
     private lateinit var status: TextView
     private lateinit var map: NetworkView
@@ -60,7 +73,7 @@ class NativeWorldActivity : Activity() {
         val back = Button(this).apply { text = "‹"; contentDescription = "Kembali"; setOnClickListener { finish() } }
         header.addView(back, LinearLayout.LayoutParams(dp(52), dp(56)))
         header.addView(TextView(this).apply {
-            text = "168Railway World · Native"; textSize = 20f
+            text = if (workshop) "Dunia bangun · New York" else "168Railway World · Native"; textSize = 20f
             setTextColor(Color.WHITE); gravity = android.view.Gravity.CENTER_VERTICAL
         }, LinearLayout.LayoutParams(-1, dp(56)))
         root.addView(header)
@@ -70,6 +83,22 @@ class NativeWorldActivity : Activity() {
         root.addView(map, LinearLayout.LayoutParams(-1, 0, 1f))
         status = TextView(this).apply { setTextColor(Color.WHITE); setPadding(dp(12),dp(8),dp(12),0) }
         root.addView(status)
+        build = Button(this).apply {
+            text = if (workshop) "Bangun jalur" else "Buka dunia bangun"
+            isEnabled = false
+            setOnClickListener {
+                if (!workshop) {
+                    startActivity(Intent(this@NativeWorldActivity, NativeWorldActivity::class.java).putExtra("workshop", true))
+                } else if (drawing) {
+                    cancelDrawing()
+                } else {
+                    beginDrawing()
+                }
+            }
+        }
+        root.addView(build, LinearLayout.LayoutParams(-1, dp(48)))
+        map.onLocation = { point -> if (drawing) selectPoint(point) }
+        map.workshop = workshop
         val toolbar = LinearLayout(this)
         play = Button(this).apply {
             text = "Jalankan ×8"; isEnabled = false
@@ -89,8 +118,11 @@ class NativeWorldActivity : Activity() {
         executor.execute {
             try {
                 val restored = local.baseFile.exists()
-                val bytes = if (restored) local.readFully() else assets.open("world-native/nyc.save").use { it.readBytes() }
-                val loaded = Engine.open(bytes)
+                val loaded = when {
+                    restored -> Engine.open(local.readFully())
+                    workshop -> Engine.workshop()
+                    else -> assets.open("world-native/nyc.save").use { Engine.open(it.readBytes()) }
+                }
                 check(loaded != 0L) { "Format simpanan tidak dikenali" }
                 val geometry = JSONObject(Engine.geometry(loaded))
                 runOnUiThread {
@@ -98,15 +130,101 @@ class NativeWorldActivity : Activity() {
                     handle = loaded; clock = geometry.getDouble("clock")
                     map.load(geometry)
                     info.text = "New York  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
-                    play.isEnabled = true; save.isEnabled = true
+                    build.isEnabled = true
+                    play.isEnabled = !workshop || map.routeCount > 0
+                    save.isEnabled = !workshop || map.routeCount > 0
+                    if (workshop && map.routeCount > 0) {
+                        val routes = geometry.getJSONArray("routes")
+                        lastService = routes.getJSONObject(routes.length()-1).getString("name")
+                    }
                     refresh()
                     if (restored) status.append("  ·  Simpanan dibuka")
+                    if (workshop && map.routeCount == 0) beginDrawing()
                 }
             } catch (e: Exception) {
                 runOnUiThread { if (!closed) info.text = "Jaringan gagal dibuka: ${e.message}" }
             }
         }
     }
+    private fun beginDrawing() {
+        running = false
+        map.removeCallbacks(tick)
+        play.text = "Jalankan ×8"
+        play.isEnabled = false
+        save.isEnabled = false
+        drawing = true
+        map.draft.clear()
+        map.invalidate()
+        build.text = "Batalkan"
+        status.text = "Ketuk peta untuk menempatkan stasiun awal A."
+    }
+
+    private fun cancelDrawing() {
+        drawing = false
+        map.draft.clear()
+        map.invalidate()
+        build.text = "Bangun jalur"
+        play.isEnabled = map.routeCount > 0
+        save.isEnabled = map.routeCount > 0
+        lastStatus = -1
+        refresh()
+    }
+
+    private fun selectPoint(point: PointF) {
+        if (map.draft.size >= 2) return
+        map.draft.add(point)
+        map.invalidate()
+        if (map.draft.size == 1) {
+            status.text = "Ketuk lokasi stasiun akhir B, minimal 350 m dari A."
+            return
+        }
+        val input = EditText(this).apply {
+            setSingleLine()
+            filters = arrayOf(InputFilter.LengthFilter(48))
+            setText("Lintas " + (map.routeCount + 1))
+            selectAll()
+        }
+        val form = LinearLayout(this).apply { setPadding(dp(20),0,dp(20),0); addView(input, LinearLayout.LayoutParams(-1,-2)) }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Buat layanan")
+            .setMessage("Nama layanan untuk dua stasiun dan jalur baru.")
+            .setView(form)
+            .setPositiveButton("Bangun & jalankan", null)
+            .setNegativeButton("Pilih ulang", null)
+            .create()
+        dialog.setOnDismissListener {
+            if (drawing && map.draft.size == 2) {
+                map.draft.removeAt(1)
+                map.invalidate()
+                status.text = "Ketuk lokasi lain untuk stasiun akhir B."
+            }
+        }
+        dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val a = map.draft[0]
+            val b = map.draft[1]
+            val result = JSONObject(Engine.build(handle, a.x.toDouble(), a.y.toDouble(), b.x.toDouble(), b.y.toDouble(), input.text.toString(), clock))
+            if (result.has("error")) {
+                input.error = result.getString("error")
+            } else {
+                drawing = false
+                dialog.dismiss()
+                map.draft.clear()
+                lastService = result.getString("name")
+                clock = max(clock, result.getDouble("departure"))
+                map.load(JSONObject(Engine.geometry(handle)))
+                info.text = "New York  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
+                build.text = "Bangun jalur"
+                play.isEnabled = true
+                save.isEnabled = true
+                lastTick = SystemClock.elapsedRealtime()
+                running = true
+                play.text = "Jeda"
+                map.post(tick)
+            }
+        }
+    }
+
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
     private val tick = object : Runnable {
         override fun run() {
@@ -121,7 +239,8 @@ class NativeWorldActivity : Activity() {
         val second=clock.toInt()
         if(second!=lastStatus) {
             lastStatus=second
-            status.text = "%02d:%02d:%02d   ·   %d kereta".format(second/3600%24,second/60%60,second%60,positions.size/3)
+            val service = if (workshop && lastService.isNotEmpty()) "  ·  $lastService" else ""
+            status.text = "%02d:%02d:%02d   ·   %d kereta%s".format(second/3600%24,second/60%60,second%60,positions.size/3,service)
         }
     }
     private fun writeSave() {
@@ -142,6 +261,9 @@ class NativeWorldActivity : Activity() {
 }
 
 private class NetworkView(context: Context):View(context) {
+    var workshop = false
+    var onLocation: ((PointF) -> Unit)? = null
+    val draft = mutableListOf<PointF>()
     val lines = mutableListOf<Pair<Int,Path>>()
     data class Station(val x:Float,val y:Float,val name:String)
     val stops=mutableListOf<Station>()
@@ -158,6 +280,8 @@ private class NetworkView(context: Context):View(context) {
     private fun sx(x:Float)=(x-centerX)*scale+width/2f
     private fun sy(y:Float)=(centerY-y)*scale+height/2f
     fun load(data:JSONObject) {
+        lines.clear()
+        stops.clear()
         val bounds=data.getJSONArray("waterBox")
         for(i in 0..3) waterBox[i]=bounds.getDouble(i).toFloat()
         val routes=data.getJSONArray("routes")
@@ -178,11 +302,18 @@ private class NetworkView(context: Context):View(context) {
         fit(); invalidate()
     }
     private fun fit() {
-        if(stops.isEmpty() || width==0 || height==0) return
+        if (width == 0 || height == 0) return
+        if (stops.isEmpty()) {
+            centerX = 0f
+            centerY = 0f
+            homeScale = width / 9000f
+            scale = homeScale
+            return
+        }
         val xs=stops.map{it.x}.sorted();val ys=stops.map{it.y}.sorted()
         val lo=stops.size/8; val hi=stops.size-1-lo
         centerX=(xs[lo]+xs[hi])/2;centerY=(ys[lo]+ys[hi])/2
-        homeScale=min(width/(xs[hi]-xs[lo]),height/(ys[hi]-ys[lo]))*.88f
+        homeScale=min(width/max(600f,xs[hi]-xs[lo]),height/max(600f,ys[hi]-ys[lo]))*.7f
         scale=homeScale
     }
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);fit()}
@@ -212,8 +343,21 @@ private class NetworkView(context: Context):View(context) {
         for(i in trains.indices step 3){
             val x=sx(trains[i+1]);val y=sy(trains[i+2])
             if(x<0||x>width||y<0||y>height)continue
-            paint.color=0xff183b46.toInt();c.drawRoundRect(x-3*density,y-2*density,x+3*density,y+2*density,density,density,paint)
+            val radius = (if (workshop) 5f else 2f) * density
+            paint.color=0xff183b46.toInt()
+            c.drawRoundRect(x-1.5f*radius,y-radius,x+1.5f*radius,y+radius,density,density,paint)
             paint.color=0xffffeb85.toInt();c.drawCircle(x,y,1.25f*density,paint)
+        }
+        if (draft.size==2) {
+            paint.color=0xffdd692e.toInt()
+            paint.strokeWidth=3*density
+            c.drawLine(sx(draft[0].x),sy(draft[0].y),sx(draft[1].x),sy(draft[1].y),paint)
+        }
+        for ((index,p) in draft.withIndex()) {
+            val x=sx(p.x);val y=sy(p.y)
+            paint.color=0xffcf5823.toInt();c.drawCircle(x,y,10*density,paint)
+            paint.textSize=12*density;paint.color=Color.WHITE
+            c.drawText(if(index==0) "A" else "B",x-4*density,y+4*density,paint)
         }
         paint.color=0xc8ffffff.toInt();c.drawRect(0f,height-17*density,162*density,height.toFloat(),paint)
         paint.textSize=9*density;paint.color=0xff38575c.toInt()
@@ -230,6 +374,10 @@ private class NetworkView(context: Context):View(context) {
     })
     private val pan=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){
         override fun onDown(e:MotionEvent)=true
+        override fun onSingleTapConfirmed(e:MotionEvent):Boolean {
+            onLocation?.invoke(PointF(centerX+(e.x-width/2f)/scale,centerY-(e.y-height/2f)/scale))
+            return true
+        }
         override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean {
             if(!pinch.isInProgress){centerX+=dx/scale;centerY-=dy/scale;invalidate()};return true
         }

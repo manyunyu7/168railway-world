@@ -1,6 +1,6 @@
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
-    objects::{JByteArray, JClass},
+    objects::{JByteArray, JClass, JString},
     sys::{jbyteArray, jdouble, jfloatArray, jlong, jstring},
     JNIEnv,
 };
@@ -34,6 +34,11 @@ impl World {
         if !api.load(raw.get(8 + n..)?) {
             return None;
         }
+        if header["nativeWorkshop"] == true {
+            api.set_cash(header["cash"].as_f64().unwrap_or(6000.));
+            api.set_fleet(header["fleet"].as_u64().unwrap_or(0) as u32);
+            api.set_unlimited(true);
+        }
         Some(Self {
             api,
             header,
@@ -41,6 +46,101 @@ impl World {
             trips: vec![],
         })
     }
+    fn workshop() -> Self {
+        let mut api = TrackApi::new(-73.985, 40.758, true);
+        api.set_unlimited(true);
+        Self {
+            api,
+            header: json!({"game":"anitabuilder","format":1,"city":"nyc","clock":111600,"cash":6000.0,"fleet":0,"mode":"sandbox","fares":{"base":1.5,"perKm":0.1},"ledger":[],"nativeWorkshop":true}),
+            hour: i64::MIN,
+            trips: vec![],
+        }
+    }
+
+    // Work on a copy. A refused station or service must not leave half-built track in the active slot.
+    fn build_service(
+        &mut self,
+        a: [f64; 2],
+        b: [f64; 2],
+        name: &str,
+        clock: f64,
+    ) -> Result<Value, String> {
+        if self.header["nativeWorkshop"] != true || !clock.is_finite() {
+            return Err("Buka Dunia bangun untuk mengedit.".into());
+        }
+        if !a.into_iter().chain(b).all(|v| v.is_finite()) || (a[0] - b[0]).hypot(a[1] - b[1]) < 350.
+        {
+            return Err("Letakkan kedua stasiun setidaknya 350 meter terpisah.".into());
+        }
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 48 {
+            return Err("Nama layanan harus terdiri dari 1–48 karakter.".into());
+        }
+        let mut next = Self::open(&self.save(clock).ok_or("Simpanan sementara gagal")?)
+            .ok_or("Jaringan gagal disalin")?;
+        let api = &mut next.api;
+        api.set_now(clock);
+        api.set_unlimited(true);
+        let ends = [0., 0., a[0], a[1], 0., 0., 0., b[0], b[1], 0.];
+        if api.add_route(&ends, &[], 2, false) != 0 {
+            return Err(format!("Ruas ditolak: {}", api.issue_kinds()));
+        }
+        let nodes = api.nodes_info();
+        let mut stops = vec![];
+        for (point, label) in [(a, "A"), (b, "B")] {
+            let row = nodes
+                .chunks_exact(10)
+                .filter(|r| (r[1] - point[0]).hypot(r[2] - point[1]) < 1. && r[7] == 0.)
+                .min_by(|r, s| {
+                    (r[1] - point[0])
+                        .hypot(r[2] - point[1])
+                        .total_cmp(&(s[1] - point[0]).hypot(s[2] - point[1]))
+                })
+                .ok_or("Ujung jalur tidak ditemukan. Geser lokasi stasiun.")?;
+            let id = row[0] as u32;
+            if api.add_station(1, id, row[1], row[2], 160, format!("{name} {label}")) != 0 {
+                return Err(format!("Stasiun ditolak: {}", api.issue_kinds()));
+            }
+            stops.push(id);
+        }
+        let line = api.new_line_id();
+        let colors = [0x007866, 0xcf5823, 0x6944ad, 0x0876b6, 0xbd3a62];
+        if api.set_line_with_trains(
+            line,
+            &stops,
+            4,
+            3,
+            2,
+            20.,
+            60.,
+            4,
+            colors[line as usize % colors.len()],
+            name.into(),
+        ) != 0
+            || api.construct_line(line) != 0
+        {
+            return Err(format!("Layanan ditolak: {}", api.issue_kinds()));
+        }
+        let lines = api.lines_info();
+        if !lines
+            .chunks_exact(22)
+            .any(|r| r[0] as u32 == line && r[3] == 1.)
+        {
+            return Err("Layanan belum dapat beroperasi.".into());
+        }
+        let trips = api.line_trips(line, clock, clock + 7200.);
+        let departure = trips
+            .chunks_exact(4)
+            .filter_map(|r| (r[2] > clock).then_some(r[1].max(clock)))
+            .min_by(f64::total_cmp)
+            .ok_or("Jadwal keberangkatan tidak tersedia.")?;
+        next.header["cash"] = json!(api.cash());
+        next.header["fleet"] = json!(api.fleet());
+        next.header["nativeLastLine"] = json!(line);
+        *self = next;
+        Ok(json!({"line":line,"departure":departure,"name":name}))
+    }
+
     fn save(&self, clock: f64) -> Option<Vec<u8>> {
         let mut header = self.header.clone();
         header["clock"] = json!(clock);
@@ -169,9 +269,60 @@ pub extern "system" fn Java_world_nativegame_Engine_close(_: JNIEnv, _: JClass, 
         unsafe { drop(Box::from_raw(handle as *mut World)) }
     }
 }
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_Engine_workshop(_: JNIEnv, _: JClass) -> jlong {
+    Box::into_raw(Box::new(World::workshop())) as jlong
+}
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_Engine_build(
+    mut env: JNIEnv,
+    _: JClass,
+    handle: jlong,
+    ax: jdouble,
+    ay: jdouble,
+    bx: jdouble,
+    by: jdouble,
+    name: JString,
+    clock: jdouble,
+) -> jstring {
+    let w = unsafe { &mut *(handle as *mut World) };
+    let name: String = env.get_string(&name).map(|v| v.into()).unwrap_or_default();
+    let result = w
+        .build_service([ax, ay], [bx, by], &name, clock)
+        .unwrap_or_else(|reason| json!({"error":reason}));
+    env.new_string(result.to_string())
+        .map_or(std::ptr::null_mut(), |v| v.into_raw())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn build_service_survives_save() {
+        let mut w = World::workshop();
+        let now = 111600.;
+        assert!(w.build_service([0., 0.], [1., 1.], "Test", now).is_err());
+        assert!(w.api.lines_info().is_empty());
+        let result = w
+            .build_service([0., 0.], [2500., 900.], "Hudson", now)
+            .unwrap();
+        let t = result["departure"].as_f64().unwrap() + 2.;
+        let a = w.positions(t);
+        let b = w.positions(t + 25.);
+        assert!(
+            !a.is_empty() && a != b,
+            "genuine scheduled service must move"
+        );
+        let mut reopened = World::open(&w.save(t + 25.).unwrap()).unwrap();
+        assert_eq!(reopened.positions(t + 25.), b);
+        assert_eq!(reopened.geometry()["stations"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            reopened
+                .api
+                .line_name(result["line"].as_u64().unwrap() as u32),
+            "Hudson"
+        );
+    }
     #[test]
     fn fixture_moves_and_reopens() {
         let mut w = World::open(include_bytes!("../../T-007-real-nyc.save")).unwrap();
