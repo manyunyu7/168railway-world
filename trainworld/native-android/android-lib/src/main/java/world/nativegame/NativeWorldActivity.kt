@@ -32,7 +32,7 @@ import kotlin.math.min
 internal object Engine {
     init { System.loadLibrary("world_native") }
     @JvmStatic external fun workshop(): Long
-    @JvmStatic external fun build(handle: Long, ax: Double, ay: Double, bx: Double, by: Double, name: String, clock: Double): String
+    @JvmStatic external fun build(handle: Long, points: DoubleArray, name: String, clock: Double): String
     @JvmStatic external fun open(bytes: ByteArray): Long
     @JvmStatic external fun geometry(handle: Long): String
     @JvmStatic external fun positions(handle: Long, time: Double): FloatArray
@@ -187,7 +187,7 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun selectPoint(point: PointF) {
-        if (map.draft.size >= 2) return
+        if (map.draft.size >= 24) return
         map.draft.add(point)
         map.invalidate()
         if (map.draft.size == 1) {
@@ -201,25 +201,29 @@ class NativeWorldActivity : Activity() {
             selectAll()
         }
         val form = LinearLayout(this).apply { setPadding(dp(20),0,dp(20),0); addView(input, LinearLayout.LayoutParams(-1,-2)) }
+        var keepStops = false
         val dialog = AlertDialog.Builder(this)
             .setTitle("Buat layanan")
-            .setMessage("Nama layanan untuk dua stasiun dan jalur baru.")
+            .setMessage("${map.draft.size} stasiun · Ketuk dekat stasiun lama untuk memakai rel yang sudah dibangun.")
             .setView(form)
             .setPositiveButton("Bangun & jalankan", null)
+            .setNeutralButton(if (map.draft.size<24) "Tambah stasiun" else null) { _,_ ->
+                keepStops = true
+                status.text = "Ketuk lokasi stasiun ${('A'.code + map.draft.size).toChar()}."
+            }
             .setNegativeButton("Pilih ulang", null)
             .create()
         dialog.setOnDismissListener {
-            if (drawing && map.draft.size == 2) {
-                map.draft.removeAt(1)
+            if (drawing && !keepStops && map.draft.size >= 2) {
+                map.draft.removeAt(map.draft.lastIndex)
                 map.invalidate()
                 status.text = "Ketuk lokasi lain untuk stasiun akhir B."
             }
         }
         dialog.show()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val a = map.draft[0]
-            val b = map.draft[1]
-            val result = JSONObject(Engine.build(handle, a.x.toDouble(), a.y.toDouble(), b.x.toDouble(), b.y.toDouble(), input.text.toString(), clock))
+            val coords = map.draft.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
+            val result = JSONObject(Engine.build(handle, coords, input.text.toString(), clock))
             if (result.has("error")) {
                 input.error = result.getString("error")
             } else {
@@ -364,16 +368,16 @@ private class NetworkView(context: Context):View(context) {
             c.drawRoundRect(x-1.5f*radius,y-radius,x+1.5f*radius,y+radius,density,density,paint)
             paint.color=0xffffeb85.toInt();c.drawCircle(x,y,1.25f*density,paint)
         }
-        if (draft.size==2) {
+        if (draft.size>=2) {
             paint.color=0xffdd692e.toInt()
             paint.strokeWidth=3*density
-            c.drawLine(sx(draft[0].x),sy(draft[0].y),sx(draft[1].x),sy(draft[1].y),paint)
+            draft.zipWithNext().forEach { (a,b) -> c.drawLine(sx(a.x),sy(a.y),sx(b.x),sy(b.y),paint) }
         }
         for ((index,p) in draft.withIndex()) {
             val x=sx(p.x);val y=sy(p.y)
             paint.color=0xffcf5823.toInt();c.drawCircle(x,y,10*density,paint)
             paint.textSize=12*density;paint.color=Color.WHITE
-            c.drawText(if(index==0) "A" else "B",x-4*density,y+4*density,paint)
+            c.drawText(('A'.code+index).toChar().toString(),x-4*density,y+4*density,paint)
         }
         paint.color=0xc8ffffff.toInt();c.drawRect(0f,height-17*density,162*density,height.toFloat(),paint)
         paint.textSize=9*density;paint.color=0xff38575c.toInt()

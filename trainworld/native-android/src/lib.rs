@@ -60,6 +60,7 @@ impl World {
     }
 
     // Work on a copy. A refused station or service must not leave half-built track in the active slot.
+    #[cfg(test)]
     fn build_service(
         &mut self,
         a: [f64; 2],
@@ -67,12 +68,21 @@ impl World {
         name: &str,
         clock: f64,
     ) -> Result<Value, String> {
+        self.build_path(&[a, b], name, clock)
+    }
+
+    fn build_path(&mut self, points: &[[f64; 2]], name: &str, clock: f64) -> Result<Value, String> {
         if self.header["nativeWorkshop"] != true || !clock.is_finite() {
             return Err("Buka Dunia bangun untuk mengedit.".into());
         }
-        if !a.into_iter().chain(b).all(|v| v.is_finite()) || (a[0] - b[0]).hypot(a[1] - b[1]) < 350.
+        if !(2..=24).contains(&points.len()) || points.iter().flatten().any(|v| !v.is_finite()) {
+            return Err("Pilih antara 2 dan 24 stasiun.".into());
+        }
+        if points
+            .windows(2)
+            .any(|p| (p[0][0] - p[1][0]).hypot(p[0][1] - p[1][1]) < 350.)
         {
-            return Err("Letakkan kedua stasiun setidaknya 350 meter terpisah.".into());
+            return Err("Letakkan stasiun berurutan setidaknya 350 meter terpisah.".into());
         }
         let name = name.trim();
         if name.is_empty() || name.chars().count() > 48 {
@@ -83,27 +93,66 @@ impl World {
         let api = &mut next.api;
         api.set_now(clock);
         api.set_unlimited(true);
-        let ends = [0., 0., a[0], a[1], 0., 0., 0., b[0], b[1], 0.];
-        if api.add_route(&ends, &[], 2, false) != 0 {
-            return Err(format!("Ruas ditolak: {}", api.issue_kinds()));
-        }
-        let nodes = api.nodes_info();
-        let mut stops = vec![];
-        for (point, label) in [(a, "A"), (b, "B")] {
-            let row = nodes
+        let node_at = |api: &TrackApi,
+                       point: [f64; 2],
+                       radius: f64,
+                       station_only: bool|
+         -> Option<(u32, f64, f64)> {
+            let nodes = api.nodes_info();
+            nodes
                 .chunks_exact(10)
-                .filter(|r| (r[1] - point[0]).hypot(r[2] - point[1]) < 1. && r[7] == 0.)
-                .min_by(|r, s| {
-                    (r[1] - point[0])
-                        .hypot(r[2] - point[1])
-                        .total_cmp(&(s[1] - point[0]).hypot(s[2] - point[1]))
+                .filter(|r| !station_only || r[7] > 0.)
+                .filter_map(|r| {
+                    let d = (r[1] - point[0]).hypot(r[2] - point[1]);
+                    (d <= radius).then_some((d, r[0] as u32, r[1], r[2]))
                 })
-                .ok_or("Ujung jalur tidak ditemukan. Geser lokasi stasiun.")?;
-            let id = row[0] as u32;
-            if api.add_station(1, id, row[1], row[2], 160, format!("{name} {label}")) != 0 {
-                return Err(format!("Stasiun ditolak: {}", api.issue_kinds()));
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, id, x, y)| (id, x, y))
+        };
+        let mut stops = Vec::new();
+        let mut needs_construction = false;
+        let mut previous = None;
+        for (i, pair) in points.windows(2).enumerate() {
+            let a = previous.or_else(|| node_at(api, pair[0], 120., true));
+            let b = node_at(api, pair[1], 120., true);
+            let connected = matches!((a,b),(Some((first,_,_)),Some((second,_,_))) if first!=second && api.order_fault(&[first,second]).is_empty());
+            if !connected {
+                needs_construction = true;
+                let end = |point: [f64; 2], node: Option<(u32, f64, f64)>| {
+                    if let Some((id, x, y)) = node {
+                        [1., id as f64, x, y, 0.]
+                    } else {
+                        [0., 0., point[0], point[1], 0.]
+                    }
+                };
+                let mut ends = end(pair[0], a).to_vec();
+                ends.extend(end(pair[1], b));
+                if api.add_route(&ends, &[], 2, false) != 0 {
+                    return Err(format!("Ruas {} ditolak: {}", i + 1, api.issue_kinds()));
+                }
             }
-            stops.push(id);
+            let mut endpoints = [None, None];
+            for (j, selected) in [a, b].into_iter().enumerate() {
+                let point = pair[j];
+                let node = match selected {
+                    Some(node) => node,
+                    None => {
+                        let (id, x, y) = node_at(api, point, 1., false)
+                            .ok_or("Ujung jalur tidak ditemukan. Geser calon stasiun.")?;
+                        let label = (b'A' + (i + j) as u8) as char;
+                        if api.add_station(1, id, x, y, 160, format!("{name} {label}")) != 0 {
+                            return Err(format!("Stasiun {label} ditolak: {}", api.issue_kinds()));
+                        }
+                        (id, x, y)
+                    }
+                };
+                endpoints[j] = Some(node);
+            }
+            if i == 0 {
+                stops.push(endpoints[0].unwrap().0);
+            }
+            previous = endpoints[1];
+            stops.push(previous.unwrap().0);
         }
         let line = api.new_line_id();
         let colors = [0x007866, 0xcf5823, 0x6944ad, 0x0876b6, 0xbd3a62];
@@ -119,7 +168,7 @@ impl World {
             colors[line as usize % colors.len()],
             name.into(),
         ) != 0
-            || api.construct_line(line) != 0
+            || (needs_construction && api.construct_line(line) != 0)
         {
             return Err(format!("Layanan ditolak: {}", api.issue_kinds()));
         }
@@ -280,17 +329,24 @@ pub extern "system" fn Java_world_nativegame_Engine_build(
     mut env: JNIEnv,
     _: JClass,
     handle: jlong,
-    ax: jdouble,
-    ay: jdouble,
-    bx: jdouble,
-    by: jdouble,
+    points: jni::objects::JDoubleArray,
     name: JString,
     clock: jdouble,
 ) -> jstring {
     let w = unsafe { &mut *(handle as *mut World) };
     let name: String = env.get_string(&name).map(|v| v.into()).unwrap_or_default();
+    let count = env.get_array_length(&points).unwrap_or(0) as usize;
+    let mut coords = vec![0.; count.min(48)];
+    let valid = count <= 48
+        && count % 2 == 0
+        && env.get_double_array_region(&points, 0, &mut coords).is_ok();
+    let pairs: Vec<[f64; 2]> = if valid {
+        coords.chunks_exact(2).map(|r| [r[0], r[1]]).collect()
+    } else {
+        vec![]
+    };
     let result = w
-        .build_service([ax, ay], [bx, by], &name, clock)
+        .build_path(&pairs, &name, clock)
         .unwrap_or_else(|reason| json!({"error":reason}));
     env.new_string(result.to_string())
         .map_or(std::ptr::null_mut(), |v| v.into_raw())
@@ -299,6 +355,21 @@ pub extern "system" fn Java_world_nativegame_Engine_build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn multiple_stops_and_existing_corridor_are_preserved() {
+        let mut w = World::workshop();
+        let route = [[0., 0.], [1200., 0.], [2900., 240.]];
+        w.build_path(&route, "Utama", 111600.).unwrap();
+        let geo = w.geometry();
+        assert_eq!(geo["stations"].as_array().unwrap().len(), 3);
+        let edges = w.api.edges_info().len();
+        w.build_path(&[route[0], route[2]], "Ekspres", 111600.)
+            .unwrap();
+        assert_eq!(w.api.edges_info().len(), edges);
+        assert_eq!(w.api.line_stops(1).len(), 2);
+        let restored = World::open(&w.save(111600.).unwrap()).unwrap();
+        assert_eq!(restored.api.line_stops(0).len(), 3);
+    }
     #[test]
     fn build_service_survives_save() {
         let mut w = World::workshop();
