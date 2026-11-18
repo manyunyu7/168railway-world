@@ -13,7 +13,7 @@ async function check(response:Response) {
   if (response.ok) return;
   const failure = await response.json().catch(()=>({}));
   if(response.status===401 || response.status===419) throw Error("Sesi berakhir. Masuk kembali ke 168Railway.");
-  if(response.status===409) throw Error(failure.code==="account_changed" ? "Akun di browser berubah. Tutup lalu buka kembali panel ini." : "Akun atau versi simpanan berubah. Muat daftar terbaru atau simpan sebagai dunia baru.");
+  if(response.status===409) throw Error(failure.error==="account_changed" ? "Akun di browser berubah. Tutup lalu buka kembali panel ini." : "Akun atau versi simpanan berubah. Muat daftar terbaru atau simpan sebagai dunia baru.");
   if(response.status===413) throw Error("Ukuran berkas melewati batas akun.");
   throw Error("Permintaan gagal ("+response.status+"). Simpanan lokal tetap tersedia.");
 }

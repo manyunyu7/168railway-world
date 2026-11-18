@@ -11,3 +11,5 @@ Dalam game, buka Simpanan akun 168Railway. Sesi masuk dan CSRF berasal dari /api
 ## Atribusi
 
 Kode upstream © 2026 Anita Chen, AGPL-3.0. Lihat LICENSE serta NOTICE.md. Nama layanan, ikon, halaman privasi/kredit dan integrasi akun dikelola 168Railway. Kode sumber tersedia di https://github.com/manyunyu7/168railway-world . Kode dan perubahan dapat diperoleh dengan mengkloning repo ini. Tampilan awal dan pengaturan mencantumkan tautan tersebut.
+
+Empat bunyi konstruksi dibuat secara sintetis dengan trainworld/tools/fork/build-sounds.py, dengan lisensi kode fork. Berkas rekaman Pixabay milik versi asli tidak digunakan.

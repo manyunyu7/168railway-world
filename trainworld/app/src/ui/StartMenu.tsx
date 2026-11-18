@@ -118,7 +118,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
   // (the slot opened last is remembered even once its save is deleted)
   const [returning] = useState(() => first0.length + accountOnly(first0).length > 0 || playedBefore() || unread0);
   // T-1441: a first visit, with no saved game to pick, opens on the new game sheet
-  const [sheet, setSheet] = useState(!returning);
+  const [sheet, setSheet] = useState(false);
   useEffect(() => { if (!sheet) first.current?.focus(); }, [sheet]);
   // T-988: the slots again once the account has settled them (downloads, deletions, forks)
   const [slots, setSlotsOnly] = useState(first0);
