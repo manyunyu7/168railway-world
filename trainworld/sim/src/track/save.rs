@@ -648,6 +648,9 @@ pub fn convert_frame(bytes: &[u8], to: FrameKind) -> Result<Vec<u8>, String> {
         if let Some(mut d) = net.line_data(l) {
             if let Some(r) = d.bus.as_mut() {
                 r.points = r.points.iter().map(|p| { let (x, y) = at(p[0], p[1]); [x, y] }).collect();
+                // the stops placed by hand are points on the route too (T-2891)
+                r.hand = r.hand.as_ref().map(|h| h.iter().map(|p| { let (x, y) = at(p[0], p[1]); [x, y] }).collect());
+                r.hand_kept = r.hand_kept.iter().map(|p| { let (x, y) = at(p[0], p[1]); [x, y] }).collect();
             }
             if let Some(r) = d.ferry.as_mut() {
                 r.points = r.points.iter().map(|p| { let (x, y) = at(p[0], p[1]); [x, y] }).collect();

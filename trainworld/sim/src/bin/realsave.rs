@@ -29,6 +29,7 @@
 //! packed as `DemandApi::set_network` takes them (the clock worker's snapshot), for `calib`.
 
 use serde_json::{json, Value};
+use trainworld_sim::track::bus;
 use trainworld_sim::track::geom::Pi;
 use trainworld_sim::track::names;
 use trainworld_sim::track::net::{EdgeData, LineData, Network, NodeData, StationData};
@@ -459,6 +460,43 @@ fn main() {
         }
     }
     eprintln!("lines with over half their length on high-speed track, set to high-speed trains: {n_fast}");
+    // 168Railway: bus lines (`buses` in the network JSON, `realnet.py`'s `osm_bus_routes`: Jakarta's
+    // TransJakarta corridors): each a constructed route along the roads with its stops placed by hand,
+    // its buses following a headway per demand level; a bus line runs both ways
+    let mut bus_ids: Vec<u32> = vec![];
+    if let Some(buses) = net_j["buses"].as_array() {
+        for (bi, b) in buses.iter().enumerate() {
+            let pt = |p: &Value| [quant(p[0].as_f64().unwrap()), quant(p[1].as_f64().unwrap())];
+            let pts: Vec<[f64; 2]> = b["points"].as_array().unwrap().iter().map(pt).collect();
+            if pts.len() < 2 {
+                continue;
+            }
+            // along the roads all the way (OSM's ways), its ends the route's corners
+            let mut kinds = vec![bus::K_ROAD; pts.len()];
+            let n = kinds.len();
+            kinds[0] |= bus::K_CORNER;
+            kinds[n - 1] |= bus::K_CORNER;
+            if !bus::route_ok(&net, &pts, &kinds) {
+                eprintln!("bus {}: route refused", b["name"]);
+                continue;
+            }
+            let (first, last) = (pts[0], pts[pts.len() - 1]);
+            let hand: Vec<[f64; 2]> = b["stops"].as_array().unwrap().iter().map(pt)
+                .filter(|p| (p[0] - first[0]).hypot(p[1] - first[1]) > 100.0 && (p[0] - last[0]).hypot(p[1] - last[1]) > 100.0)
+                .collect();
+            let hw: Vec<u32> = b["headway"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u32).collect();
+            let colour = b["colour"].as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(PALETTE[bi % PALETTE.len()]);
+            let route = bus::BusRoute { points: pts, kinds, built: true, spacing: 0, hand: Some(hand), hand_kept: vec![] };
+            let id = net.alloc_line();
+            let data = LineData { name: b["name"].as_str().unwrap().to_string(), symbol: String::new(), colour, stops: vec![], path: vec![], tph: [0.0; 3], trains: Some([0; 3]), auto: Some([hw[0], hw[1], hw[2]]),
+                dwell_s: 30.0, turnaround_s: 180.0, cars: 1, fast: false, bus: Some(route), ferry: None, group: 0, group_name: String::new(), group_look: Default::default(), day: 0, hand: false, one_way: false, limit: 0, twin: Default::default(), weekend: Default::default() };
+            match net.set_line(id, Some(data)) {
+                Ok(_) => bus_ids.push(id),
+                Err(e) => eprintln!("bus {}: {e:?}", b["name"]),
+            }
+        }
+        eprintln!("bus lines set: {} of {}", bus_ids.len(), buses.len());
+    }
     // T-3233: a real terminus has the tracks to turn trains on both its platforms, so every dead-end
     // station is given a terminal (without one it turns one train at a time, T-2986)
     let mut terminals = 0;
@@ -664,12 +702,24 @@ fn main() {
         fleet += *svc.trains.iter().max().unwrap() as u64 * d.cars as u64;
         lines_out.push(json!({"feed": l["feed"], "name": l["name"], "route": l["route"], "gtfs_min": g0 / 60.0, "track_min": t0s / 60.0}));
     }
+    // the buses the bus lines run at their busiest
+    let mut fleet_bus = 0u64;
+    for &id in &bus_ids {
+        let svc = &w.svc.lines[id as usize];
+        if !svc.running {
+            eprintln!("bus line {} not running", w.net.line_data(id).map(|d| d.name).unwrap_or_default());
+            continue;
+        }
+        fleet_bus += *svc.trains.iter().max().unwrap() as u64;
+    }
+    eprintln!("bus lines running {} of {}, {fleet_bus} buses", bus_ids.iter().filter(|&&id| w.svc.lines[id as usize].running).count(), bus_ids.len());
     eprintln!("{} lines running ({} not); one-way run times, sum over lines: GTFS {:.0} min, track model {:.0} min ({:+.0}%)", lines_out.len(), not_running, gtfs_s / 60.0, track_s / 60.0, 100.0 * (track_s / gtfs_s - 1.0));
     let out = json!({
         "what": "the real network through the track model (T-007): stations are nodes, run times from its profiles",
         "stations": st_out,
         "lines": lines_out,
         "fleet": fleet,
+        "fleetBus": fleet_bus,
         "demand": {"st_xy": st_xy, "line_n": line_n, "stops": stops, "times": times, "tph": tph, "cars": cars},
     });
     std::fs::write(format!("{out_dir}/{city}_real_track.json"), serde_json::to_string(&out).unwrap()).unwrap();

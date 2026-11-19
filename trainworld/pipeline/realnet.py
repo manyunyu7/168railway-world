@@ -290,6 +290,11 @@ CITIES["jak"] = {
                      (r"Bekasi Line", {"tph": (10, 6, 3), "kmh": 40, "train_m": 100, "operator": "lrt_jabodebek", "name": "LRT Jabodebek Lin Bekasi"}),
                      (r"Kalayang", {"tph": (6, 6, 3), "kmh": 30, "train_m": 40, "operator": "kalayang", "name": "Kalayang Bandara Soekarno-Hatta"}),
                  ]}],
+    # TransJakarta BRT corridors 1-14 as bus lines (osm_bus_routes; `fetch-osm-bus`): route and haltes
+    # from OSM, buses every so many seconds (peak, midday, night) from TransJakarta's published headways, rough
+    "buses": {"file": os.path.join(RAW, "t509", "osm_jak_tj.json"), "refs": [str(i) for i in range(1, 15)],
+              "name": "TransJakarta Koridor {ref}",
+              "headway": {"_": (300, 480, 1200), "1": (180, 300, 900), "9": (180, 300, 900)}},
 }
 CAR_M = 20.0
 LEVEL_WINDOWS = {0: [(7, 9), (17, 19)], 1: [(10, 16)], 2: [(0, 6)]}
@@ -765,6 +770,74 @@ def build_lines(src, trips, xy, cxy=(0.0, 0.0)):
     return lines
 
 
+def osm_bus_routes(cfg, pack):
+    """168Railway: bus lines from OSM bus route relations fetched with their geometry (`out geom`),
+    one relation a line (the first of each `ref`, by the order of `refs`; a bus line runs both ways):
+    the ways chained into the route (pack-frame metres, simplified to `tol_m`) and its stop and
+    platform members as the stops placed by hand, with the line's buses per demand level as headways
+    in seconds (`headway`: (peak, midday, night), per ref or "_")."""
+    d = json.load(open(cfg["file"], encoding="utf-8"))
+    o = origin(pack)
+    rels = [e for e in d["elements"] if e["type"] == "relation" and e.get("tags", {}).get("type") == "route"]
+    out = []
+    for ref in cfg["refs"]:
+        mine = sorted((r for r in rels if r["tags"].get("ref") == ref), key=lambda r: r["id"])
+        if not mine:
+            print(f"  bus {ref}: no relation")
+            continue
+        r = mine[0]
+        ways = []
+        for m in r["members"]:
+            if m["type"] == "way" and m.get("role", "") in ("", "forward", "backward") and m.get("geometry"):
+                pts = [(g["lon"], g["lat"]) for g in m["geometry"] if g]
+                if len(pts) >= 2:
+                    ways.append(pts)
+        if not ways:
+            print(f"  bus {ref}: no geometry")
+            continue
+        d2 = lambda a, b: (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+        chain = list(ways[0])
+        for k, pts in enumerate(ways[1:]):
+            # the first way may be listed backwards: turn it when its start meets the second way
+            if k == 0 and min(d2(chain[0], pts[0]), d2(chain[0], pts[-1])) < min(d2(chain[-1], pts[0]), d2(chain[-1], pts[-1])):
+                chain.reverse()
+            if d2(pts[-1], chain[-1]) < d2(pts[0], chain[-1]):
+                pts = pts[::-1]
+            chain += pts[1:] if pts[0] == chain[-1] else pts
+        xy = np.array([to_xy(lon, lat, o) for lon, lat in chain], dtype=float)
+        xy = [tuple(map(float, p)) for p in simplify(xy, cfg.get("tol_m", 5.0))]
+        stops = []
+        for m in r["members"]:
+            if not m.get("role", "").startswith(("stop", "platform")):
+                continue
+            if m["type"] == "node" and "lat" in m:
+                lon, lat = m["lon"], m["lat"]
+            elif m.get("geometry"):
+                g = [x for x in m["geometry"] if x]
+                lon, lat = sum(x["lon"] for x in g) / len(g), sum(x["lat"] for x in g) / len(g)
+            else:
+                continue
+            p = tuple(float(v) for v in to_xy(lon, lat, o))
+            if not stops or (p[0] - stops[-1][0]) ** 2 + (p[1] - stops[-1][1]) ** 2 > 60.0 ** 2:
+                stops.append(p)
+        # a halte off the chained route (a relation with a gap in its ways) is no stop of it
+        route = np.array(xy)
+        def off_route(p):
+            a, b = route[:-1], route[1:]
+            ab = b - a
+            t = np.clip(((p - a) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-9), 0, 1)
+            return float(np.min(np.hypot(*(a + ab * t[:, None] - p).T)))
+        n_all = len(stops)
+        stops = [p for p in stops if off_route(np.array(p)) <= cfg.get("stop_reach_m", 150.0)]
+        if len(stops) < n_all:
+            print(f"  bus {ref}: {n_all - len(stops)} of {n_all} stops off the route left out")
+        hw = cfg["headway"].get(ref, cfg["headway"]["_"])
+        name = cfg.get("name", "{ref}").format(ref=ref, name=r["tags"].get("name", ""))
+        out.append({"ref": ref, "relation": r["id"], "name": name, "colour": r["tags"].get("colour"), "points": [list(p) for p in xy],
+                    "stops": [list(p) for p in stops], "headway": list(hw)})
+    return out
+
+
 def cmd_net(city=None):
     city = city or (sys.argv[2] if len(sys.argv) > 2 else "nyc")
     cfg = CITIES[city]
@@ -872,6 +945,9 @@ def cmd_net(city=None):
            "demand": {"st_xy": st_xy, "line_n": line_n, "stops": stops, "times": times, "tph": tph, "cars": cars}}
     if left_out:
         out["too_thin"] = left_out
+    if cfg.get("buses"):
+        out["buses"] = osm_bus_routes(cfg["buses"], cfg["pack"])
+        print(f"  {len(out['buses'])} bus lines")
     p = cfg["out"]
     json.dump(out, open(p, "w"))
     by = Counter(l["feed"] for l in lines)
@@ -1404,6 +1480,9 @@ def cmd_gamesave():
         for l in net["lines"]:
             need[bool(l.get("fast"))] += max(l["trains"]) * l["cars"]
         header["fleet"], header["fleetFast"] = need[False], need[True]
+    # 168Railway: the buses the bus lines need (the `realsave` bin's count)
+    if tj.get("fleetBus"):
+        header["fleetBus"] = int(tj["fleetBus"])
     hj = json.dumps(header).encode()
     raw = b"TWG1" + struct.pack("<I", len(hj)) + hj + track
     # T-1303: New York's too goes beside the others; T-007-real-nyc.save is the smoke test's own copy
@@ -1503,11 +1582,28 @@ out body;"""
     print(f"{len(d['elements'])} elements ({sum(1 for x in d['elements'] if x.get('tags', {}).get('type') == 'route')} routes) -> {p}")
 
 
+def cmd_fetch_osm_bus():
+    """168Railway: a city's bus route relations (`buses`: `network` regex, refs) with their geometry
+    in the pack's boundary box -> CITIES[city]["buses"]["file"]."""
+    import requests
+    city = sys.argv[2]
+    cfg = CITIES[city]
+    w, s, e, n = boundary(cfg["pack"]).bounds
+    refs = "|".join(cfg["buses"]["refs"])
+    q = f"""[out:json][timeout:300];
+rel["type"="route"]["route"="bus"]["network"~"{cfg['buses'].get('network', 'TransJakarta')}",i]["ref"~"^({refs})$"]({s},{w},{n},{e});
+out geom;"""
+    r = requests.post(OVERPASS, data={"data": q}, headers={"User-Agent": "trainworld-pipeline/1.0 (rail network test sets)"}, timeout=400)
+    r.raise_for_status()
+    open(cfg["buses"]["file"], "wb").write(r.content)
+    print(f"{len(r.json()['elements'])} bus route relations -> {cfg['buses']['file']}")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "net"
     if cmd == "corridors":
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import realcorridors
         sys.exit(realcorridors.build(sys.argv[2], OUT))
-    {"net": cmd_net, "fetch-osm": cmd_fetch_osm, "counties": cmd_counties, "targets": cmd_targets, "geom": cmd_geom, "route": cmd_route, "colours": cmd_colours,
+    {"net": cmd_net, "fetch-osm": cmd_fetch_osm, "fetch-osm-bus": cmd_fetch_osm_bus, "counties": cmd_counties, "targets": cmd_targets, "geom": cmd_geom, "route": cmd_route, "colours": cmd_colours,
      "gamesave": cmd_gamesave, "ship": cmd_ship}[cmd]()

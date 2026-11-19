@@ -278,6 +278,28 @@ fn a_conic_save_converts_to_mercator_with_lengths_moving_by_the_conic_scale() {
     }
 }
 
+/// A bus line's stops placed by hand move with its route when a save changes frame (168Railway's
+/// real Jakarta save is settled in Mercator from the pack's frame): every one stays on the route.
+#[test]
+fn a_bus_lines_hand_stops_convert_with_its_route() {
+    use super::bus::{BusRoute, K_CORNER, K_ROAD};
+    use super::net::LineData;
+    let mut net = Network::new(106.8022, -6.1876, true);
+    let pts = vec![[quant(0.0), quant(0.0)], [quant(3000.0), quant(0.0)], [quant(3000.0), quant(4000.0)]];
+    let hand = vec![[quant(1500.0), quant(0.0)], [quant(3000.0), quant(2000.0)]];
+    let route = BusRoute { points: pts, kinds: vec![K_CORNER | K_ROAD, K_ROAD, K_CORNER | K_ROAD], built: true, spacing: 0, hand: Some(hand), hand_kept: vec![] };
+    let id = net.alloc_line();
+    net.set_line(id, Some(LineData { name: "1".into(), symbol: String::new(), colour: 0xff0000, stops: vec![], path: vec![], tph: [0.0; 3], trains: Some([0; 3]), auto: Some([300, 480, 1200]),
+        dwell_s: 30.0, turnaround_s: 180.0, cars: 1, fast: false, bus: Some(route), ferry: None, group: 0, group_name: String::new(), group_look: Default::default(), day: 0, hand: false, one_way: false, limit: 0, twin: Default::default(), weekend: Default::default() })).unwrap();
+    let merc = super::save::decode(&super::save::convert_frame(&super::save::encode(&net), FrameKind::Merc).unwrap()).unwrap();
+    let r = merc.line_data(id).unwrap().bus.unwrap();
+    let (a, b, c) = (r.points[0], r.points[1], r.points[2]);
+    let h = r.hand.unwrap();
+    // the first on the first leg (y as its ends'), the second on the second (x as its ends')
+    assert!((h[0][1] - a[1]).abs() < 1.0 && h[0][0] > a[0] && h[0][0] < b[0], "{:?} {:?}", h[0], (a, b));
+    assert!((h[1][0] - b[0]).abs() < 1.0 && h[1][1] > b[1] && h[1][1] < c[1], "{:?} {:?}", h[1], (b, c));
+}
+
 /// T-308: what converting a real legacy-frame save to Mercator changes, line by line. Needs the
 /// real save (trainworld/T-007-real-nyc.save, Anita's), so it runs only on request:
 /// `cargo test --manifest-path sim/Cargo.toml --release t308 -- --ignored --nocapture`.
