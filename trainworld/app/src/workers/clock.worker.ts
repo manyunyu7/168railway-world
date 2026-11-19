@@ -2956,6 +2956,9 @@ async function loadGame(bytes: Uint8Array, from: "autosave" | "file" | "new", fr
   newLineWeekendShare = typeof h.newWeekendShare === "number" && Number.isFinite(h.newWeekendShare) ? h.newWeekendShare : null;
   newLineHeadway = cleanNewHeadways(h.newHeadway);
   guide = h.mode === "sandbox" ? undefined : h.guide;
+  // 168Railway: a normal game started from a real network (Jabodetabek's presets) gets the guide too, on its second
+  // card (running the lines: play, crowding, the levels, traffic, the share): the first card's building is done
+  if (fresh?.real && h.mode === "normal" && guideWanted && !testPage) guide = { done: 0, card: 2 };
   home = h.home;
   copyOf = !fresh && typeof h.copy === "string" && h.copy ? h.copy : undefined;
   api!.set_cash(h.cash + unsettleAfter(h.clock));
