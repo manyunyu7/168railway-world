@@ -2115,3 +2115,11 @@ html.ui-hidden .ui-hint.on { display: block; }
   .start-save .save-thumb { width: 100%; height: auto; aspect-ratio: 3 / 2; }
   .start-save .save-info { padding-right: 40px; }
 }
+/* 168Railway: a guest's start menu, the game shown and a sign-in to play */
+.guest-gate { gap: 12px; }
+.guest-gate-snap { display: block; width: 100%; height: auto; aspect-ratio: 600 / 350; object-fit: cover; border-radius: 12px; border: 1px solid var(--rule); background: var(--shade); }
+.guest-gate-title { margin: 2px 0 0; font-size: 22px; line-height: 1.15; font-weight: 850; }
+.guest-gate-text { margin: 0; color: var(--muted); }
+.guest-gate-list { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.guest-gate-login { width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px; min-height: 49px; }
+.guest-gate-note { margin: 0; text-align: center; }

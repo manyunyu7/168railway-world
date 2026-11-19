@@ -9,6 +9,7 @@ import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { startMetroBackdrop } from "./metroBackdrop";
 import { noteVisit } from "../game/visitNote";
+import { checkHostAuth, HOST_LOGIN } from "../game/hostSession";
 import { HOME_CITY, isCity } from "../game/cities";
 import { choosing } from "../game/loading";
 import { display, dropMarket, keepMarket } from "../game/ui";
@@ -110,7 +111,34 @@ function UpdateRow({ onChangelog }: { onChangelog: () => void }) {
   </div>;
 }
 
-function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void> }) {
+/** 168Railway: a guest's card, the game shown and one way on: sign in (or register from the sign-in page), then
+ * straight back here. */
+function GuestGate({ first }: { first: { current: HTMLButtonElement | null } }) {
+  const [going, setGoing] = useState(false);
+  // back from the sign-in page (the browser's back-forward cache keeps this page as it was): the button again
+  useEffect(() => { const back = (e: PageTransitionEvent) => { if (e.persisted) setGoing(false); }; addEventListener("pageshow", back); return () => removeEventListener("pageshow", back); }, []);
+  return <div class="start-box guest-gate">
+    {!LOGO && <RailwayBrand />}
+    <img class="guest-gate-snap" src="./snapshots/jak.jpg" width={600} height={350} alt={t("startMenu.guestSnapAlt")} />
+    <h2 id="start-title" class="guest-gate-title">{t("startMenu.guestTitle")}</h2>
+    <p class="guest-gate-text">{t("startMenu.guestText")}</p>
+    <ul class="guest-gate-list">
+      <li>{t("startMenu.guestPoint1")}</li>
+      <li>{t("startMenu.guestPoint2")}</li>
+      <li>{t("startMenu.guestPoint3")}</li>
+    </ul>
+    <button ref={first} class="btn start-new guest-gate-login" disabled={going} onClick={() => { setGoing(true); location.href = HOST_LOGIN; }}>
+      <Icon.train />{going ? t("startMenu.guestGoing") : t("startMenu.guestLogin")}
+    </button>
+    <p class="muted small guest-gate-note">{t("startMenu.guestNote")}</p>
+    <div class="railway-start-footer">
+      <a href="./about.html" target="_blank" rel="noopener">{t("railway.credits")}</a>
+      <div class="start-top"><LanguageSelect /></div>
+    </div>
+  </div>;
+}
+
+function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest = false }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void>; guest?: boolean }) {
   // T-3073: every game opened here has inter-city trips unless the warning's lite button asked otherwise
   const pick = (c: GameChoice, lite = false) => { if (lite) dropMarket(); else keepMarket(); pickGame(c); };
   const first = useRef<HTMLButtonElement>(null);
@@ -206,7 +234,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
     {LOGO && <span>168Railway World</span>}
     <p class="start-version muted small">{t("startMenu.build", { version: VERSION })}</p>
     {/* T-2753: the language on the card's first row at the right, so a new player (who lands on the sheet) sets it first */}
-    {sheet ? <div class="start-box new-game-box">
+    {guest ? <GuestGate first={first} /> : sheet ? <div class="start-box new-game-box">
       <div class="start-titlebar"><h1 id="start-title" class="big">{t("startMenu.newGame")}</h1><div class="start-top"><LanguageSelect /><AccountButton kind="start" /></div></div>
       <NewGameSheet heading={false} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
     </div> : <div class="start-box">
@@ -257,7 +285,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
         </ul>
       </>}
     </div>}
-    {!sheet && <UpdateRow onChangelog={() => setChangelog(true)} />}
+    {!sheet && !guest && <UpdateRow onChangelog={() => setChangelog(true)} />}
     <Changelog open={changelog} onClose={() => setChangelog(false)} />
   </div>;
 }
@@ -301,6 +329,9 @@ export function showStartMenu(onPick: (c: GameChoice) => void) {
   // read says so (T-2705)
   const q = new URLSearchParams(location.search);
   if (q.get("debug") === "1") failLists(Number(q.get("listFails")) || 0);
-  void listSlots().then((slots) => ({ slots, unread: false }), (err) => ({ slots: [] as SaveSlot[], unread: err instanceof StorageReadError }))
-    .then(({ slots, unread }) => { if (!done) { noteVisit("open"); render(h(Menu, { slots, unread, pick, settling }), root); } });
+  // 168Railway: guests see the menu but sign in to play; the check runs beside the slots' listing, so the menu
+  // shows once, already right (a failed or slow check lets the player in)
+  const slotsRead = listSlots().then((slots) => ({ slots, unread: false }), (err) => ({ slots: [] as SaveSlot[], unread: err instanceof StorageReadError }));
+  void Promise.all([slotsRead, checkHostAuth()])
+    .then(([{ slots, unread }, auth]) => { if (!done) { noteVisit("open"); render(h(Menu, { slots, unread, pick, settling, guest: auth === "out" }), root); } });
 }
