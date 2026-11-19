@@ -8,6 +8,7 @@ import {HostWorlds} from "./HostWorlds";
 import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { startMetroBackdrop } from "./metroBackdrop";
+import { noteVisit } from "../game/visitNote";
 import { HOME_CITY, isCity } from "../game/cities";
 import { choosing } from "../game/loading";
 import { display, dropMarket, keepMarket } from "../game/ui";
@@ -277,6 +278,7 @@ export function showStartMenu(onPick: (c: GameChoice) => void) {
   const pick = (c: GameChoice) => {
     if (done) return;
     done = true;
+    if (!c.newGame) noteVisit("continue");
     stopStartSettle();
     unblock();
     render(null, root);
@@ -300,5 +302,5 @@ export function showStartMenu(onPick: (c: GameChoice) => void) {
   const q = new URLSearchParams(location.search);
   if (q.get("debug") === "1") failLists(Number(q.get("listFails")) || 0);
   void listSlots().then((slots) => ({ slots, unread: false }), (err) => ({ slots: [] as SaveSlot[], unread: err instanceof StorageReadError }))
-    .then(({ slots, unread }) => { if (!done) render(h(Menu, { slots, unread, pick, settling }), root); });
+    .then(({ slots, unread }) => { if (!done) { noteVisit("open"); render(h(Menu, { slots, unread, pick, settling }), root); } });
 }

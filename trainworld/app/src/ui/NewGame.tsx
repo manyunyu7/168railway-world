@@ -19,6 +19,7 @@ import realNetworks from "../game/realNetworks.json";
 import { patientFetch } from "../workers/patientFetch";
 import { startRightHand } from "../game/runningSide";
 import { homeCountry } from "../game/flags";
+import { noteVisit } from "../game/visitNote";
 
 /** The suggested starts (T-728): 168Railway offers Indonesia's biggest cities (every other city stays a search
  * away). */
@@ -214,6 +215,7 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
     setStartAt(!jaboStart && located ? { center: located.at, zoom: city ? city.zoom : LOCATED_WORLD_ZOOM } : null);
     // T-1441: a new game opens with the Destinations bubbles on; T-2685: Homes for the tutorial's
     display.value = { ...display.peek(), commuters: true, commuterEnd: newGameEnd(mode) };
+    noteVisit("start", { mode: spec.mode, city: spec.start ?? null, scen: jaboStart ?? (file ?? null) });
     onStart(spec);
   };
   const modeBtn = (m: GameMode, label: string, tip: string | undefined, ref?: typeof first) => (
