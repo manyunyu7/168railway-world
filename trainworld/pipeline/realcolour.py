@@ -198,7 +198,9 @@ def line_colours(cfg, lines):
         elif ad == "n02":
             c = nori_by_name("jp", l["name"], re.escape(l["operator"].replace("　", "")))
         elif ad == "trips":
-            if cfg.get("pack") == "lon":
+            if s.get("route_colour"):  # the source's own (Jakarta's KRL from GAPEKA)
+                c = s["route_colour"].get(route)
+            elif cfg.get("pack") == "lon":
                 c = nori_by_id("gb", LON_TFL.get(route, ""))
             elif cfg.get("pack") == "seo":
                 c = nori_by_id("kr", SEO_LINES.get(route, ""))

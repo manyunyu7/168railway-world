@@ -18,7 +18,7 @@ const ABBREVIATIONS: [&str; 16] = ["ST", "MT", "FT", "DR", "RD", "JCT", "BLVD", 
 /// Small words, lower case away from the start.
 const SMALL: [&str; 4] = ["OF", "THE", "AND", "AT"];
 /// The `feed` keys of `pipeline/realnet.py`'s sources, the first word of an imported line's name.
-const FEEDS: [&str; 15] = ["subway", "path", "lirr", "mnr", "njt", "tfl", "nr", "idfm", "osm", "seo", "ttc", "go", "up", "s12", "n02"];
+const FEEDS: [&str; 16] = ["subway", "path", "lirr", "mnr", "njt", "tfl", "nr", "idfm", "osm", "seo", "ttc", "go", "up", "s12", "n02", "krl"];
 /// Joins the names a complex's stations had.
 const JOIN: &str = " / ";
 

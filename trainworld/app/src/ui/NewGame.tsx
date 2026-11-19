@@ -25,6 +25,9 @@ const START_CITIES = ["nyc", "jak", "lon", "par", "gua", "tyo"];
 /** The cities with a real network a sandbox can start from (`packs/real/<id>.save`; the list is
  * written by pipeline/realauto.py ship). */
 const REAL_NETWORKS = new Set<string>(realNetworks);
+/** 168Railway: real networks a normal game can start from too (the network is the city's opening asset,
+ * the cash the usual start's). Jakarta: KRL from GAPEKA 2026, MRT and LRT from OSM. */
+const REAL_NORMAL = new Set<string>(["jak"]);
 const MAX_HITS = 8;
 
 function countryOf(c: City): string {
@@ -158,10 +161,10 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
   const hits = useMemo(() => (start && isCity(start) && text === shown(cityById(start)) ? [] : findStart(text)), [text, start]);
   const startId = located ? located.zone : start;
   const city = startId ? cityById(startId) : null;
-  const realOffered = mode === "sandbox" && !!startId && REAL_NETWORKS.has(startId);
+  const realOffered = !!startId && REAL_NETWORKS.has(startId) && (mode === "sandbox" || REAL_NORMAL.has(startId));
   // T-3225: the real networks by name, for the sandbox's list
-  const realCities = useMemo(() => [...REAL_NETWORKS].filter((id) => isCity(id)).map((id) => cityById(id))
-    .sort((a, b) => shown(a).localeCompare(shown(b))), []);
+  const realCities = useMemo(() => [...REAL_NETWORKS].filter((id) => isCity(id) && (mode === "sandbox" || REAL_NORMAL.has(id))).map((id) => cityById(id))
+    .sort((a, b) => shown(a).localeCompare(shown(b))), [mode]);
   const rightHand = startRightHand(startId, realOffered && real, home);
   const pick = (id: string | null) => {
     asked.current++;
@@ -247,7 +250,7 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
         <button class={"btn text new-game-map" + (!startId && !located ? " on" : "")} aria-pressed={!startId && !located} onClick={() => pick(null)}>{t("newGame.chooseOnMap")}</button>
       </div>
       {/* T-3225: one list of every city with a real network; picking one makes it the start */}
-      {mode === "sandbox" && realCities.length > 0 && <div class="new-game-real" data-tip={realOffered && real ? t("newGame.realTip", { city: shown(city!) }) : undefined}>
+      {realCities.length > 0 && <div class="new-game-real" data-tip={realOffered && real ? t("newGame.realTip", { city: shown(city!) }) : undefined}>
         <span>{t("newGame.realNetwork")}</span>
         <label class={"purpose-filter" + (realOffered && real ? " on" : "")}>
           <select aria-label={t("newGame.realNetwork")} value={realOffered && real ? startId! : ""} onChange={(e) => {

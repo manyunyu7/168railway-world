@@ -265,6 +265,32 @@ CITIES["jpn"] = {
 CITIES["jpn7"] = {**CITIES["jpn"], "out": os.path.join(OUT, "jpn7_real.json"), "boundary": ["tyo", "osa", "ngo", "fuk", "spk", "sdj", "hij"],
                   "boundary_km": 10.0, "what": "Japan's rail in its seven city packs from N02 (T-737, rough)",
                   "sources": [dict(CITIES["jpn"]["sources"][0])]}
+# Jakarta (168Railway): Jabodetabek urban rail. KRL Commuter Line (Bogor/Nambo, Cikarang loop,
+# Rangkasbitung, Tangerang, Tanjung Priok, Bandara Soekarno-Hatta) is GAPEKA 2026's own
+# timetable (KP-DJKA 116/2026, from 1 Dec 2026; pipeline/gapeka_jak.py writes the trips). MRT
+# North-South, LRT Jakarta, LRT Jabodebek and Kalayang are not in GAPEKA: OSM route relations
+# (`only`), trains an hour each way (peak, midday, first hour) from the operators' published
+# headways, rough. Intercity trains, Whoosh and the unbuilt MRT East-West are out.
+# KRL 12 x 20 m cars (Tanjung Priok 8); MRT 6 cars; LRT Jabodebek 6 short cars; LRT Jakarta 2.
+CITIES["jak"] = {
+    "pack": "jak",
+    "out": os.path.join(OUT, "jak_real.json"),
+    "what": "Jabodetabek's urban rail: KRL from GAPEKA 2026, MRT/LRT from OSM (168Railway)",
+    "count_point": [106.8456, -6.1862],  # Gambir
+    "sources": [{"name": "krl", "adapter": "trips", "file": os.path.join(OUT, "jak_krl_trips.csv"), "min_share": 0.05, "min_trips": 4,
+                 "kind": "commuter", "operator": "kci", "train_m": {"_": 240, "TP": 160},
+                 # KAI Commuter's line colours
+                 "route_colour": {"B": "#e30a16", "C": "#0084d8", "R": "#16812b", "T": "#8b4513", "TP": "#dd0067", "A": "#26357b"}},
+                {"name": "osm", "adapter": "osm", "file": os.path.join(RAW, "t509", "osm_jak.json"), "min_share": 0.05, "min_trips": 4,
+                 "only": r"r(9677669|9677670|10693119|10693160|16036440|16036441|16079478|16079479|15031928|15031929)$",
+                 "lines": [
+                     (r"MRT|North-South", {"tph": (12, 6, 4), "kmh": 33, "train_m": 120, "operator": "mrtj", "name": "MRT Jakarta Lin Utara-Selatan"}),
+                     (r"LRT Jakarta", {"tph": (6, 6, 3), "kmh": 25, "train_m": 40, "operator": "lrtj", "name": "LRT Jakarta"}),
+                     (r"Cibubur Line", {"tph": (10, 6, 3), "kmh": 40, "train_m": 100, "operator": "lrt_jabodebek", "name": "LRT Jabodebek Lin Cibubur"}),
+                     (r"Bekasi Line", {"tph": (10, 6, 3), "kmh": 40, "train_m": 100, "operator": "lrt_jabodebek", "name": "LRT Jabodebek Lin Bekasi"}),
+                     (r"Kalayang", {"tph": (6, 6, 3), "kmh": 30, "train_m": 40, "operator": "kalayang", "name": "Kalayang Bandara Soekarno-Hatta"}),
+                 ]}],
+}
 CAR_M = 20.0
 LEVEL_WINDOWS = {0: [(7, 9), (17, 19)], 1: [(10, 16)], 2: [(0, 6)]}
 DAY = (6, 20)
@@ -499,6 +525,9 @@ def load_osm(src, inside):
         # relations not tagged as high speed or long distance that are (`skip_name`, a regex)
         if src.get("skip_name") and re.search(src["skip_name"], label(r)):
             continue
+        # only the relations a source names (`only`, a regex on the same label; Jakarta)
+        if src.get("only") and not re.search(src["only"], label(r)):
+            continue
         stops = [m for m in r["members"] if m["role"] in ("stop", "stop_entry_only", "stop_exit_only")]
         if not stops:
             stops = [m for m in r["members"] if m["role"] in ("platform", "platform_entry_only", "platform_exit_only")]
@@ -556,6 +585,8 @@ def load_osm(src, inside):
         if len(ks) < 2:
             continue
         ov = override(r)
+        if ov.get("name"):  # the line's name in the game (Jakarta: OSM's refs are one or two letters)
+            names[route] = ov["name"]
         if ov.get("operator"):
             src.setdefault("route_operator", {})[route] = ov["operator"]
         kmh = ov.get("kmh", OSM_KMH[kind])
@@ -803,7 +834,8 @@ def cmd_net(city=None):
     used = sorted({k for l in lines for k in l["stops"]})
     for b, a in alias.items():
         if b in stations and a in stations:
-            stations[a]["name"] = stations[a]["name"] + " / " + stations[b]["name"]
+            if stations[b]["name"] not in stations[a]["name"].split(" / "):  # one name once (Jakarta's airport)
+                stations[a]["name"] = stations[a]["name"] + " / " + stations[b]["name"]
     idx = {k: i for i, k in enumerate(used)}
     st_list = [stations[k] for k in used]
     for l in lines:
@@ -1188,7 +1220,7 @@ def out_or_work(name):
 
 
 # T-1303: each real network's region in data/packs/realgraph/ (noritetsu's region codes)
-REGION = {"nyc": "us", "lon": "gb", "par": "fr", "tyo": "jp", "seo": "kr", "tor": "ca", "sdj": "jp"}
+REGION = {"nyc": "us", "lon": "gb", "par": "fr", "tyo": "jp", "seo": "kr", "tor": "ca", "sdj": "jp", "jak": "id"}
 ROUTE_R = 150.0
 ROUTE_SLACK = 1.5
 ROUTE_SLACK_M = 400.0
@@ -1383,7 +1415,7 @@ def cmd_gamesave():
 
 # T-731: the cities a sandbox can start from their real network (the app's list, game/realNetworks.json,
 # which `realauto.py ship` writes)
-SHIPPED = ["nyc", "lon", "par", "tyo", "seo", "tor", "sdj"]
+SHIPPED = ["nyc", "lon", "par", "tyo", "seo", "tor", "sdj", "jak"]
 
 
 def auto_city(pack, region):
