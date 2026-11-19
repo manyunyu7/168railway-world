@@ -2097,3 +2097,10 @@ html.ui-hidden .ui-hint.on { display: block; }
 .new-version-note { border-color: var(--accent); }
 .new-version-note .dsn-row .btn { border-color: var(--accent); color: var(--text); }
 .stop-mark.hot { box-shadow: 0 0 0 3px var(--map-casing, #fff), 0 0 0 5px var(--c), 0 0 12px 6px var(--c); z-index: 4; }
+/* 168Railway: the lead offer, Jabodetabek's network as it runs (a card above the build-from-scratch starts) */
+.new-game-jabo { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 2px solid var(--accent); border-radius: 14px; background: var(--tint); }
+.new-game-jabo-head { display: flex; flex-direction: column; gap: 2px; }
+.new-game-jabo-head strong { font-size: 1.1em; }
+.new-game-jabo .purpose-filter { margin-left: 0; font-size: inherit; }
+.new-game-jabo select { width: 100%; }
+.new-game-jabo-start { align-self: stretch; justify-content: center; }

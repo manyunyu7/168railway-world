@@ -472,6 +472,13 @@ def build(city, out_dir, avoid=None):
     geo = json.load(open(realnet.out_or_work(f"{city}_real_geom.json")))["lines"]
     assert len(geo) == len(net["lines"]) and all(len(g["nodes"]) == len(l["stops"]) for g, l in zip(geo, net["lines"])), \
         f"{city}_real_geom.json does not match {city}_real.json"
+    if not net["lines"]:
+        # 168Railway: a scenario with no rail (Jakarta's TransJakarta alone): an empty track model
+        os.makedirs(out_dir, exist_ok=True)
+        p = os.path.join(out_dir, f"{city}_real_corridors.json")
+        json.dump({"city": city, "stats": {}, "pieces": [], "nodes": [], "lines": [], "model": {"nodes": [], "edges": [], "lines": [], "stats": {}}}, open(p, "w"))
+        print(f"no rail lines: an empty track model -> {p}")
+        return 0
     xy = np.array([p for g in geo for p in g["nodes"]])
     box = (*(xy.min(0) - 5000), *(xy.max(0) + 5000))
     graph = Graph(os.path.join(realnet.REALGRAPH, f"{realnet.REGION[city]}.rgr"), o, box, realnet.R_EARTH)

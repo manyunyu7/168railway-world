@@ -296,6 +296,18 @@ CITIES["jak"] = {
               "name": "TransJakarta Koridor {ref}",
               "headway": {"_": (300, 480, 1200), "1": (180, 300, 900), "9": (180, 300, 900)}},
 }
+# Jakarta's starting scenarios (168Railway): the same sources, some of the lines. `jak` is the whole
+# network; each of these is shipped as data/packs/real/<id>.save and offered on the new game sheet.
+JAK_BUSES = CITIES["jak"]["buses"]
+for _id, _what, _keep, _buses in [
+    ("jak_krl", "KRL Commuter Line only", r"^Commuter Line ", None),
+    ("jak_tj", "TransJakarta BRT corridors only", r"^$", JAK_BUSES),
+    # as in 2019: no LRT Jabodebek (opened 2023), no BRT corridor 14 (2022); timetables still GAPEKA 2026's
+    ("jak_2019", "the network as in 2019", r"^(?!LRT Jabodebek)", {**JAK_BUSES, "refs": [str(i) for i in range(1, 14)]}),
+    ("jak_bogor", "Commuter Line Bogor only", r"^Commuter Line Bogor$", None),
+]:
+    CITIES[_id] = {**CITIES["jak"], "out": os.path.join(OUT, f"{_id}_real.json"), "what": f"Jakarta scenario: {_what} (168Railway)",
+                   "keep_lines": _keep, "buses": _buses}
 CAR_M = 20.0
 LEVEL_WINDOWS = {0: [(7, 9), (17, 19)], 1: [(10, 16)], 2: [(0, 6)]}
 DAY = (6, 20)
@@ -885,6 +897,11 @@ def cmd_net(city=None):
         print(f"  {name}: {len(ls)} lines from {len(set(l['route'] for l in ls))} routes")
         lines += ls
         left_out += src.get("dropped", [])
+    # 168Railway: a scenario keeps only the lines whose name matches (`keep_lines`, a regex)
+    if cfg.get("keep_lines") is not None:
+        import re
+        lines = [l for l in lines if re.search(cfg["keep_lines"], l["name"])]
+        print(f"  {len(lines)} lines kept for the scenario")
     # merge stations of different sources within merge_m (one interchange)
     keys = [k for k in stations if k not in no_merge] if merge_m > 0 else []
     alias = {}
@@ -1297,6 +1314,7 @@ def out_or_work(name):
 
 # T-1303: each real network's region in data/packs/realgraph/ (noritetsu's region codes)
 REGION = {"nyc": "us", "lon": "gb", "par": "fr", "tyo": "jp", "seo": "kr", "tor": "ca", "sdj": "jp", "jak": "id"}
+REGION.update({c: "id" for c in CITIES if c.startswith("jak_")})  # Jakarta's scenarios
 ROUTE_R = 150.0
 ROUTE_SLACK = 1.5
 ROUTE_SLACK_M = 400.0
@@ -1494,7 +1512,7 @@ def cmd_gamesave():
 
 # T-731: the cities a sandbox can start from their real network (the app's list, game/realNetworks.json,
 # which `realauto.py ship` writes)
-SHIPPED = ["nyc", "lon", "par", "tyo", "seo", "tor", "sdj", "jak"]
+SHIPPED = ["nyc", "lon", "par", "tyo", "seo", "tor", "sdj", "jak", "jak_krl", "jak_tj", "jak_2019", "jak_bogor"]
 
 
 def auto_city(pack, region):

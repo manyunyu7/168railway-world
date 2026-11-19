@@ -9,25 +9,28 @@ import { zoneHolding } from "../game/realms";
 import { cityMatch, matchScore, normalise } from "../game/search";
 import type { GameMode, NewGameSpec } from "../workers/saveFile";
 import { dataUrl } from "../game/dataBase";
-import { display } from "../game/ui";
+import { display, setDisplay } from "../game/ui";
+import { CURRENCIES, CURRENCY, isCurrency } from "../game/currency";
 import { startTier } from "../game/startDifficulty";
 import { newGameEnd, setStartAt } from "./locate";
-import { t, tCountry } from "../i18n";
+import { t, tCountry, type MessageKey } from "../i18n";
 import { tPlace } from "../i18n/places";
 import realNetworks from "../game/realNetworks.json";
 import { patientFetch } from "../workers/patientFetch";
 import { startRightHand } from "../game/runningSide";
 import { homeCountry } from "../game/flags";
 
-/** The suggested starts (T-728), easy starts (T-2690); Guangzhou for Toronto, for a start outside the West with
- * many cities near it (Anita, 2026-11-06). */
-const START_CITIES = ["nyc", "jak", "lon", "par", "gua", "tyo"];
+/** The suggested starts (T-728): 168Railway offers Indonesia's biggest cities (every other city stays a search
+ * away). */
+const START_CITIES = ["jak", "sur", "bad", "yog", "sem", "med", "maa", "den"];
 /** The cities with a real network a sandbox can start from (`packs/real/<id>.save`; the list is
  * written by pipeline/realauto.py ship). */
 const REAL_NETWORKS = new Set<string>(realNetworks);
-/** 168Railway: real networks a normal game can start from too (the network is the city's opening asset,
- * the cash the usual start's). Jakarta: KRL from GAPEKA 2026, MRT and LRT from OSM. */
-const REAL_NORMAL = new Set<string>(["jak"]);
+/** 168Railway: Jabodetabek's network as it runs, in a normal game or a sandbox (the network is the opening asset,
+ * the cash the usual start's): `packs/real/<id>.save`, from pipeline/realnet.py's Jakarta scenarios. The first is
+ * the whole network (KRL from GAPEKA 2026, MRT, LRT, Kalayang, TransJakarta BRT 1-14). */
+const JABO_SCENARIOS = ["jak", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
+type JaboScenario = (typeof JABO_SCENARIOS)[number];
 const MAX_HITS = 8;
 
 function countryOf(c: City): string {
@@ -161,10 +164,11 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
   const hits = useMemo(() => (start && isCity(start) && text === shown(cityById(start)) ? [] : findStart(text)), [text, start]);
   const startId = located ? located.zone : start;
   const city = startId ? cityById(startId) : null;
-  const realOffered = !!startId && REAL_NETWORKS.has(startId) && (mode === "sandbox" || REAL_NORMAL.has(startId));
+  const realOffered = mode === "sandbox" && !!startId && REAL_NETWORKS.has(startId);
+  const [jabo, setJabo] = useState<JaboScenario>("jak");
   // T-3225: the real networks by name, for the sandbox's list
-  const realCities = useMemo(() => [...REAL_NETWORKS].filter((id) => isCity(id) && (mode === "sandbox" || REAL_NORMAL.has(id))).map((id) => cityById(id))
-    .sort((a, b) => shown(a).localeCompare(shown(b))), [mode]);
+  const realCities = useMemo(() => [...REAL_NETWORKS].filter((id) => isCity(id)).map((id) => cityById(id))
+    .sort((a, b) => shown(a).localeCompare(shown(b))), []);
   const rightHand = startRightHand(startId, realOffered && real, home);
   const pick = (id: string | null) => {
     asked.current++;
@@ -192,20 +196,22 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
       setHere("idle");
     }, () => { window.clearTimeout(timer); fail(); }, { timeout: LOCATE_WAIT_MS });
   };
-  const go = async () => {
+  const go = async (jaboStart?: JaboScenario) => {
     if (busy) return;
-    const spec: NewGameSpec = { mode, start: startId ?? undefined, rightHand };
-    if (realOffered && real) {
+    // 168Railway: Jabodetabek's network as it runs, from its card, in either mode
+    const spec: NewGameSpec = jaboStart ? { mode, start: "jak", rightHand: startRightHand("jak", true, home) } : { mode, start: startId ?? undefined, rightHand };
+    const file = jaboStart ?? (realOffered && real ? startId! : null);
+    if (file) {
       setBusy(true);
       try {
-        spec.real = await realNetwork(startId!);
+        spec.real = await realNetwork(file);
       } catch {
         setBusy(false);
-        setError(t("newGame.downloadFailed", { city: shown(city!) }));
+        setError(t("newGame.downloadFailed", { city: shown(cityById(spec.start!)) }));
         return;
       }
     }
-    setStartAt(located ? { center: located.at, zoom: city ? city.zoom : LOCATED_WORLD_ZOOM } : null);
+    setStartAt(!jaboStart && located ? { center: located.at, zoom: city ? city.zoom : LOCATED_WORLD_ZOOM } : null);
     // T-1441: a new game opens with the Destinations bubbles on; T-2685: Homes for the tutorial's
     display.value = { ...display.peek(), commuters: true, commuterEnd: newGameEnd(mode) };
     onStart(spec);
@@ -220,8 +226,32 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
         {modeBtn("normal", t("newGame.normal"), undefined, first)}
         {modeBtn("sandbox", t("newGame.sandbox"), t("newGame.sandboxTip"))}
       </div>
+      {/* 168Railway: carry on Jabodetabek's network as it runs, the lead offer */}
+      <div class="new-game-jabo">
+        <div class="new-game-jabo-head">
+          <strong>{t("newGame.jaboTitle")}</strong>
+          <span class="muted small">{t("newGame.jaboNote")}</span>
+        </div>
+        <label class="purpose-filter">
+          <select aria-label={t("newGame.jaboScenario")} value={jabo} onChange={(e) => setJabo((e.target as HTMLSelectElement).value as JaboScenario)}>
+            {JABO_SCENARIOS.map((id) => <option value={id}>{t(`newGame.jabo.${id}` as MessageKey)}</option>)}
+          </select>
+        </label>
+        <span class="muted small">{t(`newGame.jaboTip.${jabo}` as MessageKey)}</span>
+        <button class="btn text start-new new-game-jabo-start" disabled={busy} onClick={() => void go(jabo)}>{t("newGame.jaboStart")}</button>
+      </div>
+      {/* 168Railway: the money's currency, Rupiah first (display only, as the setting: the game counts US$) */}
+      <div class="new-game-real new-game-currency">
+        <span>{t("settingsTab.currency")}</span>
+        <label class="purpose-filter">
+          <select aria-label={t("settingsTab.currency")} value={isCurrency(display.value.currency) ? display.value.currency : "USD"}
+            onChange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (isCurrency(v)) setDisplay("currency", v); }}>
+            {CURRENCIES.map((c) => <option key={c} value={c}>{c === "IDR" ? t("newGame.rupiah") : CURRENCY[c].label}</option>)}
+          </select>
+        </label>
+      </div>
       <div class="new-game-where">
-        <span class="start-head">{t("newGame.startIn")}</span>
+        <span class="start-head">{t("newGame.orBuild")}</span>
         <div class="new-game-cities">
           {START_CITIES.map((id) => (
             <button class={"btn text" + (start === id ? " on" : "")} aria-pressed={start === id} data-city={id} onClick={() => pick(id)}>{shown(cityById(id))}</button>
@@ -250,7 +280,7 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
         <button class={"btn text new-game-map" + (!startId && !located ? " on" : "")} aria-pressed={!startId && !located} onClick={() => pick(null)}>{t("newGame.chooseOnMap")}</button>
       </div>
       {/* T-3225: one list of every city with a real network; picking one makes it the start */}
-      {realCities.length > 0 && <div class="new-game-real" data-tip={realOffered && real ? t("newGame.realTip", { city: shown(city!) }) : undefined}>
+      {mode === "sandbox" && realCities.length > 0 && <div class="new-game-real" data-tip={realOffered && real ? t("newGame.realTip", { city: shown(city!) }) : undefined}>
         <span>{t("newGame.realNetwork")}</span>
         <label class={"purpose-filter" + (realOffered && real ? " on" : "")}>
           <select aria-label={t("newGame.realNetwork")} value={realOffered && real ? startId! : ""} onChange={(e) => {

@@ -77,7 +77,8 @@ export type Currency = keyof typeof TABLE;
 export const CURRENCY: Record<Currency, CurrencySpec> = TABLE;
 
 /** The picker's order: the ten most chosen first, then the rest by code. */
-const FIRST: Currency[] = ["USD", "EUR", "GBP", "JPY", "CNY", "KRW", "CAD", "AUD", "INR", "MXN"];
+// 168Railway: Rupiah first
+const FIRST: Currency[] = ["IDR", "USD", "EUR", "GBP", "JPY", "CNY", "KRW", "CAD", "AUD", "INR", "MXN"];
 export const CURRENCIES: readonly Currency[] = [...FIRST, ...(Object.keys(TABLE) as Currency[]).filter((c) => !FIRST.includes(c)).sort()];
 
 export const isCurrency = (s: unknown): s is Currency => typeof s === "string" && Object.prototype.hasOwnProperty.call(TABLE, s);
