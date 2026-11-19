@@ -4,7 +4,7 @@ Fork publik dari circularsquare/trainsworld commit 405ecf55b1816994d7ec19a3a1834
 
 ## Menjalankan fork
 
-Pasang Node, Rust, target wasm32-unknown-unknown dan wasm-pack. Dalam trainworld/app jalankan npm ci dan npm run build. Sajikan dist di /studio-fork/. index.html mematok tw-data pada /studio-data/2026-11-18/ di domain 168railway.com. Berkas data terbit dari pipeline distribusi terpisah. Lihat NOTICE.md untuk lisensi masing-masing sumber. Peta dasar dan sebagian imagery publik tetap memakai penyedia petak daring. Lapisan EOX tidak digunakan pada fork ini.
+Pasang Node, Rust, target wasm32-unknown-unknown dan wasm-pack. Dalam trainworld/app jalankan npm ci dan npm run build. Sajikan dist di /studio/ (sampai 19 November 2026 di /studio-fork/, kini dialihkan ke /studio/ oleh web 168Railway). index.html mematok tw-data pada /studio-data/2026-11-18/ di domain 168railway.com. Berkas data terbit dari pipeline distribusi terpisah. Lihat NOTICE.md untuk lisensi masing-masing sumber. Peta dasar dan sebagian imagery publik tetap memakai penyedia petak daring. Lapisan EOX tidak digunakan pada fork ini.
 
 Dalam game, buka Simpanan akun 168Railway. Sesi masuk dan CSRF berasal dari /api/web/studio/session pada origin yang sama. Simpan sebagai dunia baru mengekspor berkas TWG1 gzip engine asli. Perbarui memerlukan persetujuan dan versi yang cocok. Buka salinan lokal memakai pengimpor game dan slot lokal baru. Simpanan Studio mandiri JSON mempunyai format lain. Akun di browser tempat link dibuka menentukan akun penyimpanan. Permainan lokal tetap tersedia tanpa akun.
 

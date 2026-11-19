@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright-core');
-const url=process.env.FORK_URL || 'https://168railway.com/studio-fork/';
+const url=process.env.FORK_URL || 'https://168railway.com/studio/';
 const browser=await chromium.launch({channel:'chrome'});
 try {
   const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2});
