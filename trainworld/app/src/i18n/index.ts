@@ -6,7 +6,7 @@ import { signal } from "@preact/signals";
 import type { ComponentChild, ComponentChildren } from "preact";
 import IntlMessageFormat from "intl-messageformat";
 import en from "./messages/en.json";
-import { countryName, formatCompact, formatDate, formatDuration, formatList, formatNumber, formatSeries, formatSpaced, isLang, langOfBrowser, OFFERED, PICKER, type Lang } from "./intl";
+import { countryName, formatCompact, formatDate, formatDuration, formatList, formatNumber, formatSeries, formatSpaced, isLang, OFFERED, PICKER, type Lang } from "./intl";
 
 export { LANGS, LANG_NAMES, isLang, type Lang } from "./intl";
 
@@ -129,10 +129,13 @@ function startLanguage(): Lang {
   }
   if (q && isLang(q)) return q;
   if (saved && isLang(saved)) return saved;
-  return langOfBrowser(typeof navigator !== "undefined" ? (navigator.languages ?? [navigator.language]) : []);
+  // 168Railway: Indonesian until the player picks another (langOfBrowser would follow the browser)
+  return "id";
 }
 
 // T-2672: every module that imports this one waits for the language's messages, so the first render is
 // already in it; English is bundled and waits for nothing. A failed fetch opens in English.
 const first = startLanguage();
+// the page's own lang as the language it opens in (index.html says Indonesian, the usual start)
+if (typeof document !== "undefined") document.documentElement.lang = first;
 if (first !== "en") await setLanguage(first).catch((e) => console.warn(`i18n: ${first} messages did not load:`, e));
