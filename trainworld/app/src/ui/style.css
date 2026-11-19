@@ -2108,3 +2108,10 @@ html.ui-hidden .ui-hint.on { display: block; }
 .start-metro { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(2px); opacity: .5; }
 .start-menu > :not(.start-metro) { position: relative; z-index: 1; }
 .new-game-jabo-snap { display: block; width: 100%; height: auto; aspect-ratio: 600 / 350; object-fit: cover; border-radius: 10px; border: 1px solid var(--rule); background: var(--shade); }
+/* 168Railway: a phone's start menu, the saved game's picture above its facts (as the saves panel's), the bin
+   clear of the words */
+@media (max-width: 600px) {
+  .start-save { flex-direction: column; gap: 8px; }
+  .start-save .save-thumb { width: 100%; height: auto; aspect-ratio: 3 / 2; }
+  .start-save .save-info { padding-right: 40px; }
+}
