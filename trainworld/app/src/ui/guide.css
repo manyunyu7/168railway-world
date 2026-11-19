@@ -1,3 +1,11 @@
 /* T-2263: the step in hand's note, under its words; the card's other rules are in style.css (.guide) */
 .guide-steps .guide-note { grid-column: 2 / -1; color: var(--muted); }
 /* T-2473: a done step's note stays for the rest of the card; T-2686: in the same muted grey, the card has only grey and black */
+
+/* Keep the next actionable Jakarta step visible on touch, even with the checklist folded. */
+.guide.jakarta-guide { width: 290px; max-height: calc(100% - 70px); overflow-y: auto; }
+@media (max-width: 600px) and (min-height: 560px) {
+  .guide.jakarta-guide:not(.open) { width: min(290px, calc(100% - 20px)); }
+  .guide.jakarta-guide:not(.open) .guide-steps { display: grid; }
+  .guide.jakarta-guide:not(.open) .guide-end { display: flex; }
+}

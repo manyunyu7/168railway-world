@@ -25,7 +25,7 @@ import { AVERAGE_DAY, AWAY_DAY, awaySoon, BACK_DAY, DAY_KINDS, OUT_DAY, rushSoon
 import { demandByDay, demandView, platformTransfers, roughZones } from "../game/demand";
 import { linesPending } from "../game/lineFigures";
 import { accountVersion, packArrivals, packRiders } from "../game/boarding";
-import { ask, designSpeed, guideFinished, lineDraft, selection, tool } from "../game/ui";
+import { parkedBuildTool, ask, designSpeed, guideFinished, lineDraft, selection, tool } from "../game/ui";
 import { flipSites, rightHand, say, setEditSink, world, worldIsRows } from "../game/world";
 import type { LineInput, LineStats, StationInput, TrackEdge, TrackNode, WorldView } from "../game/types";
 import type { ClockLine, ClockState, EditOp, FromClock, NetworkSnapshot, PiInput, RouteAsk, StationAt, ToClock } from "./protocol";
@@ -1208,6 +1208,7 @@ export class ClockClient {
         selection.value = null;
         // T-3297: the last side switch's list is this game's only (a switch comes back as "rebuilt")
         if (msg.reason !== "rebuilt") flipSites.value = null;
+        parkedBuildTool.value = null;
         tool.value = "select";
         lineDraft.value = { line: null, stops: [] };
         // T-715: the clock the hold above sent is the old game's, which the worker ignores

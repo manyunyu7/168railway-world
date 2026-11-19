@@ -33,7 +33,7 @@ import { activeCity, getWorldFrame, worldFrameEpoch } from "../game/cities";
 import { cellModes, cityCells, demandView } from "../game/demand";
 import { settleNewLineColour } from "../game/lineColour";
 import { metresBetween } from "../game/walks";
-import { ask, autoRamp, buildLevel, buildPlatform, buildTramPlatform, designSpeed, flyoverSpeed, highSpeed, keepPlacing, lineDraft, newLine, quadTrack, selection, singleTrack, besideOn, snapping, snapMode, snapRealTram, snapRoads, snapStreets, stationOnTram, stationOneTrack, tool, tramTrack } from "../game/ui";
+import { parkedBuildTool, ask, autoRamp, buildLevel, buildPlatform, buildTramPlatform, designSpeed, flyoverSpeed, highSpeed, keepPlacing, lineDraft, newLine, quadTrack, selection, singleTrack, besideOn, snapping, snapMode, snapRealTram, snapRoads, snapStreets, stationOnTram, stationOneTrack, tool, tramTrack } from "../game/ui";
 import { describeRemovable, removeThing, stationStub, stationTrim, type Removable } from "../game/remove";
 import { loadPlacesAt } from "../game/placeList";
 import { newStationName, trackDirection, warmStreetNames } from "./stationNames";
@@ -344,16 +344,30 @@ export class Tools {
     map.getContainer().appendChild(this.handle);
     this.handle.addEventListener("pointerdown", (e) => this.dragHandle(e));
     Object.assign(touchActions, { confirm: () => void this.touchConfirm(), back: () => this.touchBack(), stop: () => this.touchStop(), drawn: () => this.placeTouch() });
+    let trackWasParked = false;
     effect(() => {
-      tool.value;
+      const currentTool = tool.value, parked = parkedBuildTool.value;
       touchInput.value;
+      if (parked === "track" && currentTool === "select") {
+        trackWasParked = true;
+        this.clearPreview();
+        this.place();
+        return;
+      }
+      if (trackWasParked && currentTool === "track") {
+        trackWasParked = false;
+        if (this.lastPreview) this.showPreview(this.lastPreview, this.previewKey);
+        this.place();
+        return;
+      }
+      trackWasParked = false;
       this.touchAt = null;
       this.ghostSpent = false;
       if (tool.value !== "delete") this.clearDelHover();
       this.place();
     });
     // T-1039: a run ends with the track tool however it is left (a game loaded sets the tool directly)
-    effect(() => { if (tool.value !== "track" && this.start) setTimeout(() => tool.peek() !== "track" && this.start && this.reset()); });
+    effect(() => { if (tool.value !== "track" && parkedBuildTool.value !== "track" && this.start) setTimeout(() => tool.peek() !== "track" && parkedBuildTool.peek() !== "track" && this.start && this.reset()); });
     effect(() => {
       const active = tool.value === "line" ? lineDraft.value.line : null;
       const w = world.value;
@@ -1349,7 +1363,7 @@ export class Tools {
     this.lastPreview = a;
     // a real route's preview (T-727d) answers what the ghost waits for too
     this.previewKey = this.wantKey = key;
-    this.overlay.renderer.setPreview(a.pts.length >= 6 ? this.ghostStrokes(a) : null);
+    this.overlay.renderer.setPreview(tool.peek() === "track" && a.pts.length >= 6 ? this.ghostStrokes(a) : null);
     this.overlay.invalidate();
     this.place();
   }

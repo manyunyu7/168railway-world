@@ -6,7 +6,9 @@
 
 import { computed, effect, signal } from "@preact/signals";
 import { activeCity, cityById, viewedZone } from "./cities";
-import { clock } from "./clock";
+import { clock, demandAt, lineSeconds } from "./clock";
+import { trainsNowAt } from "./lineRunning";
+import { DEMAND_INDEX } from "./types";
 import { AVERAGE_DAY } from "./days";
 import { cityDemandViews, demandByDay } from "./demand";
 import { moneyState } from "./money";
@@ -15,17 +17,21 @@ import { trainsShown, world } from "./world";
 import { zoomedOut } from "../map/intercityView";
 import type { WorldView } from "./types";
 import { saveGuide } from "../workers/clockClient";
+import { firstTrainFacts } from "./firstTrain";
+import { gameStartZone } from "./realms";
+import { live } from "../map/live";
+import { tripAt } from "../map/network";
 import { t } from "../i18n";
 import { tPlace } from "../i18n/places";
 import type { GuideSave } from "../workers/saveFile";
 
 export type GuideId = "zoom" | "track" | "stations" | "construct" | "line" | "stops" | "trains" | "crowd" | "levels"
-  | "play" | "destinations" | "bubble" | "trip" | "star" | "split" | "traffic";
+  | "play" | "destinations" | "bubble" | "trip" | "star" | "split" | "traffic" | "departure";
 
 /** Each step's bit in `GuideSave.done`: the first six are T-1822's, so older saves keep their ticks.
  * Bit 9 was the retired "homes" step (T-2685); a new game opens with Homes on. */
 export const GUIDE_BITS: Record<GuideId, number> = {
-  track: 0, stations: 1, construct: 2, line: 3, stops: 4, trains: 5,
+  track: 0, stations: 1, construct: 2, line: 3, stops: 4, trains: 5, departure: 17,
   zoom: 6, crowd: 7, levels: 8, destinations: 16, bubble: 10, trip: 11, star: 12, play: 13, split: 14, traffic: 15,
 };
 
@@ -44,6 +50,7 @@ export const GUIDE_TRACK_M = 5000, GUIDE_STATIONS = 3, GUIDE_APART_M = 500;
 /** the last step's train share, % (Anita, T-2263: the region star's 10% was too far for a tutorial) */
 export const GUIDE_SHARE = 1;
 const WORDS: Record<Exclude<GuideId, "star">, string> = {
+  get departure() { return t("railway.guide.departure"); },
   get zoom() { return t("guide.zoom"); },
   get split() { return t("guide.split"); },
   get destinations() { return t("guide.destinations"); },
@@ -135,15 +142,38 @@ function secondSteps(w: WorldView, trains: (line: string) => readonly number[] |
   ];
 }
 
+export const isJakartaGuide = () => gameStartZone() === "jak";
+const departedLine = signal<string | null>(null);
+
+function jakartaSteps(w: WorldView, g: GuideSave): GuideStep[] {
+  const f = firstTrainFacts(w), line = f.connectedLine;
+  const allocated = !!line && trainsNowAt(line.id, DEMAND_INDEX[demandAt(lineSeconds(w.lineStats[line.id]))]) > 0;
+  const moving = allocated && (departedLine.value === line!.id || !!(g.done & (1 << GUIDE_BITS.departure)));
+  const rows: [GuideId, boolean, GuideStep["count"]?][] = [
+    ["track", f.track],
+    ["stations", f.connectedStations >= 2, { have: Math.min(2, f.connectedStations), goal: 2 }],
+    ["construct", f.builtStations >= 2],
+    ["line", f.line],
+    ["stops", !!line],
+    ["trains", allocated],
+    ["play", clock.running.value],
+    ["departure", moving],
+  ];
+  return rows.map(([id, met, count]) => ({ id, met, count,
+    words: t(`railway.guide.${id}` as import("../i18n").MessageKey),
+    note: t(`railway.guide.${id}Note` as import("../i18n").MessageKey) }));
+}
+
 /** The steps of the card in hand. */
 export function guideSteps(w: WorldView, g: GuideSave, trains: (line: string) => readonly number[] | null = trainsShown): GuideStep[] {
-  return g.card === 2 ? secondSteps(w, trains) : firstSteps(w, g);
+  return g.card === 2 ? secondSteps(w, trains) : isJakartaGuide() ? jakartaSteps(w, g) : firstSteps(w, g);
 }
 
 /** Which steps are ticked (met now, or ticked before), and the step in hand: the first unticked, -1
  * once all are. */
 export function guideTicks(steps: readonly GuideStep[], g: GuideSave): { done: boolean[]; now: number } {
-  const done = steps.map((s) => s.met || (g.done & (1 << GUIDE_BITS[s.id])) !== 0);
+  const currentState = steps.some(s => s.id === "departure");
+  const done = steps.map((s) => s.met || (!currentState && (g.done & (1 << GUIDE_BITS[s.id])) !== 0));
   return { done, now: done.indexOf(false) };
 }
 
@@ -167,10 +197,37 @@ export const guideOpened = signal<MapRow[]>([]);
 let newGameOpening = false;
 export function guideNewGame(on: boolean) {
   newGameOpening = on;
+  departedLine.value = null;
 }
 
 /** Tick steps as they are met, and remember in this browser that the first card was finished. */
 export function startGuide() {
+  // Compare a real scheduled trip at successive clock times. Play alone, a parked train,
+  // a broken line, or a camera pan must never finish the departure step.
+  let previousNet: unknown = null;
+  let positions = new Map<string, number>();
+  setInterval(() => {
+    const w = world.peek(), g = moneyState.peek()?.guide;
+    const r = live.overlay?.renderer, n = r?.net;
+    if (!w || !g || !isJakartaGuide() || g.card === 2 || g.closed || !clock.ticking || !r || !n) {
+      positions.clear(); return;
+    }
+    if (g.done & (1 << GUIDE_BITS.departure)) return;
+    if (n !== previousNet) { positions.clear(); previousNet = n; }
+    const line = firstTrainFacts(w).connectedLine;
+    if (!line) { positions.clear(); return; }
+    const next = new Map<string, number>(), now = clock.now();
+    for (let i = 0; i < r.trips.length; i += 2) {
+      const profile = r.trips[i], dep = r.trips[i + 1] + r.tripsEpoch;
+      if (Math.floor(profile / 6) !== line.num) continue;
+      const p = tripAt(n, profile, dep, now);
+      if (!p || !Number.isFinite(p.s)) continue;
+      const key = `${profile}:${dep}`, was = positions.get(key);
+      if (was !== undefined && Math.abs(p.s - was) > 1) departedLine.value = line.id;
+      next.set(key, p.s);
+    }
+    positions = next;
+  }, 500);
   addEventListener("pointerover", (e) => {
     const t = e.target as Element | null;
     if (!crowdSeen.peek() && t?.closest?.(".crowd-dot")) crowdSeen.value = true;

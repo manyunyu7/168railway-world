@@ -24,6 +24,7 @@ import { groupHover, lineGroups } from "./game/lineGroups";
 import { complexOf, dotGroups, inComplexView, openAlone, singleStation } from "./game/complexView";
 import { hot, onHot } from "./map/hovered";
 import { cancelLink, linkPicked, linking } from "./game/links";
+import { parkedBuildTool } from "./game/ui";
 import { ACTION_KEYS, DEMAND_KEY, levelOfKeyCode, pickTool, TAB_KEYS, TOOL_KEYS, TRIP_KEY } from "./ui/toolKeys";
 import { addAllPassedSelected, constructBlueprints, newLineKey, toggleEditStopsSelected } from "./game/lineActions";
 import { hideUiKey } from "./ui/hideUi";
@@ -542,7 +543,7 @@ effect(() => {
   if (tool.value === "select") map.boxZoom.enable();
   else map.boxZoom.disable();
   map.getCanvas().style.cursor = tool.value === "select" ? "" : "crosshair";
-  if (tool.value !== "track") tools.reset();
+  if (tool.value !== "track" && parkedBuildTool.value !== "track") tools.reset();
 });
 
 // ---- picking and tools ----
@@ -649,7 +650,7 @@ window.addEventListener("keydown", (e) => {
     if (act === "newLine") void newLineKey();
     else if (act === "editStops") toggleEditStopsSelected();
     else if (act === "addPassed") void addAllPassedSelected();
-    else void constructBlueprints();
+    else if (tab.peek() === "build") void constructBlueprints();
     return;
   }
   // Shift+1 to Shift+7: the drawing elevation (T-1701), from any tab
@@ -862,7 +863,7 @@ if (DEBUG) {
   (window as any).tw = {
     failDemand: (why = "forced by ?debug=1") => loadCannotFinish(why), // T-2657: stop demand as if a worker died
     figures: { peaks: figuresPeaks, stopped: figuresStopped }, // T-3314: the longest quiet seen, and the notice's signal
-    soundLog, map, overlay, renderer, labels, capacity, clock, world, selection, singleStation, complexOf, display, shade, tools, client, checkPrecision, moneyState, incomeByDay, lastSaved, pick, tripAt, lineRunFactor,
+    soundLog, map, overlay, renderer, labels, capacity, clock, world, tool, tab, selection, singleStation, complexOf, display, shade, tools, client, checkPrecision, moneyState, incomeByDay, lastSaved, pick, tripAt, lineRunFactor,
     // the current draw anchor (T-307), mercator 0..1, and conversions with it
     get originMerc() { return anchor().merc; },
     anchor, toLocal, toLngLat,

@@ -292,6 +292,21 @@ export const cameraMoving = { now: false };
 /** The Build tab's tools: while one is on, the demand views draw beneath the network (T-526). The
  * station building tool (T-2218) starts from a station's upgrade row, but it builds too. */
 export const isBuildTool = (t: Tool) => t === "track" || t === "station" || t === "delete" || t === "blueprint" || t === "bus" || t === "ferry" || t === "building";
+/** Leaving Build changes map input to selection. Blueprints and their quote stay in the worker.
+ * Remember the tool without overwriting an explicit shortcut when Build is reopened. */
+let previousBuildTab = tab.peek();
+export const parkedBuildTool = signal<Tool | null>(null);
+effect(() => {
+  const next = tab.value;
+  if (previousBuildTab === "build" && next !== "build" && isBuildTool(tool.peek())) {
+    parkedBuildTool.value = tool.peek();
+    tool.value = "select";
+  } else if (previousBuildTab !== "build" && next === "build" && parkedBuildTool.peek()) {
+    if (tool.peek() === "select") tool.value = parkedBuildTool.peek()!;
+    parkedBuildTool.value = null;
+  }
+  previousBuildTab = next;
+});
 /** T-3083: starting to build closes the inspector of a thing on the network (line, station, track and
  * the like). City, trip, commuter and achievement views stay, as the demand views stay under build tools. */
 const NETWORK_VIEWS = new Set(["line", "group", "busStop", "station", "track", "junction", "train"]);

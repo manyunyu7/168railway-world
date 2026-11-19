@@ -5,7 +5,7 @@
 
 import { signal } from "@preact/signals";
 import { h, render } from "preact";
-import { guideShown, guideSteps, guideTicks, startGuide, type GuideStep } from "../game/guide";
+import { guideShown, guideSteps, guideTicks, isJakartaGuide, startGuide, type GuideStep } from "../game/guide";
 import { moneyState } from "../game/money";
 import { ask } from "../game/ui";
 import { world } from "../game/world";
@@ -32,9 +32,9 @@ function Guide() {
   const finished = now < 0;
   const close = () => (ask.value = { text: t("guide.closeQuestion"), yes: t("guide.closeYes"), no: t("guide.closeNo"), run: () => saveGuide({ ...g, hidden: true }) });
   return (
-    <div class={"guide" + (opened.value ? " open" : "")} data-card={g.card ?? 1}>
+    <div class={"guide" + (isJakartaGuide() && g.card !== 2 ? " jakarta-guide" : "") + (opened.value ? " open" : "")} data-card={g.card ?? 1}>
       <div class="guide-head">
-        <button class="guide-title" aria-expanded={opened.value} onClick={() => (opened.value = !opened.peek())}>{t("guide.title")}</button>
+        <button class="guide-title" aria-expanded={opened.value} onClick={() => (opened.value = !opened.peek())}>{t(isJakartaGuide() && g.card !== 2 ? "railway.guide.title" : "guide.title")}</button>
         <button class="btn icon guide-x" aria-label={t("guide.close")} onClick={close}>
           <Icon.cross />
         </button>
@@ -51,7 +51,7 @@ function Guide() {
       </ol>
       {finished && (
         <div class="guide-end">
-          {g.card === 2
+          {g.card === 2 || isJakartaGuide()
             ? <button class="btn text" data-guide="end" onClick={() => saveGuide({ ...g, closed: true })}>{t("guide.done")}</button>
             : <button class="btn text" data-guide="end" onClick={() => saveGuide({ ...g, card: 2 })}>{t("guide.continue")}</button>}
         </div>

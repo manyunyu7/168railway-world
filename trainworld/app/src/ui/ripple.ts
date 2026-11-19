@@ -57,7 +57,7 @@ function selectors(step: Target): string[] {
     case "traffic": return [own, '[data-fold="track"]'];
     case "play": case "end": return [own];
     // on the map itself, nothing to point at
-    case "bubble": case "trip": case "star": return [];
+    case "bubble": case "trip": case "star": case "departure": return [];
     // the line panel's controls need a line picked: the Lines tab's first row, or the tab itself
     default: return tab.peek() === "lines" ? [own, "#dock .pane .rows li"] : [own, '[data-guide-tab="lines"]']; // i18n-ignore (selector)
   }
