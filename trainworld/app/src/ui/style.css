@@ -2123,3 +2123,11 @@ html.ui-hidden .ui-hint.on { display: block; }
 .guest-gate-list { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
 .guest-gate-login { width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px; min-height: 49px; }
 .guest-gate-note { margin: 0; text-align: center; }
+/* 168Railway: the guest's sign-in form, on the card */
+.guest-gate-form { display: grid; gap: 8px; }
+.guest-gate-form input { width: 100%; min-width: 0; min-height: 46px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; }
+.guest-gate-form input:focus-visible { border-color: var(--accent); }
+.guest-gate-error { margin: 0; color: var(--bad); font-size: .95em; }
+.guest-gate-or { text-align: center; margin: -2px 0; }
+.guest-gate-google { width: 100%; display: flex; justify-content: center; align-items: center; gap: 10px; min-height: 46px; }
+.guest-gate-g { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: #4285f4; font-weight: 900; border: 1px solid var(--rule); }

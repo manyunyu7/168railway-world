@@ -9,7 +9,7 @@ import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { startMetroBackdrop } from "./metroBackdrop";
 import { noteVisit } from "../game/visitNote";
-import { checkHostAuth, HOST_LOGIN } from "../game/hostSession";
+import { checkHostAuth, finishSignInWindow, HOST_REGISTER, signInHere, signInWithGoogle } from "../game/hostSession";
 import { HOME_CITY, isCity } from "../game/cities";
 import { choosing } from "../game/loading";
 import { display, dropMarket, keepMarket } from "../game/ui";
@@ -111,26 +111,56 @@ function UpdateRow({ onChangelog }: { onChangelog: () => void }) {
   </div>;
 }
 
-/** 168Railway: a guest's card, the game shown and one way on: sign in (or register from the sign-in page), then
- * straight back here. */
-function GuestGate({ first }: { first: { current: HTMLButtonElement | null } }) {
-  const [going, setGoing] = useState(false);
-  // back from the sign-in page (the browser's back-forward cache keeps this page as it was): the button again
-  useEffect(() => { const back = (e: PageTransitionEvent) => { if (e.persisted) setGoing(false); }; addEventListener("pageshow", back); return () => removeEventListener("pageshow", back); }, []);
+/** 168Railway: a guest's card, the game shown and a sign-in right here (the site's account and session): email or
+ * username and password, Google in a small window, or register on the site and come straight back. Signed in, the
+ * menu opens in place. */
+function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null }; onIn: () => void }) {
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState<"" | "form" | "google">("");
+  const [error, setError] = useState("");
+  const signedIn = async () => { if ((await checkHostAuth()) !== "out") onIn(); };
+  const submit = async (e: Event) => {
+    e.preventDefault();
+    if (busy) return;
+    if (!login.trim() || !password) { setError(t("startMenu.guestMissing")); return; }
+    setBusy("form"); setError("");
+    const r = await signInHere(login.trim(), password);
+    if (r.ok) { await signedIn(); return; }
+    setBusy(""); setError(r.message || t("startMenu.guestFailed"));
+  };
+  const google = async () => {
+    if (busy) return;
+    setBusy("google"); setError("");
+    await signInWithGoogle();
+    await signedIn();
+    setBusy("");
+  };
   return <div class="start-box guest-gate">
     {!LOGO && <RailwayBrand />}
     <img class="guest-gate-snap" src="./snapshots/jak.jpg" width={600} height={350} alt={t("startMenu.guestSnapAlt")} />
     <h2 id="start-title" class="guest-gate-title">{t("startMenu.guestTitle")}</h2>
     <p class="guest-gate-text">{t("startMenu.guestText")}</p>
+    <form class="guest-gate-form" onSubmit={(e) => void submit(e)}>
+      <input type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck={false} placeholder={t("startMenu.guestLoginField")} aria-label={t("startMenu.guestLoginField")}
+        value={login} onInput={(e) => setLogin((e.target as HTMLInputElement).value)} disabled={!!busy} />
+      <input type="password" name="password" autocomplete="current-password" placeholder={t("startMenu.guestPassword")} aria-label={t("startMenu.guestPassword")}
+        value={password} onInput={(e) => setPassword((e.target as HTMLInputElement).value)} disabled={!!busy} />
+      {error && <p class="guest-gate-error" role="alert">{error}</p>}
+      <button ref={first} type="submit" class="btn start-new guest-gate-login" disabled={!!busy}>
+        <Icon.train />{busy === "form" ? t("startMenu.guestSigningIn") : t("startMenu.guestLogin")}
+      </button>
+    </form>
+    <div class="guest-gate-or muted small">{t("newGame.or")}</div>
+    <button type="button" class="btn guest-gate-google" disabled={!!busy} onClick={() => void google()}>
+      <span class="guest-gate-g" aria-hidden="true">G</span>{busy === "google" ? t("startMenu.guestGoogleWaiting") : t("startMenu.guestGoogle")}
+    </button>
+    <p class="muted small guest-gate-note">{t("startMenu.guestNoAccount")} <a href={HOST_REGISTER}>{t("startMenu.guestRegister")}</a></p>
     <ul class="guest-gate-list">
       <li>{t("startMenu.guestPoint1")}</li>
       <li>{t("startMenu.guestPoint2")}</li>
       <li>{t("startMenu.guestPoint3")}</li>
     </ul>
-    <button ref={first} class="btn start-new guest-gate-login" disabled={going} onClick={() => { setGoing(true); location.href = HOST_LOGIN; }}>
-      <Icon.train />{going ? t("startMenu.guestGoing") : t("startMenu.guestLogin")}
-    </button>
-    <p class="muted small guest-gate-note">{t("startMenu.guestNote")}</p>
     <div class="railway-start-footer">
       <a href="./about.html" target="_blank" rel="noopener">{t("railway.credits")}</a>
       <div class="start-top"><LanguageSelect /></div>
@@ -138,7 +168,9 @@ function GuestGate({ first }: { first: { current: HTMLButtonElement | null } }) 
   </div>;
 }
 
-function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest = false }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void>; guest?: boolean }) {
+function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest: guest0 = false }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void>; guest?: boolean }) {
+  // 168Railway: a guest signs in on the card, and the menu opens in place
+  const [guest, setGuest] = useState(guest0);
   // T-3073: every game opened here has inter-city trips unless the warning's lite button asked otherwise
   const pick = (c: GameChoice, lite = false) => { if (lite) dropMarket(); else keepMarket(); pickGame(c); };
   const first = useRef<HTMLButtonElement>(null);
@@ -234,7 +266,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest 
     {LOGO && <span>168Railway World</span>}
     <p class="start-version muted small">{t("startMenu.build", { version: VERSION })}</p>
     {/* T-2753: the language on the card's first row at the right, so a new player (who lands on the sheet) sets it first */}
-    {guest ? <GuestGate first={first} /> : sheet ? <div class="start-box new-game-box">
+    {guest ? <GuestGate first={first} onIn={() => { setGuest(false); void listSlots().then(setSlots, () => {}); }} /> : sheet ? <div class="start-box new-game-box">
       <div class="start-titlebar"><h1 id="start-title" class="big">{t("startMenu.newGame")}</h1><div class="start-top"><LanguageSelect /><AccountButton kind="start" /></div></div>
       <NewGameSheet heading={false} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
     </div> : <div class="start-box">
@@ -295,6 +327,8 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest 
 let nextNew: { choice: GameChoice; at: { center: [number, number]; zoom: number } | null } | null = null;
 
 export function showStartMenu(onPick: (c: GameChoice) => void) {
+  // 168Railway: Google's sign-in window back on the game tells the game that opened it and closes
+  if (finishSignInWindow()) return;
   choosing.value = true;
   document.documentElement.classList.add("choosing");
   startAccountUi();

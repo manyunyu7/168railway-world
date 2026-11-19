@@ -23,3 +23,59 @@ export async function checkHostAuth(waitMs = 4000): Promise<HostAuth> {
     clearTimeout(timer);
   }
 }
+
+/** Register on the site, then back to the game (the web keeps /studio/ as where to return). */
+export const HOST_REGISTER = "/api/web/studio/login?to=register";
+
+/** Sign in from inside the game, with the site's own JSON sign-in (POST /api/login) and the session's CSRF token. */
+export async function signInHere(login: string, password: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const s = await fetch("/api/web/studio/session", { credentials: "same-origin", headers: { Accept: "application/json" }, cache: "no-store" });
+    const token = ((await s.json()) as { csrfToken?: string | null }).csrfToken;
+    if (!token) return { ok: false, message: "" };
+    const r = await fetch("/api/login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-CSRF-TOKEN": token, "X-Requested-With": "XMLHttpRequest" },
+      body: JSON.stringify({ email_or_username: login, password }),
+    });
+    const body = (await r.json().catch(() => ({}))) as { success?: boolean; message?: string };
+    return r.ok && body.success ? { ok: true } : { ok: false, message: body.message ?? "" };
+  } catch {
+    return { ok: false, message: "" };
+  }
+}
+
+const POPUP_DONE = "login=done";
+
+/** Google's sign-in in a small window (its page cannot sit inside ours); resolves once that window is done or
+ * closed, and the caller checks the session again. A blocked window goes the same way in this tab. */
+export function signInWithGoogle(): Promise<void> {
+  const url = `/auth/google?next=${encodeURIComponent(`/studio/?${POPUP_DONE}`)}`;
+  const w = window.open(url, "168railway-login", "popup,width=480,height=640");
+  if (!w) {
+    location.href = `/auth/google?next=${encodeURIComponent("/studio/")}`;
+    return new Promise(() => {});
+  }
+  return new Promise((done) => {
+    const finish = () => { removeEventListener("message", onMessage); clearInterval(timer); done(); };
+    const onMessage = (e: MessageEvent) => { if (e.origin === location.origin && e.data === "168railway-login") finish(); };
+    addEventListener("message", onMessage);
+    const timer = setInterval(() => { if (w.closed) finish(); }, 500);
+  });
+}
+
+/** In Google's sign-in window, back on the game: tell the game that opened it and close; else drop the mark. */
+export function finishSignInWindow(): boolean {
+  const q = new URLSearchParams(location.search);
+  if (q.get("login") !== "done") return false;
+  if (window.opener && window.opener !== window) {
+    try { (window.opener as Window).postMessage("168railway-login", location.origin); } catch { /* none */ }
+    window.close();
+    return true;
+  }
+  const u = new URL(location.href);
+  u.searchParams.delete("login");
+  history.replaceState(history.state, "", u.href);
+  return false;
+}
