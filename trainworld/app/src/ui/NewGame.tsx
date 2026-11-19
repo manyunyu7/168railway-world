@@ -232,6 +232,7 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
           <strong>{t("newGame.jaboTitle")}</strong>
           <span class="muted small">{t("newGame.jaboNote")}</span>
         </div>
+        <img class="new-game-jabo-snap" src={`./snapshots/${jabo}.jpg`} width={600} height={350} alt={t(`newGame.jabo.${jabo}` as MessageKey)} />
         <label class="purpose-filter">
           <select aria-label={t("newGame.jaboScenario")} value={jabo} onChange={(e) => setJabo((e.target as HTMLSelectElement).value as JaboScenario)}>
             {JABO_SCENARIOS.map((id) => <option value={id}>{t(`newGame.jabo.${id}` as MessageKey)}</option>)}

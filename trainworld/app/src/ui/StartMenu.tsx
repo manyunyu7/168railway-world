@@ -7,6 +7,7 @@ import {HostWorlds} from "./HostWorlds";
 
 import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { startMetroBackdrop } from "./metroBackdrop";
 import { HOME_CITY, isCity } from "../game/cities";
 import { choosing } from "../game/loading";
 import { display, dropMarket, keepMarket } from "../game/ui";
@@ -112,6 +113,9 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
   // T-3073: every game opened here has inter-city trips unless the warning's lite button asked otherwise
   const pick = (c: GameChoice, lite = false) => { if (lite) dropMarket(); else keepMarket(); pickGame(c); };
   const first = useRef<HTMLButtonElement>(null);
+  // 168Railway: a metro map drawing itself behind the cards, as PPKA Simulator's opening screen
+  const metro = useRef<HTMLCanvasElement>(null);
+  useEffect(() => (metro.current ? startMetroBackdrop(metro.current) : undefined), []);
   // T-2810: out in the menu's own element, away from the card's zoom
   const [changelog, setChangelog] = useState(false);
   // T-1441: a first visit, with no saved game to pick, opens on the new game sheet
@@ -197,6 +201,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling }: { sl
   // T-1567: the logo stays mounted over both, so its trains run on when the sheet opens
   // with the logo the welcome heading goes (Anita), the logo naming the menu
   return <div class={LOGO ? "start-menu with-logo" : "start-menu"} role="dialog" aria-modal="true" aria-labelledby={LOGO && !sheet ? undefined : "start-title"} aria-label={LOGO && !sheet ? "168Railway World" : undefined}>
+    <canvas ref={metro} class="start-metro" aria-hidden="true" />
     {LOGO && <span>168Railway World</span>}
     <p class="start-version muted small">{t("startMenu.build", { version: VERSION })}</p>
     {/* T-2753: the language on the card's first row at the right, so a new player (who lands on the sheet) sets it first */}

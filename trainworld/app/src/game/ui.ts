@@ -5,7 +5,7 @@
 import { t } from "../i18n";
 import { batch, computed, effect, signal } from "@preact/signals";
 import { AVERAGE_DAY, AWAY_DAY, awayNear, BACK_DAY, DEMAND_DAY_ON, DEMAND_DAY_PHRASE, OUT_DAY, rushRun, whenAway, whenBack, whenOut, type DemandDay } from "./days";
-import { defaultCurrency, type Currency } from "./currency";
+import type { Currency } from "./currency";
 import { loadNunito } from "./fonts";
 import { mobileDevice } from "../workers/deviceMemory";
 import { DEFAULT_RAMP, setBubbleColours, setBubbleShade, type BubbleScheme } from "./palette";
@@ -159,7 +159,8 @@ const DEFAULT_DISPLAY: DisplaySettings = {
   uiScale: 0.9,
   dayShown: "average",
   usUnits: false,
-  currency: defaultCurrency(),
+  // 168Railway: Rupiah until the player picks another (defaultCurrency() would follow the browser's region)
+  currency: "IDR",
   moreCores: false,
   runInBackground: false,
   recalcWhilePaused: true,
