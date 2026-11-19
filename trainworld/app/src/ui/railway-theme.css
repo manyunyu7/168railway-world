@@ -238,3 +238,78 @@
 @media (max-width:360px) and (min-height:560px) {
   #dock:not(.railway-folded) {height:calc(var(--phone-h,44dvh) / var(--ui,1));}
 }
+
+/* 168Railway, after Railway Studio: the bar becomes a floating card (city, three figures, the period) and the map
+   takes the whole column; an action bar at the map's foot (run, build, speed, layers); the layer rows fold away. */
+#topbar.studio-card {
+  position: absolute; z-index: 6; top: 10px; left: 10px; width: min(380px, calc(100% - 20px)); height: auto;
+  display: grid; gap: 8px; padding: 10px 12px 9px; white-space: normal; line-height: 1.15;
+  background: var(--bg); border: 1px solid var(--rule); border-radius: 18px; box-shadow: 0 4px 0 color-mix(in srgb, var(--rule) 70%, transparent), var(--card-shadow, 0 6px 18px rgb(20 49 39 / 10%));
+}
+/* the bar's narrow-map grid (style.css, map-column under 700 px) and phone pieces do not apply to the card */
+#topbar.studio-card { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; grid-auto-flow: row; }
+#topbar.studio-card .hud-travel { display: block; grid-area: auto; position: relative; min-width: 0; justify-self: center; }
+#topbar.studio-card .hud-travel > summary { min-height: 0; padding: 0; color: var(--rail-blue, var(--accent)); }
+#topbar.studio-card .city, #topbar.studio-card .cash, #topbar.studio-card .clock { grid-area: auto; margin: 0; }
+#topbar.studio-card .studio-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#topbar.studio-card .city { flex: 1; min-width: 0; max-width: none; font-size: 20px; font-weight: 850; border-inline-start: 0; padding-inline-start: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; }
+#topbar.studio-card .city .hud-symbol { width: 30px; height: 30px; border-radius: 9px; background: color-mix(in srgb, var(--rail-green, var(--accent)) 16%, var(--bg)); }
+#topbar.studio-card .studio-card-fold { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 10px; }
+#topbar.studio-card .studio-card-fold svg { width: 16px; height: 16px; stroke: currentColor; }
+#topbar.studio-card .studio-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#topbar.studio-card .studio-stat { min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 2px 4px; text-align: center; }
+#topbar.studio-card .studio-stat + .studio-stat { border-inline-start: 1px solid var(--rule); }
+/* the train share keeps the old .split-row mark (the tutorial's), not its one-row bar layout */
+#topbar.studio-card .studio-stat.split-row { flex: none; height: auto; flex-direction: column; gap: 2px; }
+#topbar.studio-card .studio-label, #topbar.studio-card .clock .date { font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#topbar.studio-card .clock, #topbar.studio-card .clock-text { display: flex; flex-direction: column; align-items: center; gap: 2px; height: auto; padding: 0; border: 0; margin: 0; }
+#topbar.studio-card .clock-text .time, #topbar.studio-card .cash, #topbar.studio-card .pct { font-size: 19px; font-weight: 850; display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#topbar.studio-card .clock-text .clock-symbol { display: none; }
+#topbar.studio-card .cash .hud-symbol { display: none; }
+#topbar.studio-card .hud-travel summary { display: inline-flex; align-items: center; gap: 4px; list-style: none; cursor: pointer; }
+#topbar.studio-card .hud-travel summary::-webkit-details-marker { display: none; }
+#topbar.studio-card .hud-travel .hud-symbol { color: var(--rail-blue, var(--accent)); }
+#topbar.studio-card .hud-travel-detail { position: absolute; z-index: 8; margin-top: 6px; left: 50%; transform: translateX(-50%); }
+#topbar.studio-card .studio-status { display: flex; justify-content: space-between; gap: 8px; padding-top: 7px; border-top: 1px solid var(--rule); font-size: 13px; font-weight: 800; color: var(--rail-green-edge, var(--accent)); }
+#topbar.studio-card .studio-status-run { color: var(--muted); font-weight: 700; }
+#topbar.studio-card.folded .studio-stats, #topbar.studio-card.folded .studio-status { display: none; }
+#topbar.studio-card.folded .city { font-size: 17px; }
+
+/* the map's own furniture under the card */
+.map-top-left { top: calc(var(--studio-card-h, 0px) + 20px); }
+:root[data-layers="closed"] .map-top-left > :not(.map-find):not(.edit-note) { display: none; }
+
+.studio-actions {
+  position: absolute; z-index: 5; left: 10px; bottom: 10px; display: flex; align-items: stretch; gap: 8px; padding: 8px;
+  max-width: calc(100% - 80px); background: var(--bg); border: 1px solid var(--rule); border-radius: 18px;
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--rule) 70%, transparent), var(--card-shadow, 0 6px 18px rgb(20 49 39 / 10%)); zoom: var(--ui, 1);
+}
+.studio-actions .btn { min-height: 46px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-weight: 850; white-space: nowrap; }
+.studio-actions .btn svg { width: 17px; height: 17px; }
+.studio-actions .studio-run { min-width: 128px; padding-inline: 16px; color: #fff; background: #58cc02; border: 0; border-bottom: 4px solid #46a302; }
+.studio-actions .studio-run.running { color: var(--text); background: var(--bg); border: 1px solid var(--rule); border-bottom-width: 4px; }
+.studio-actions .studio-run svg .solid { fill: currentColor; }
+.studio-actions .studio-run svg .stroke2, .studio-actions .studio-layers svg .stroke2 { stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.studio-actions .studio-build { padding-inline: 14px; border: 1px solid var(--rule); border-bottom-width: 4px; }
+.studio-actions .studio-build svg { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.studio-actions .studio-speed { min-width: 58px; padding-inline: 10px; color: var(--rail-green-edge, var(--accent)); background: color-mix(in srgb, var(--rail-green, var(--accent)) 14%, var(--bg)); border: 1px solid var(--rule); border-bottom-width: 4px; }
+.studio-actions .studio-speed.held { opacity: .6; }
+.studio-actions .studio-layers { width: 46px; padding: 0; border: 1px solid var(--rule); border-bottom-width: 4px; }
+.studio-actions .studio-layers.on, .studio-actions .studio-build.on { background: color-mix(in srgb, var(--rail-green, var(--accent)) 18%, var(--bg)); }
+.studio-actions .speed-pop { position: absolute; left: 8px; bottom: calc(100% + 8px); }
+:root:has(.studio-actions) #tools { bottom: 84px; }
+.choosing .studio-actions { visibility: hidden; }
+html.ui-hidden .studio-actions { display: none; }
+
+@media (max-width: 600px) {
+  #topbar.studio-card { left: 8px; top: 8px; width: calc(100% - 16px); padding: 9px 10px 8px; gap: 6px; }
+  #topbar.studio-card .city { font-size: 18px; }
+  #topbar.studio-card .clock-text .time, #topbar.studio-card .cash, #topbar.studio-card .pct { font-size: 17px; }
+  .map-sky { top: calc(var(--studio-card-h, 0px) + 18px); }
+  #game #map .guide { top: calc(var(--studio-card-h, 0px) + 18px); z-index: 7; }
+  .studio-actions { left: 8px; bottom: 8px; padding: 6px; gap: 6px; max-width: calc(100% - 72px); }
+  .studio-actions .studio-run { min-width: 0; flex: 1; }
+  .studio-actions .btn { min-height: 44px; }
+  .studio-actions .studio-build span { display: none; }
+  .studio-actions .studio-build { width: 46px; padding: 0; }
+}

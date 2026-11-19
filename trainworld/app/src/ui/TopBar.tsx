@@ -2,7 +2,6 @@
 // train share), cash, the time and date on one line (T-1853), speed and pause. The clock is its own
 // component so a game minute re-renders only it. The sky and demand band are `MapSky`, on the map.
 
-import type { ComponentChildren } from "preact";
 import { clock, DEMAND_CAP, REAL4_SPEED, REAL_SPEED, SLIDER_STOPS, SPEEDS } from "../game/clock";
 import { activeCity, cityById, viewedZone } from "../game/cities";
 import { demandAskTurn, demandView, modeRides, modeSplit, viewRecomputing, viewUpdating } from "../game/demand";
@@ -15,7 +14,8 @@ import { StatusTag } from "./StatusTag";
 import { BusyTag } from "./BusyTag";
 import { countryName, groupHolidays, holidaysNear, loadHolidays, rushNear, runToday, superDays, supersNear, type HolidaySpan, type RushSpan } from "../game/holidays";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { display, setDisplay, shownDay, shownDayOn } from "../game/ui";
+import { display, isBuildTool, setDisplay, shownDay, shownDayOn, tab, tool } from "../game/ui";
+import { signal, effect } from "@preact/signals";
 import { splitTable, splitTip } from "../game/splitTip";
 import { lengthsOf, wantLengths } from "../game/zoneLengths";
 import { t, tList, tNumber, tSpaced } from "../i18n";
@@ -201,7 +201,23 @@ const times = (x: number) =>
 
 /** T-1664: double-click the fastest button for a slider of speeds, real to 100x (the third button always
  * shows its speed as text); T-1665: while demand updates the clock is held at DEMAND_CAP, the chosen speed dimmed. */
-function Speed() {
+/** 168Railway (after Railway Studio): the map's layer rows (demand, track display, ridership) folded behind the
+ * action bar's Layers button; the find button and the edit notes stay. Open for the player who asks. */
+const LAYERS_KEY = "railway-layers-open";
+export const layersOpen = signal<boolean>((() => { try { return localStorage.getItem(LAYERS_KEY) === "1"; } catch { return false; } })());
+effect(() => {
+  const open = layersOpen.value;
+  if (typeof document !== "undefined") document.documentElement.dataset.layers = open ? "open" : "closed";
+  try { localStorage.setItem(LAYERS_KEY, open ? "1" : "0"); } catch { /* none */ }
+});
+/** the city card folded to its first row (phones keep the map) */
+const CARD_KEY = "railway-card-folded";
+const cardFolded = signal<boolean>((() => { try { return localStorage.getItem(CARD_KEY) === "1"; } catch { return false; } })());
+
+/** The action bar at the map's foot (Railway Studio's): run or pause, build, the speed, the layers. The speed chip
+ * steps through the three speeds without starting a paused clock; a double click opens the slider of speeds
+ * (T-1664). Run carries the tutorial's "play" mark. */
+export function StudioActions() {
   const running = clock.running.value;
   const speed = clock.speed.value;
   const custom = clock.custom.value;
@@ -216,26 +232,36 @@ function Speed() {
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
   }, [open]);
+  const w = world.value;
+  // while a build tool is out its own bars take the map's foot
+  if (!w || isBuildTool(tool.value)) return null;
   const chosen = clock.chosenRate.value / SPEEDS[0];
   const held = capped && chosen > DEMAND_CAP;
-  const heldTip = (title: string) => (held ? t("topBar.speedCapped", { speed: times(chosen), cap: times(DEMAND_CAP) }) : title);
-  const btn = (i: number, icon: ComponentChildren, title: string, extra: Record<string, unknown> = {}) => {
-    const on = running && (custom !== null ? 2 : speed) === i;
-    return (
-      <button class={"btn icon" + (on ? " on" : "") + (on && held ? " held" : "") + (i === 2 ? " rate" : "")} data-tip={on ? heldTip(title) : title} aria-label={title} onClick={() => (i === 2 && custom !== null ? clock.setMultiple(custom) : clock.setSpeed(i))} {...extra}>
-        {i === 2 ? times(custom ?? SPEEDS[2] / SPEEDS[0]) : icon}
-      </button>
-    );
+  const cur = custom !== null ? 2 : speed;
+  const step = () => {
+    const was = clock.running.peek();
+    const next = (cur + 1) % SPEEDS.length;
+    if (next === 2 && custom !== null) clock.setMultiple(custom); else clock.setSpeed(next);
+    if (!was) clock.setRunning(false);
   };
-  const stop = Math.max(0, SLIDER_STOPS.findIndex((s) => s >= chosen - 1e-9));
+  const stop = Math.max(0, SLIDER_STOPS.findIndex((x) => x >= chosen - 1e-9));
+  const layers = layersOpen.value;
   return (
-    <div class="group speed" ref={box}>
-      <button class={"btn icon" + (!running ? " on" : "")} data-tip={t("topBar.pauseTip")} aria-label={t("topBar.pause")} onClick={() => clock.setRunning(!running)}>
-        <Icon.pause />
+    <div class="studio-actions" ref={box}>
+      <button class={"btn studio-run" + (running ? " running" : "")} data-guide="play" data-tip={t("topBar.pauseTip")}
+        aria-label={running ? t("topBar.pause") : t("topBar.normalSpeed")} onClick={() => clock.setRunning(!running)}>
+        {running ? <Icon.pause /> : <Icon.play1 />}<span>{running ? t("studio.pause") : t("studio.run")}</span>
       </button>
-      {btn(0, <Icon.play1 />, t("topBar.normalSpeed"), { "data-guide": "play" })}
-      {btn(1, <Icon.play2 />, t("topBar.speed", { speed: times(SPEEDS[1] / SPEEDS[0]) }))}
-      {btn(2, null,t("topBar.speedPick", { speed: times(custom ?? SPEEDS[2] / SPEEDS[0]) }), { onDblClick: () => setOpen((o) => !o) })}
+      <button class={"btn studio-build" + (tab.value === "build" ? " on" : "")} aria-label={t("studio.build")} onClick={() => { tab.value = "build"; }}>
+        <Icon.wrench /><span>{t("studio.build")}</span>
+      </button>
+      <button class={"btn studio-speed" + (held ? " held" : "")} aria-label={t("topBar.clockSpeed")}
+        data-tip={held ? t("topBar.speedCapped", { speed: times(chosen), cap: times(DEMAND_CAP) }) : t("studio.speedTip")}
+        onClick={step} onDblClick={() => setOpen((o) => !o)}>{times(chosen)}</button>
+      <button class={"btn icon studio-layers" + (layers ? " on" : "")} aria-pressed={layers} aria-label={t("studio.layers")} data-tip={t("studio.layers")}
+        onClick={() => { layersOpen.value = !layers; }}>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path class="stroke2" d="M8 2.5l6 3-6 3-6-3z M2 8.5l6 3 6-3 M2 11.5l6 3 6-3" fill="none" /></svg>
+      </button>
       {open && (
         <div class="slider speed-pop">
           <input type="range" min={0} max={SLIDER_STOPS.length - 1} step={1} value={stop} aria-label={t("topBar.clockSpeed")}
@@ -245,6 +271,15 @@ function Speed() {
       )}
     </div>
   );
+}
+
+/** The card's status line: the period of the day and whether the clock runs. */
+function PeriodLine() {
+  const minute = NO_CLOCK ? clock.local.peek() : clock.local.value;
+  const p = PERIODS[periodAt(minute * 60)];
+  return <div class="studio-status" data-tip={periodTip(minute)}>
+    <span>{p?.name}</span><span class="studio-status-run">{clock.running.value ? t("studio.running") : t("studio.paused")}</span>
+  </div>;
 }
 
 /** The world's bar hover: the train trips/day in the cities (T-1440), the share of the world's
@@ -284,6 +319,15 @@ export function TopBar() {
   const dv = demandView.value, zone = !worldView.value && viewedZone.value ? activeCity.value : null;
   useEffect(() => { if (over && zone) wantLengths(zone); }, [over, zone, dv?.version, dv?.round, shownDay.value, demandAskTurn.value]);
   const w = world.value;
+  // 168Railway: the card's height for what sits under it on the map (the layer rows, the sky on a phone)
+  const card = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = card.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => document.documentElement.style.setProperty("--studio-card-h", el.offsetHeight + "px"));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [!!w]);
   if (!w) return <header id="topbar" />;
   // T-1110: zoomed far out the bar names the world and sums every city, as the Cities tab's first row does
   const far = worldView.value;
@@ -304,39 +348,39 @@ export function TopBar() {
   // T-1851: one note for every case where the trips are being recomputed
   const note = demandView.value && (viewRecomputing.value || demandView.value.version === CACHE_VERSION) ? tSpaced(t("topBar.recomputing")) : "";
   const worldTip = total ? t("topBar.worldTip", { cities: total.cities, stations: total.stations }) : undefined;
+  const folded = cardFolded.value;
+  const fold = () => { cardFolded.value = !folded; try { localStorage.setItem(CARD_KEY, folded ? "0" : "1"); } catch { /* none */ } };
   return (
-    <><header id="topbar">
-      {/* T-1108: the name takes what it needs up to a cap, on two lines at most, the whole name on hover */}
-      {far ? <CityName id={null} name={t("topBar.world")} tip={worldTip} /> : <CityName id={city?.id ?? null} name={cityName} />}
-      <details class="hud-travel" onKeyDown={e=>{if(e.key==="Escape"){e.stopPropagation();e.preventDefault();e.currentTarget.open=false;e.currentTarget.querySelector("summary")?.focus();}}}>
-        <summary aria-label={t("tripText.modeShare",{mode:t("splitTip.train"),share:pct(s.train)})}>
-          <span class="hud-symbol" aria-hidden="true"><Icon.train/></span>{pct(s.train)}<span aria-hidden="true">⌄</span>
-        </summary>
-        <div class="hud-travel-detail">
-          <b>{t("splitTip.perDay",{where,note})}</b>
-          {([["train","splitTip.train"],["walk","splitTip.walking"],["drive","splitTip.driving"],["none","splitTip.noRoute"]] as const)
-            .filter(([mode])=>mode!=="none" || (s.none??0)>0)
-            .map(([mode,key])=><div key={mode}><span>{t(key)}</span><b>{known?tNumber(s[mode]??0,{maximumFractionDigits:1})+"%":"–"}</b></div>)}
-        </div>
-      </details>
-      <div class="split">
-        <div data-tip={total ? worldShareTip(total, dayPhrase, note) : splitTable(where, known, rides, city ? lengthsOf(city.id) : null, note)} class={"split-row" + (viewUpdating.value ? " updating" : "")}
-          onPointerEnter={() => setOver(true)} onPointerLeave={() => setOver(false)}>
-          <span class="bar-box">
-            <span class="bar">
-              <i class="seg seg-train" style={{ width: s.train + "%" }} />
-              <i class="seg seg-walk" style={{ width: s.walk + "%" }} />
-              <i class="seg seg-drive" style={{ width: s.drive + "%" }} />
-              <i class="seg seg-none" style={{ width: (s.none ?? 0) + "%" }} />
-            </span>
-          </span>
-          <b class={"lg pct" + (far ? " trips" : "")}>{pct(s.train)}</b>
-        </div>
+    <><header id="topbar" ref={card} class={"studio-card" + (folded ? " folded" : "")}>
+      {/* 168Railway (after Railway Studio): a floating card, the city and three figures, the period under them */}
+      <div class="studio-card-head">
+        {/* T-1108: the name takes what it needs up to a cap, on two lines at most, the whole name on hover */}
+        {far ? <CityName id={null} name={t("topBar.world")} tip={worldTip} /> : <CityName id={city?.id ?? null} name={cityName} />}
+        <button class="btn icon studio-card-fold" aria-expanded={!folded} aria-label={folded ? t("studio.cardOpen") : t("studio.cardFold")} onClick={fold}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path class="stroke2" d={folded ? "M4 6l4 4 4-4" : "M4 10l4-4 4 4"} fill="none" /></svg>
+        </button>
       </div>
-      <Cash />
-      <i class="bar-rule" />
-      <Clock />
-      <Speed />
+      <div class="studio-stats">
+        <div class="studio-stat"><Clock /></div>
+        {/* T-2365: the zone's km by mode for the split's hover; `split-row` is the tutorial's mark (GUIDE_SPLIT) */}
+        <div data-tip={total ? worldShareTip(total, dayPhrase, note) : splitTable(where, known, rides, city ? lengthsOf(city.id) : null, note)}
+          class={"studio-stat split-row" + (viewUpdating.value ? " updating" : "")} onPointerEnter={() => setOver(true)} onPointerLeave={() => setOver(false)}>
+          <details class="hud-travel" onKeyDown={e=>{if(e.key==="Escape"){e.stopPropagation();e.preventDefault();e.currentTarget.open=false;e.currentTarget.querySelector("summary")?.focus();}}}>
+            <summary aria-label={t("tripText.modeShare",{mode:t("splitTip.train"),share:pct(s.train)})}>
+              <span class="hud-symbol" aria-hidden="true"><Icon.train/></span><b class={"pct" + (far ? " trips" : "")}>{pct(s.train)}</b>
+            </summary>
+            <div class="hud-travel-detail">
+              <b>{t("splitTip.perDay",{where,note})}</b>
+              {([["train","splitTip.train"],["walk","splitTip.walking"],["drive","splitTip.driving"],["none","splitTip.noRoute"]] as const)
+                .filter(([mode])=>mode!=="none" || (s.none??0)>0)
+                .map(([mode,key])=><div key={mode}><span>{t(key)}</span><b>{known?tNumber(s[mode]??0,{maximumFractionDigits:1})+"%":"–"}</b></div>)}
+            </div>
+          </details>
+          <span class="studio-label">{far ? t("studio.trainTrips") : t("studio.trainShare")}</span>
+        </div>
+        <div class="studio-stat"><Cash /><span class="studio-label">{t("studio.cash")}</span></div>
+      </div>
+      <PeriodLine />
     </header><SaveNotice /></>
   );
 }

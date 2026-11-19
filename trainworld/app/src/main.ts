@@ -95,7 +95,7 @@ import { NewVersion } from "./ui/NewVersion";
 import { FiguresStopped } from "./ui/FiguresStopped";
 import { figuresPeaks, figuresStopped, watchFigures } from "./game/figuresStopped";
 import { DeviceNote, deviceNoteApplies } from "./ui/DeviceNote";
-import { MapSky, TopBar } from "./ui/TopBar";
+import { MapSky, StudioActions, TopBar } from "./ui/TopBar";
 import { cycleDemandEnd, MapTopLeft } from "./ui/DemandSelector";
 import { diagramShown, startDiagramView } from "./diagram/view";
 import { BlueprintBar } from "./ui/Blueprint";
@@ -228,6 +228,9 @@ render(h(MapToolBar, null), toolBarRoot); // T-2282, T-2284: the track and stati
 const skyRoot = document.createElement("div");
 map.getContainer().appendChild(skyRoot);
 render(h(MapSky, null), skyRoot); // T-1868: the day and night picture at the map's top right
+const actionsRoot = document.createElement("div");
+map.getContainer().appendChild(actionsRoot);
+render(h(StudioActions, null), actionsRoot); // 168Railway: Railway Studio's action bar at the map's foot
 startTroubleList(map.getContainer()); // T-1433: what is wrong on the network, at the lower right
 startZoomButtons(map); // T-3268: plus and minus at the right edge, Settings > Map hides them
 mountGuide(map.getContainer()); // T-1822: the Getting started card under the day and night picture
@@ -512,6 +515,18 @@ if (!SYNTH) startRestList(map, overlay, (x, y) => demandClick?.(x, y, false, tru
 const stationLife = SYNTH ? null : startStationLife(map, overlay, (notes) => client.post({ kind: "lineNotes", notes }));
 if (DEBUG && stationLife) (window as any).twLife = stationLife;
 if (!SYNTH) startBuildSounds(); // T-1282: placing and constructing blueprint
+// 168Railway: on a phone the attribution stays folded to its (i) button, clear of the action bar at the map's foot;
+// MapLibre opens it on its own when the map is narrow (the control exists from the map's creation, so no wait for load), so only the player's tap on (i) opens it
+if (matchMedia("(max-width: 600px)").matches) {
+  const attrib = map.getContainer().querySelector<HTMLElement>(".maplibregl-ctrl-attrib");
+  if (attrib) {
+    let tapped = -Infinity; // never, until the player taps (i)
+    attrib.querySelector("summary")?.addEventListener("click", () => { tapped = performance.now(); }, true);
+    const fold = () => { if (attrib.classList.contains("maplibregl-compact-show") && performance.now() - tapped > 800) attrib.classList.remove("maplibregl-compact-show"); };
+    new MutationObserver(fold).observe(attrib, { attributes: true, attributeFilter: ["class"] });
+    fold();
+  }
+}
 map.on("load", () => {
   // T-974: no city names behind the start menu; T-1567: no names at all behind its logo
   effect(() => setBasemapLabels(map, display.value.basemapLabels && !(choosing.value && START_LOGO), choosing.value));
