@@ -316,4 +316,5 @@ html.ui-hidden .studio-actions { display: none; }
 
 /* 168Railway app (Android WebView, html.in-app): the page runs under the camera cutout; the game sits below it and
    the cutout band shows the page's own colour instead of the black bar Android leaves there. */
-html.in-app body { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); }
+/* --app-inset-top comes from the app (Android WebView reports no safe-area insets) */
+html.in-app body { box-sizing: border-box; padding-top: var(--app-inset-top, env(safe-area-inset-top, 0px)); }
