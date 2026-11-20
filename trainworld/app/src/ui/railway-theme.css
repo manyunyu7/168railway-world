@@ -313,3 +313,7 @@ html.ui-hidden .studio-actions { display: none; }
   .studio-actions .studio-build span { display: none; }
   .studio-actions .studio-build { width: 46px; padding: 0; }
 }
+
+/* 168Railway app (Android WebView, html.in-app): the page runs under the camera cutout; the game sits below it and
+   the cutout band shows the page's own colour instead of the black bar Android leaves there. */
+html.in-app body { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); }
