@@ -305,6 +305,8 @@ for _id, _what, _keep, _buses in [
     # as in 2019: no LRT Jabodebek (opened 2023), no BRT corridor 14 (2022); timetables still GAPEKA 2026's
     ("jak_2019", "the network as in 2019", r"^(?!LRT Jabodebek)", {**JAK_BUSES, "refs": [str(i) for i in range(1, 14)]}),
     ("jak_bogor", "Commuter Line Bogor only", r"^Commuter Line Bogor$", None),
+    # the lead start: the Red (Bogor) and Brown (Tangerang) KRL lines with TransJakarta's corridors
+    ("jak_mulai", "Red Line, Brown Line and TransJakarta", r"^Commuter Line (Bogor|Tangerang)$", JAK_BUSES),
 ]:
     CITIES[_id] = {**CITIES["jak"], "out": os.path.join(OUT, f"{_id}_real.json"), "what": f"Jakarta scenario: {_what} (168Railway)",
                    "keep_lines": _keep, "buses": _buses}
@@ -1512,7 +1514,7 @@ def cmd_gamesave():
 
 # T-731: the cities a sandbox can start from their real network (the app's list, game/realNetworks.json,
 # which `realauto.py ship` writes)
-SHIPPED = ["nyc", "lon", "par", "tyo", "seo", "tor", "sdj", "jak", "jak_krl", "jak_tj", "jak_2019", "jak_bogor"]
+SHIPPED = ["nyc", "lon", "par", "tyo", "seo", "tor", "sdj", "jak", "jak_krl", "jak_tj", "jak_2019", "jak_bogor", "jak_mulai"]
 
 
 def auto_city(pack, region):

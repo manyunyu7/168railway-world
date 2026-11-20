@@ -29,8 +29,9 @@ const START_CITIES = ["jak", "sur", "bad", "yog", "sem", "med", "maa", "den"];
 const REAL_NETWORKS = new Set<string>(realNetworks);
 /** 168Railway: Jabodetabek's network as it runs, in a normal game or a sandbox (the network is the opening asset,
  * the cash the usual start's): `packs/real/<id>.save`, from pipeline/realnet.py's Jakarta scenarios. The first is
- * the whole network (KRL from GAPEKA 2026, MRT, LRT, Kalayang, TransJakarta BRT 1-14). */
-const JABO_SCENARIOS = ["jak", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
+ * the Red (Bogor) and Brown (Tangerang) KRL lines with TransJakarta. `jak`, the whole network (KRL from GAPEKA 2026, MRT,
+ * LRT, Kalayang, TransJakarta BRT 1-14), is held back for now: put it back in the list to offer it again. */
+const JABO_SCENARIOS = ["jak_mulai", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
 type JaboScenario = (typeof JABO_SCENARIOS)[number];
 const MAX_HITS = 8;
 
@@ -166,7 +167,7 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
   const startId = located ? located.zone : start;
   const city = startId ? cityById(startId) : null;
   const realOffered = mode === "sandbox" && !!startId && REAL_NETWORKS.has(startId);
-  const [jabo, setJabo] = useState<JaboScenario>("jak");
+  const [jabo, setJabo] = useState<JaboScenario>("jak_mulai");
   // T-3225: the real networks by name, for the sandbox's list
   const realCities = useMemo(() => [...REAL_NETWORKS].filter((id) => isCity(id)).map((id) => cityById(id))
     .sort((a, b) => shown(a).localeCompare(shown(b))), []);
