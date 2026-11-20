@@ -9,7 +9,7 @@ import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { startMetroBackdrop } from "./metroBackdrop";
 import { noteVisit } from "../game/visitNote";
-import { checkHostAuth, finishSignInWindow, HOST_REGISTER, signInHere, signInWithGoogle } from "../game/hostSession";
+import { checkHostAuth, finishSignInWindow, HOST_REGISTER, IN_RAILWAY_APP, signInHere, signInWithGoogle } from "../game/hostSession";
 import { HOME_CITY, isCity } from "../game/cities";
 import { choosing } from "../game/loading";
 import { display, dropMarket, keepMarket } from "../game/ui";
@@ -151,10 +151,12 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
         <Icon.train />{busy === "form" ? t("startMenu.guestSigningIn") : t("startMenu.guestLogin")}
       </button>
     </form>
-    <div class="guest-gate-or muted small">{t("newGame.or")}</div>
-    <button type="button" class="btn guest-gate-google" disabled={!!busy} onClick={() => void google()}>
-      <span class="guest-gate-g" aria-hidden="true">G</span>{busy === "google" ? t("startMenu.guestGoogleWaiting") : t("startMenu.guestGoogle")}
-    </button>
+    {!IN_RAILWAY_APP && <>
+      <div class="guest-gate-or muted small">{t("newGame.or")}</div>
+      <button type="button" class="btn guest-gate-google" disabled={!!busy} onClick={() => void google()}>
+        <span class="guest-gate-g" aria-hidden="true">G</span>{busy === "google" ? t("startMenu.guestGoogleWaiting") : t("startMenu.guestGoogle")}
+      </button>
+    </>}
     <p class="muted small guest-gate-note">{t("startMenu.guestNoAccount")} <a href={HOST_REGISTER}>{t("startMenu.guestRegister")}</a></p>
     <ul class="guest-gate-list">
       <li>{t("startMenu.guestPoint1")}</li>

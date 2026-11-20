@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { accountConfig, accountOpen, boardSetting, loadBoardSetting, accountState, api, deleteAccount, session, signIn, SITE, signOut, startAccount, storeSession, type AccountView } from "../game/account";
 import { shade } from "../game/ui";
 import { accountList, answerMergeAsk, gamesOn, mergeAsk, refreshAccountGames, watchMerge } from "../game/accountGames";
+import { IN_RAILWAY_APP } from "../game/hostSession";
 import { t, tRich, tNumber } from "../i18n";
 import { playedText } from "../game/gameTime";
 import { Leaderboard } from "./Leaderboard";
@@ -69,7 +70,7 @@ function SignInForms() {
   const run = (f: () => Promise<unknown>) => { setMsg(""); f().catch((e) => setMsg(e.message)); };
   if (!cfg?.signIn) return <p>{t("accountPanel.unavailable")}</p>;
   return <>
-    {cfg.googleClientId && <GoogleButton onMsg={setMsg} onCredential={(credential) => { signIn("signin", { provider: "google", credential }).catch((e) => setMsg(e.message)); }} />}
+    {cfg.googleClientId && !IN_RAILWAY_APP && <GoogleButton onMsg={setMsg} onCredential={(credential) => { signIn("signin", { provider: "google", credential }).catch((e) => setMsg(e.message)); }} />}
     {cfg.dev && <form class="acct-row" onSubmit={(e) => { e.preventDefault(); const sub = val(e.currentTarget, "sub").trim(); if (sub) run(() => signIn("signin", { provider: "dev", sub })); }}>
       <input name="sub" placeholder={t("accountPanel.devPlaceholder")} aria-label={t("accountPanel.devLabel")} />
       <button class="btn text" type="submit">{t("accountPanel.signIn")}</button>

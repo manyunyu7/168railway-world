@@ -46,6 +46,10 @@ export async function signInHere(login: string, password: string): Promise<{ ok:
   }
 }
 
+/** Opened from the 168Railway Android app (its WebView adds "168RailwayApp" to the user agent): the app already
+ * signs the player in, and Google's sign-in would leave for the phone's browser and never come back signed in. */
+export const IN_RAILWAY_APP = typeof navigator !== "undefined" && /\b168RailwayApp\b/.test(navigator.userAgent);
+
 const POPUP_DONE = "login=done";
 
 /** Google's sign-in in a small window (its page cannot sit inside ours); resolves once that window is done or
