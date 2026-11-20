@@ -280,7 +280,8 @@ CITIES["jak"] = {
     "sources": [{"name": "krl", "adapter": "trips", "file": os.path.join(OUT, "jak_krl_trips.csv"), "min_share": 0.05, "min_trips": 4,
                  "kind": "commuter", "operator": "kci", "train_m": {"_": 240, "TP": 160},
                  # KAI Commuter's line colours
-                 "route_colour": {"B": "#e30a16", "C": "#0084d8", "R": "#16812b", "T": "#8b4513", "TP": "#dd0067", "A": "#26357b"}},
+                 "route_colour": {"B": "#e30a16", "C": "#0084d8", "R": "#16812b", "T": "#8b4513", "TP": "#dd0067", "A": "#26357b"},
+                 "fold": ["C"]},
                 {"name": "osm", "adapter": "osm", "file": os.path.join(RAW, "t509", "osm_jak.json"), "min_share": 0.05, "min_trips": 4,
                  "only": r"r(9677669|9677670|10693119|10693160|16036440|16036441|16079478|16079479|15031928|15031929)$",
                  "lines": [
@@ -707,8 +708,16 @@ def build_lines(src, trips, xy, cxy=(0.0, 0.0)):
         # line and drop the stop; equal totals go to the longer
         def weight(c):
             return cnt[c] + sum(m for k, m in cnt.items() if k != c and k[0] == c[0] and k[-1] == c[-1] and set(k) < set(c))
-        for c, n in sorted(cnt.items(), key=lambda kv: (-weight(kv[0]), -len(kv[0]))):
-            if n < max(min_share * total, min_trips) or any(is_piece(c, k) for k in kept):
+        # 168Railway: a route in `fold` is a few long services its other patterns are pieces of either way
+        # (KRL Cikarang: Cikarang-Kampung Bandan by Manggarai and by Pasar Senen, the rest short turns of
+        # them), so the longest patterns go first and one whose stops are all on a kept one, either way, joins it; else every
+        # short turn is a line of its own and one track draws as seven bands
+        fold = route in src.get("fold", ())
+        # (a train passing a stop of the long service without stopping, Pasar Senen, is one of its too)
+        piece = (lambda c, k: set(c) <= set(k)) if fold else is_piece
+        order = (lambda kv: (-len(kv[0]), -weight(kv[0]))) if fold else (lambda kv: (-weight(kv[0]), -len(kv[0])))
+        for c, n in sorted(cnt.items(), key=order):
+            if n < max(min_share * total, min_trips) or any(piece(c, k) for k in kept):
                 continue
             # the same ends and nearly the same stops as a busier pattern: a variant of it (a stop
             # skipped one way for works, say), not a service of its own; splitting it off would
@@ -722,7 +731,7 @@ def build_lines(src, trips, xy, cxy=(0.0, 0.0)):
         # else the one it shares most stops with
         assign = {}
         for c in set(canon):
-            hosts = [k for k in kept if is_piece(c, k)]
+            hosts = [k for k in kept if piece(c, k)]
             if hosts:
                 assign[c] = max(hosts, key=lambda k: cnt.get(k, 0))
                 continue

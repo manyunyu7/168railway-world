@@ -29,9 +29,9 @@ const START_CITIES = ["jak", "sur", "bad", "yog", "sem", "med", "maa", "den"];
 const REAL_NETWORKS = new Set<string>(realNetworks);
 /** 168Railway: Jabodetabek's network as it runs, in a normal game or a sandbox (the network is the opening asset,
  * the cash the usual start's): `packs/real/<id>.save`, from pipeline/realnet.py's Jakarta scenarios. The first is
- * the Red (Bogor) and Brown (Tangerang) KRL lines with TransJakarta. `jak`, the whole network (KRL from GAPEKA 2026, MRT,
- * LRT, Kalayang, TransJakarta BRT 1-14), is held back for now: put it back in the list to offer it again. */
-const JABO_SCENARIOS = ["jak_mulai", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
+ * the Red (Bogor) and Brown (Tangerang) KRL lines with TransJakarta, then `jak`, the whole network (KRL from GAPEKA 2026,
+ * MRT, LRT, Kalayang, TransJakarta BRT 1-14). */
+const JABO_SCENARIOS = ["jak_mulai", "jak", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
 type JaboScenario = (typeof JABO_SCENARIOS)[number];
 const MAX_HITS = 8;
 
@@ -134,9 +134,13 @@ function usePinnedTop(sheet: RefObject<HTMLElement | null>) {
   }, []);
 }
 
+/** 168Railway: saves rebuilt after the data release went out, under a new name (files there are never
+ * replaced): the KRL Cikarang line as its two services, not seven short turns. */
+const REBUILT: Record<string, string> = { jak: "jak-2", jak_krl: "jak_krl-2", jak_2019: "jak_2019-2" };
+
 /** The real network's save for a start city (T-731). */
 async function realNetwork(id: string): Promise<ArrayBuffer> {
-  const r = await patientFetch(dataUrl(`real/${id}.save`));
+  const r = await patientFetch(dataUrl(`real/${REBUILT[id] ?? id}.save`));
   if (!r.ok) throw new Error(`${r.status}`);
   return r.arrayBuffer();
 }
