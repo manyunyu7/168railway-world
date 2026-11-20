@@ -50,6 +50,22 @@ export async function signInHere(login: string, password: string): Promise<{ ok:
  * signs the player in, and Google's sign-in would leave for the phone's browser and never come back signed in. */
 export const IN_RAILWAY_APP = typeof navigator !== "undefined" && /\b168RailwayApp\b/.test(navigator.userAgent);
 
+type AppBridge = { callHandler: (name: string, ...args: unknown[]) => Promise<unknown> };
+const appBridge = (): AppBridge | null =>
+  (IN_RAILWAY_APP && (globalThis as { flutter_inappwebview?: AppBridge }).flutter_inappwebview) || null;
+
+/** In the app, signing in is the app's own sign-in (or sign-up): the app and the game end up signed in together, and
+ * the app reopens the game signed in. False outside the app or when the app cannot be reached. */
+export const CAN_SIGN_IN_THROUGH_APP = (): boolean => typeof appBridge()?.callHandler === "function";
+export function signInThroughApp(): void { void appBridge()?.callHandler("railwayLogin").catch(() => {}); }
+
+// In the app the game fills the screen under the camera cutout; `in-app` pads what sits at the top edge.
+if (IN_RAILWAY_APP && typeof document !== "undefined") {
+  const vp = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+  if (vp && !vp.content.includes("viewport-fit")) vp.content += ", viewport-fit=cover";
+  document.documentElement.classList.add("in-app");
+}
+
 const POPUP_DONE = "login=done";
 
 /** Google's sign-in in a small window (its page cannot sit inside ours); resolves once that window is done or

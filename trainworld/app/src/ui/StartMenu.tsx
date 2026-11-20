@@ -9,7 +9,7 @@ import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { startMetroBackdrop } from "./metroBackdrop";
 import { noteVisit } from "../game/visitNote";
-import { checkHostAuth, finishSignInWindow, HOST_REGISTER, IN_RAILWAY_APP, signInHere, signInWithGoogle } from "../game/hostSession";
+import { CAN_SIGN_IN_THROUGH_APP, checkHostAuth, finishSignInWindow, HOST_REGISTER, IN_RAILWAY_APP, signInHere, signInThroughApp, signInWithGoogle } from "../game/hostSession";
 import { HOME_CITY, isCity } from "../game/cities";
 import { choosing } from "../game/loading";
 import { display, dropMarket, keepMarket } from "../game/ui";
@@ -119,6 +119,8 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState<"" | "form" | "google">("");
   const [error, setError] = useState("");
+  // 168Railway app: one button, the app's own sign-in (it has sign-up too) and the game reopens signed in
+  const viaApp = CAN_SIGN_IN_THROUGH_APP();
   const signedIn = async () => { if ((await checkHostAuth()) !== "out") onIn(); };
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -141,23 +143,29 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
     <img class="guest-gate-snap" src="./snapshots/jak.jpg" width={600} height={350} alt={t("startMenu.guestSnapAlt")} />
     <h2 id="start-title" class="guest-gate-title">{t("startMenu.guestTitle")}</h2>
     <p class="guest-gate-text">{t("startMenu.guestText")}</p>
-    <form class="guest-gate-form" onSubmit={(e) => void submit(e)}>
-      <input type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck={false} placeholder={t("startMenu.guestLoginField")} aria-label={t("startMenu.guestLoginField")}
-        value={login} onInput={(e) => setLogin((e.target as HTMLInputElement).value)} disabled={!!busy} />
-      <input type="password" name="password" autocomplete="current-password" placeholder={t("startMenu.guestPassword")} aria-label={t("startMenu.guestPassword")}
-        value={password} onInput={(e) => setPassword((e.target as HTMLInputElement).value)} disabled={!!busy} />
-      {error && <p class="guest-gate-error" role="alert">{error}</p>}
-      <button ref={first} type="submit" class="btn start-new guest-gate-login" disabled={!!busy}>
-        <Icon.train />{busy === "form" ? t("startMenu.guestSigningIn") : t("startMenu.guestLogin")}
-      </button>
-    </form>
-    {!IN_RAILWAY_APP && <>
-      <div class="guest-gate-or muted small">{t("newGame.or")}</div>
-      <button type="button" class="btn guest-gate-google" disabled={!!busy} onClick={() => void google()}>
-        <span class="guest-gate-g" aria-hidden="true">G</span>{busy === "google" ? t("startMenu.guestGoogleWaiting") : t("startMenu.guestGoogle")}
-      </button>
-    </>}
-    <p class="muted small guest-gate-note">{t("startMenu.guestNoAccount")} <a href={HOST_REGISTER}>{t("startMenu.guestRegister")}</a></p>
+    {viaApp
+      ? <button ref={first} type="button" class="btn start-new guest-gate-login" onClick={signInThroughApp}>
+          <Icon.train />{t("startMenu.guestLogin")}
+        </button>
+      : <>
+      <form class="guest-gate-form" onSubmit={(e) => void submit(e)}>
+        <input type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck={false} placeholder={t("startMenu.guestLoginField")} aria-label={t("startMenu.guestLoginField")}
+          value={login} onInput={(e) => setLogin((e.target as HTMLInputElement).value)} disabled={!!busy} />
+        <input type="password" name="password" autocomplete="current-password" placeholder={t("startMenu.guestPassword")} aria-label={t("startMenu.guestPassword")}
+          value={password} onInput={(e) => setPassword((e.target as HTMLInputElement).value)} disabled={!!busy} />
+        {error && <p class="guest-gate-error" role="alert">{error}</p>}
+        <button ref={first} type="submit" class="btn start-new guest-gate-login" disabled={!!busy}>
+          <Icon.train />{busy === "form" ? t("startMenu.guestSigningIn") : t("startMenu.guestLogin")}
+        </button>
+      </form>
+      {!IN_RAILWAY_APP && <>
+        <div class="guest-gate-or muted small">{t("newGame.or")}</div>
+        <button type="button" class="btn guest-gate-google" disabled={!!busy} onClick={() => void google()}>
+          <span class="guest-gate-g" aria-hidden="true">G</span>{busy === "google" ? t("startMenu.guestGoogleWaiting") : t("startMenu.guestGoogle")}
+        </button>
+      </>}
+      <p class="muted small guest-gate-note">{t("startMenu.guestNoAccount")} <a href={HOST_REGISTER}>{t("startMenu.guestRegister")}</a></p>
+      </>}
     <ul class="guest-gate-list">
       <li>{t("startMenu.guestPoint1")}</li>
       <li>{t("startMenu.guestPoint2")}</li>
