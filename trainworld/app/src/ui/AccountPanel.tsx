@@ -7,7 +7,7 @@
 
 import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { accountConfig, accountOpen, boardSetting, loadBoardSetting, accountState, api, deleteAccount, session, signIn, SITE, signOut, startAccount, storeSession, type AccountView } from "../game/account";
+import { accountConfig, accountOpen, boardSetting, loadBoardSetting, accountState, api, HOST_ACCOUNTS, deleteAccount, session, signIn, SITE, signOut, startAccount, storeSession, type AccountView } from "../game/account";
 import { shade } from "../game/ui";
 import { accountList, answerMergeAsk, gamesOn, mergeAsk, refreshAccountGames, watchMerge } from "../game/accountGames";
 import { IN_RAILWAY_APP } from "../game/hostSession";
@@ -218,7 +218,7 @@ export function AccountPanel() {
 
 /** The person icon: the start menu's (`start`) or the top of Settings (`settings`); nothing until accounts are on. */
 export function AccountButton({ kind }: { kind: "start" | "settings" }) {
-  if (accountState.value !== "on") return null;
+  if (accountState.value !== "on" || HOST_ACCOUNTS) return null;
   const label = session.value ? t("accountPanel.account") : t("accountPanel.signIn");
   return <button class={kind === "settings" ? "btn icon" + (accountOpen.value ? " on" : "") : "btn icon acct-start"} data-tip={label} aria-label={label}
     onClick={() => (accountOpen.value = !accountOpen.peek())}><Icon.person /></button>;
@@ -233,7 +233,7 @@ export function loginText(): string {
 /** T-1139: Settings' Account row, in words beside the icon at its top: who is signed in, and the button
  * that opens the same panel as the start menu's (sign in, change password, sign out, delete). */
 export function AccountSection() {
-  if (accountState.value !== "on") return null;
+  if (accountState.value !== "on" || HOST_ACCOUNTS) return null;
   const a = session.value?.account;
   const who = loginText();
   return <>

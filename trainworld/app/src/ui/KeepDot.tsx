@@ -7,7 +7,7 @@
 // T-2614: the same dot says when the playing game's latest change has not reached the account for two
 // minutes; a click saves it now, which sends it again.
 
-import { accountOpen, accountState } from "../game/account";
+import { accountOpen, accountState, HOST_ACCOUNTS } from "../game/account";
 import { cloudBehind, keepDue, startKeep } from "../game/keepNudge";
 import { t } from "../i18n";
 import { exportGame, manageSaveSlot } from "../workers/clockClient";
@@ -23,7 +23,7 @@ export function KeepDot() {
   if (behind) return <button class="keep-dot" data-tip={behindTip(behind)} aria-label={t("keepDot.behindLabel")}
     onClick={() => manageSaveSlot("save")} />;
   if (!keepDue.value) return null;
-  const accounts = accountState.value === "on";
+  const accounts = accountState.value === "on" && !HOST_ACCOUNTS;
   return <button class="keep-dot" data-tip={accounts ? t("keepDot.tipAccount") : t("keepDot.tipDownload")} aria-label={t("keepDot.label")}
     onClick={() => (accounts ? (accountOpen.value = true) : exportGame())} />;
 }

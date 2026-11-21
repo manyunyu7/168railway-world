@@ -18,7 +18,7 @@ import { storageKept } from "../game/saveSafety";
 import { startup } from "../game/loading";
 import { exportGame, exportSlot, importGame, leaveToMenu, newGame, manageSaveSlot, savedByHand, saveSlotsState } from "../workers/clockClient";
 import { listBackups, WHOLE_PANEL, type SaveSlot, type SlotBackup } from "../workers/saveFile";
-import { accountConfig, accountOpen, accountState, cloudContext, session } from "../game/account";
+import { accountConfig, accountOpen, accountState, cloudContext, HOST_ACCOUNTS, session } from "../game/account";
 import { accountList, accountOnly, addToAccount, cardOf, damagedAccount, deleteVersions, downloadAccountGame, downloadFailure, elsewhereAt, refreshAccountGames, restoreAccountBackup, restorePinned } from "../game/accountGames";
 import { estimateGB, gbText, overBudget } from "../game/memoryEstimate";
 import { useMemoryGuard } from "./MemoryWarn";
@@ -373,7 +373,7 @@ export function deleteGroupQuestion(group: GameGroup, playing = false): string {
  * account; where there are no accounts, a crossed cloud only while the browser may drop the saves. */
 function HeadMark() {
   const s = session.value;
-  if (accountState.value === "on") {
+  if (accountState.value === "on" && !HOST_ACCOUNTS) {
     const a = s?.account;
     const tip = !a ? t("savesPanel.signedOutTip") : a.username ? t("savesPanel.signedInAs", { name: a.username }) : a.logins.includes("google") ? t("savesPanel.signedInGoogle") : t("savesPanel.signedIn");
     return <button class="btn icon save-head-mark" data-tip={tip} aria-label={a ? t("savesPanel.account") : t("savesPanel.signIn")} onClick={() => (accountOpen.value = true)}>{a ? <Icon.cloud /> : <Icon.cloudOff />}</button>;

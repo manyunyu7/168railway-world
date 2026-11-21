@@ -28,6 +28,7 @@ import { newGameId, onTokenGone, type CloudContext } from "../workers/cloud";
 import { listSlots, writeSync } from "../workers/saveFile";
 import { t } from "../i18n";
 import { patientFetch, CLOUD_STALL_MS } from "../workers/patientFetch";
+import { PUBLISHED } from "./dataBase";
 
 export interface AccountView {
   id: string;
@@ -54,8 +55,15 @@ const DEVICE_KEY = "trainworld.device.v1";
 /** T-988: whether the server last said it keeps games */
 const GAMES_ON_KEY = "trainworld.games-on.v1";
 
-// Fork accounts use the host session. Upstream account services are disabled.
-const BASE = "";
+// Fork accounts use the host session. Upstream account services are disabled; on the published page the
+// leaderboards are 168railway.com's own copy of shonei-server's routes (StudioWorldBoardController), signed in by the
+// site's session cookie (same origin): the "token" is only a marker, and writes carry the session's CSRF token.
+const BASE = PUBLISHED ? "/api/web/studio/tw/" : "";
+/** 168Railway: the account is the site's, so no sign-in forms, account panel or cloud icons of our own */
+export const HOST_ACCOUNTS = !!BASE;
+let csrf: Promise<string> | null = null;
+const csrfToken = (): Promise<string> => (csrf ??= fetch("/api/web/studio/session", { credentials: "same-origin", headers: { Accept: "application/json" }, cache: "no-store" })
+  .then((r) => r.json()).then((j: { csrfToken?: string | null }) => j.csrfToken ?? "").catch(() => { csrf = null; return ""; }));
 const AUTH_KEY = "168railway.fork.unused-auth";
 const lsGet = <T>(k: string): T | null => { try { return JSON.parse(localStorage.getItem(k) ?? "null") as T; } catch { return null; } };
 const lsSet = (k: string, v: unknown) => {
@@ -79,7 +87,8 @@ export async function api<T>(method: string, path: string, body?: unknown, opts:
   const headers: Record<string, string> = { ...opts.headers };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const s = session.peek();
-  if (opts.auth !== false && s) headers.Authorization = "Bearer " + s.token; // i18n-ignore
+  if (opts.auth !== false && s && !HOST_ACCOUNTS) headers.Authorization = "Bearer " + s.token; // i18n-ignore
+  if (HOST_ACCOUNTS) { headers.Accept = "application/json"; if (method !== "GET") headers["X-CSRF-TOKEN"] = await csrfToken(); }
   let r: Response;
   try {
     r = await patientFetch(BASE + path, { method, headers, body: opts.form ?? (body === undefined ? undefined : JSON.stringify(body)) }, CLOUD_STALL_MS);
@@ -214,7 +223,7 @@ function startFeedbackWatch() {
 
 export function storeSession(j: { token: string; account: AccountView }) {
   session.value = { token: j.token, account: j.account };
-  lsSet(AUTH_KEY, session.value);
+  if (!HOST_ACCOUNTS) lsSet(AUTH_KEY, session.value);
   void loadBoardSetting();
 }
 function tokenGone() {
@@ -485,7 +494,7 @@ export function startAccount() {
     // T-3038: how many players have each achievement; sent without the session
     if (accountConfig.peek()?.trainworldAchievements) startAchievementCounts((method, path, body) => api(method, path, body, { auth: false }));
     if (accountState.peek() !== "on") { startFeedbackWatch(); return; }
-    if (session.peek()) {
+    if (session.peek() || HOST_ACCOUNTS) {
       try { storeSession(await api("POST", "noritetsu/refresh")); }
       catch { /* a 401 has signed out; offline keeps the token for next time */ }
     }

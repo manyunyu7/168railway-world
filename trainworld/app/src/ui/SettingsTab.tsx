@@ -20,7 +20,7 @@ import type { Vehicle } from "../game/vehicle";
 import { Credits } from "./Credits";
 import { helpOpen } from "./HelpPanel";
 import { HELP_KEY } from "./toolKeys";
-import { accountState } from "../game/account";
+import { accountState, HOST_ACCOUNTS } from "../game/account";
 import { AccountButton, AccountSection, loginText } from "./AccountPanel";
 import { CommunityButton } from "./Community";
 import { PurposeSelect } from "./DemandSelector";
@@ -62,7 +62,7 @@ export function SettingsTab() {
         </button>
         <CommunityButton settings />
         <AccountButton kind="settings" />
-        {accountState.value === "on" && <span class="login-text muted">{loginText()}</span>}
+        {accountState.value === "on" && !HOST_ACCOUNTS && <span class="login-text muted">{loginText()}</span>}
       </div>
       <LanguageRow />
       <div class="h">{t("settingsTab.bubbles")}</div>

@@ -9,7 +9,8 @@ import { normalise } from "../game/search";
 import { tPlace } from "../i18n/places";
 import { findStart } from "./NewGame";
 import { CITIES, zoneCountry } from "../game/cities";
-import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoards, session, setBoard, type BoardRow } from "../game/account";
+import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoards, HOST_ACCOUNTS, session, setBoard, type BoardRow } from "../game/account";
+import { CAN_SIGN_IN_THROUGH_APP, HOST_LOGIN, signInThroughApp } from "../game/hostSession";
 import { exact } from "../game/format";
 import { t, tCountry } from "../i18n";
 import { countryName } from "../i18n/intl";
@@ -44,7 +45,11 @@ function Join() {
   return <div class="lb-foot">
     {moneyState.value?.mode === "sandbox" && <p class="small muted">{t("leaderboard.sandbox")}</p>}
     {!session.value
-      ? <button class="btn text" onClick={() => { boardsOpen.value = false; accountOpen.value = true; }}>{t("leaderboard.signIn")}</button>
+      ? <button class="btn text" onClick={() => {
+        boardsOpen.value = false;
+        // 168Railway: the site's sign-in (the app's own inside the app), then back to the game
+        if (HOST_ACCOUNTS) { if (CAN_SIGN_IN_THROUGH_APP()) signInThroughApp(); else location.href = HOST_LOGIN; } else accountOpen.value = true;
+      }}>{t("leaderboard.signIn")}</button>
       : b?.on
         ? <button class="btn text" onClick={() => run(() => setBoard(false))}>{t("leaderboard.leave")}</button>
         : <form class="acct-row" onSubmit={(e) => { e.preventDefault(); if (name.trim()) run(() => setBoard(true, name)); }}>
