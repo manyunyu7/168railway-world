@@ -838,7 +838,16 @@ def build_lines(src, trips, xy, cxy=(0.0, 0.0)):
                 print(f"  {name} {route}: a hop has no time in one direction; mirrored")
             m = src["train_m"]
             cars = max(1, round(m.get(route, m["_"]) / CAR_M))
+            whole = None
+            if src.get("tph_day"):
+                # 168Railway: whole trains, as the game runs a line (`trains`, both directions): enough for its day's
+                # runs each way over GAPEKA's round trip (its run times both ways and a turnaround at each end), at
+                # least one. Left to the game, a train or two a day rounds to no train at all (0.04 an hour times a
+                # 15-hour round trip); one train on a 15-hour round trip runs about 1.6 times a day each way.
+                rt_s = sum(t0[0]) + sum(t1[0]) + 2 * 180.0
+                whole = max(1, round(n_day / 2.0 * rt_s / 86400.0))
             lines.append({"feed": name, "route": route, "stops": list(k), "tph": tph, "t0": t0, "t1": t1, "cars": cars,
+                          **({"trains": [whole] * 3} if whole else {}),
                           "trips_day": sum(1 for c in canon if assign.get(c) == k),
                           "operator": src.get("route_operator", {}).get(route, src.get("operator", name)),
                           "kind": src.get("route_kind", {}).get(route, src.get("kind", "metro"))})
@@ -1573,7 +1582,9 @@ def cmd_gamesave():
     header.update(cfg.get("save_header", {}))
     # lines with their whole trains set (T-1625): the cars they need, ordinary and high-speed apart
     net = json.load(open(cfg["out"], encoding="utf-8")) if cfg.get("out") and os.path.exists(cfg["out"]) else {"lines": []}
-    if any("trains" in l for l in net["lines"]):
+    # (168Railway: only when every line has them; `indo` sets them for its few-a-day lines only, and realsave's
+    # fleet counts every line)
+    if net["lines"] and all("trains" in l for l in net["lines"]):
         need = {False: 0, True: 0}
         for l in net["lines"]:
             need[bool(l.get("fast"))] += max(l["trains"]) * l["cars"]

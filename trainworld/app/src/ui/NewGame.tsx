@@ -136,7 +136,7 @@ function usePinnedTop(sheet: RefObject<HTMLElement | null>) {
 
 /** 168Railway: saves rebuilt after the data release went out, under a new name (files there are never
  * replaced): the KRL Cikarang line as its two services, not seven short turns. */
-const REBUILT: Record<string, string> = { jak: "jak-2", jak_krl: "jak_krl-2", jak_2019: "jak_2019-2" };
+const REBUILT: Record<string, string> = { jak: "jak-2", jak_krl: "jak_krl-2", jak_2019: "jak_2019-2", indo: "indo-2" };
 
 /** The real network's save for a start city (T-731). */
 async function realNetwork(id: string): Promise<ArrayBuffer> {
