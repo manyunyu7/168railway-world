@@ -311,6 +311,31 @@ for _id, _what, _keep, _buses in [
 ]:
     CITIES[_id] = {**CITIES["jak"], "out": os.path.join(OUT, f"{_id}_real.json"), "what": f"Jakarta scenario: {_what} (168Railway)",
                    "keep_lines": _keep, "buses": _buses}
+# Indonesia (168Railway, `indo`): every passenger train in GAPEKA 2026, Java (KP-DJKA 116) and Sumatra (117-119),
+# as pipeline/gapeka_indo.py writes them: Jabodetabek's KRL as `jak` has it, every other KRL service, and the local
+# and intercity trains a route per train name. Jakarta's MRT, LRT, Kalayang and TransJakarta as in `jak`. The
+# whole country in one frame from Jakarta's pack (as `jpn` from Tokyo's), no boundary. A train that runs a few
+# times a day has its trains an hour as its day's trains over 24 hours (`tph_day`): the hour windows would miss a
+# night train altogether. Station keys are GAPEKA's national codes (`group`), so the sources meet at a station.
+_GAPEKA_ID = {"group": {"prefix": "g"}, "min_share": 0.0, "kind": "commuter", "operator": "kai"}
+CITIES["indo"] = {
+    "pack": "jak",
+    "boundary": False,
+    "out": os.path.join(OUT, "indo_real.json"),
+    "what": "Indonesia's passenger rail: GAPEKA 2026 Java and Sumatra, Jakarta's MRT/LRT from OSM (168Railway)",
+    "count_point": [106.8456, -6.1862],  # Gambir
+    "route_slack": 2.5,
+    "sources": [
+        {**CITIES["jak"]["sources"][0], **_GAPEKA_ID, "name": "krl", "file": os.path.join(OUT, "indo_krl_jabo_trips.csv"), "min_trips": 4,
+         "operator": "kci"},
+        {**_GAPEKA_ID, "name": "krld", "adapter": "trips", "file": os.path.join(OUT, "indo_krl_trips.csv"), "min_trips": 1, "tph_day": True,
+         "operator": "kci", "train_m": {"_": 160}},
+        {**_GAPEKA_ID, "name": "ka", "adapter": "trips", "file": os.path.join(OUT, "indo_rail_trips.csv"), "min_trips": 1, "tph_day": True,
+         "train_m": {"_": 200}},
+        CITIES["jak"]["sources"][1],
+    ],
+    "buses": CITIES["jak"]["buses"],
+}
 CAR_M = 20.0
 LEVEL_WINDOWS = {0: [(7, 9), (17, 19)], 1: [(10, 16)], 2: [(0, 6)]}
 DAY = (6, 20)
@@ -759,6 +784,9 @@ def build_lines(src, trips, xy, cxy=(0.0, 0.0)):
                         n_lev[lv] += 1
             hours = {lv: sum(b - a for a, b in ws) for lv, ws in LEVEL_WINDOWS.items()}
             tph = [round(n_lev[lv] / hours[lv] / 2.0, 2) for lv in range(3)]
+            if src.get("tph_day"):  # 168Railway: a few trains a day, at any hour: the day's trains over 24 hours, each way
+                n_day = sum(1 for c in canon if assign.get(c) == k)
+                tph = [round(n_day / 24.0 / 2.0, 3)] * 3
             if max(tph) == 0:
                 continue
 
@@ -1326,6 +1354,7 @@ def out_or_work(name):
 # T-1303: each real network's region in data/packs/realgraph/ (noritetsu's region codes)
 REGION = {"nyc": "us", "lon": "gb", "par": "fr", "tyo": "jp", "seo": "kr", "tor": "ca", "sdj": "jp", "jak": "id"}
 REGION.update({c: "id" for c in CITIES if c.startswith("jak_")})  # Jakarta's scenarios
+REGION["indo"] = "id"
 ROUTE_R = 150.0
 ROUTE_SLACK = 1.5
 ROUTE_SLACK_M = 400.0
@@ -1523,7 +1552,7 @@ def cmd_gamesave():
 
 # T-731: the cities a sandbox can start from their real network (the app's list, game/realNetworks.json,
 # which `realauto.py ship` writes)
-SHIPPED = ["nyc", "lon", "par", "tyo", "seo", "tor", "sdj", "jak", "jak_krl", "jak_tj", "jak_2019", "jak_bogor", "jak_mulai"]
+SHIPPED = ["nyc", "lon", "par", "tyo", "seo", "tor", "sdj", "jak", "jak_krl", "jak_tj", "jak_2019", "jak_bogor", "jak_mulai", "indo"]
 
 
 def auto_city(pack, region):

@@ -31,7 +31,7 @@ const REAL_NETWORKS = new Set<string>(realNetworks);
  * the cash the usual start's): `packs/real/<id>.save`, from pipeline/realnet.py's Jakarta scenarios. The first is
  * the Red (Bogor) and Brown (Tangerang) KRL lines with TransJakarta, then `jak`, the whole network (KRL from GAPEKA 2026,
  * MRT, LRT, Kalayang, TransJakarta BRT 1-14). */
-const JABO_SCENARIOS = ["jak_mulai", "jak", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
+const JABO_SCENARIOS = ["jak_mulai", "indo", "jak", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
 type JaboScenario = (typeof JABO_SCENARIOS)[number];
 const MAX_HITS = 8;
 
@@ -220,6 +220,9 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
     setStartAt(!jaboStart && located ? { center: located.at, zoom: city ? city.zoom : LOCATED_WORLD_ZOOM } : null);
     // T-1441: a new game opens with the Destinations bubbles on; T-2685: Homes for the tutorial's
     display.value = { ...display.peek(), commuters: true, commuterEnd: newGameEnd(mode) };
+    // 168Railway: the whole of Indonesia puts dozens of intercity lines on one track out of Jakarta; side by side they
+    // draw a band wider than the city, so this start draws the lines on their track (Settings turns it back on)
+    if (jaboStart === "indo") display.value = { ...display.peek(), lineBands: false };
     noteVisit("start", { mode: spec.mode, city: spec.start ?? null, scen: jaboStart ?? (file ?? null) });
     onStart(spec);
   };

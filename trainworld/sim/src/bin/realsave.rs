@@ -293,8 +293,13 @@ fn main() {
                 pis = seq.into_iter().map(|(_, p)| p).collect();
             }
             let e = net.alloc_edge();
-            if net.set_edge(e, Some(EdgeData { a, b, tracks: 2, pis, built: true, off: false, thru: vec![], crossover: false, kind: TrackKind::from_hsr(edge_hsr), sep: true, day: 0, oneway: 0, join: [0; 2], limit: 0 })).is_err() {
+            let npis = pis.len();
+            // 168Railway: a model edge may say single track (pipeline/indo_tracks.py); double otherwise
+            let tracks = ed["tracks"].as_u64().unwrap_or(2).clamp(1, 2) as u8;
+            if let Err(why) = net.set_edge(e, Some(EdgeData { a, b, tracks, pis, built: true, off: false, thru: vec![], crossover: false, kind: TrackKind::from_hsr(edge_hsr), sep: true, day: 0, oneway: 0, join: [0; 2], limit: 0 })) {
                 refused += 1;
+                let (ax, ay) = (net.node_x[a as usize], net.node_y[a as usize]);
+                eprintln!("  edge {ei} refused ({a}-{b}, {} - {}, {npis} corners, at {ax:.0},{ay:.0}): {why:?}", node_names.get(a as usize).map(|s| s.as_str()).unwrap_or("?"), node_names.get(b as usize).map(|s| s.as_str()).unwrap_or("?"));
             }
             edge_ids.push(e);
         }
@@ -672,6 +677,14 @@ fn main() {
             let bad: Vec<u32> = w.net.line_path(id).iter().map(|&p| p >> 1).filter(|&e| !w.net.edge_ok(e) || !w.net.edge_built[e as usize]).collect();
             let bad_stops: Vec<u32> = w.net.line_stops(id).iter().copied().filter(|&s| !w.net.node_ok(s) || !w.net.node_built[s as usize]).collect();
             eprintln!("line {li} ({}) not running: edges {bad:?}, stops {bad_stops:?}, path {} edges, {} stops", lines[li]["name"].as_str().unwrap_or(""), w.net.line_path(id).len(), w.net.line_stops(id).len());
+            for &e in &bad {
+                let e = e as usize;
+                if e < w.net.edge_count() {
+                    let (a, b) = (w.net.edge_a[e], w.net.edge_b[e]);
+                    let (x, y) = local(w.net.node_x[a as usize], w.net.node_y[a as usize]);
+                    eprintln!("    edge {e}: alive {} built {} ok {} nodes {a}-{b} ({} - {}) at {x:.0},{y:.0} len {:.0}", w.net.edge_alive[e], w.net.edge_built[e], w.net.edge_ok(e as u32), node_names[a as usize], node_names[b as usize], w.net.edge_len[e]);
+                }
+            }
             continue;
         }
         let ls = w.net.line_stops(id).to_vec();

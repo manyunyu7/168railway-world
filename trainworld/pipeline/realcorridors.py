@@ -466,6 +466,9 @@ def build(city, out_dir, avoid=None):
     Brighton line's fast trains on the Quarry line, not all through Redhill and Merstham)."""
     t0 = time.time()
     cfg = realnet.CITIES[city]
+    # 168Railway: a network of long intercity hops through hills (Purwakarta-Padalarang) runs well over 1.5 times
+    # the straight line between its stops
+    realnet.ROUTE_SLACK = cfg.get("route_slack", realnet.ROUTE_SLACK)
     o = realnet.origin(cfg["pack"])
     staged = os.path.join(realnet.OUT, os.path.basename(cfg["out"]))
     net = json.load(open(staged if os.path.exists(staged) else cfg["out"], encoding="utf-8"))
