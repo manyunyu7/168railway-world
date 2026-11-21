@@ -2,7 +2,7 @@
 // train share), cash, the time and date on one line (T-1853), speed and pause. The clock is its own
 // component so a game minute re-renders only it. The sky and demand band are `MapSky`, on the map.
 
-import { clock, DEMAND_CAP, REAL4_SPEED, REAL_SPEED, SLIDER_STOPS, SPEEDS } from "../game/clock";
+import { CHIP_STOPS, clock, DEMAND_CAP, REAL4_SPEED, REAL_SPEED, SLIDER_STOPS, SPEEDS } from "../game/clock";
 import { activeCity, cityById, viewedZone } from "../game/cities";
 import { demandAskTurn, demandView, modeRides, modeSplit, viewRecomputing, viewUpdating } from "../game/demand";
 import { RIDES_PER_PERSON, smallPct, WORLD_PEOPLE, WORLD_RIDES, worldTotals, worldView } from "../game/worldTotals";
@@ -219,8 +219,6 @@ const cardFolded = signal<boolean>((() => { try { return localStorage.getItem(CA
  * (T-1664). Run carries the tutorial's "play" mark. */
 export function StudioActions() {
   const running = clock.running.value;
-  const speed = clock.speed.value;
-  const custom = clock.custom.value;
   const capped = clock.capped.value;
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -237,11 +235,10 @@ export function StudioActions() {
   if (!w || isBuildTool(tool.value)) return null;
   const chosen = clock.chosenRate.value / SPEEDS[0];
   const held = capped && chosen > DEMAND_CAP;
-  const cur = custom !== null ? 2 : speed;
+  // 168Railway: the chip steps 1x → 4x → 16x → 32x → 64x → 1000x and round again
   const step = () => {
     const was = clock.running.peek();
-    const next = (cur + 1) % SPEEDS.length;
-    if (next === 2 && custom !== null) clock.setMultiple(custom); else clock.setSpeed(next);
+    clock.setMultiple(CHIP_STOPS.find((x) => x > chosen + 1e-9) ?? CHIP_STOPS[0]);
     if (!was) clock.setRunning(false);
   };
   const stop = Math.max(0, SLIDER_STOPS.findIndex((x) => x >= chosen - 1e-9));
