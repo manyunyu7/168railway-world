@@ -378,6 +378,8 @@ export interface MoneyState {
   mode: GameMode;
   /** T-3115: a copy of a shared network: it plays as normal and never ranks */
   copy?: boolean;
+  /** 168Railway: a template game (its own leaderboards) */
+  tpl?: boolean;
   /** cars owned, and the cars the running lines need */
   fleet: number;
   carsNeeded: number;

@@ -9,7 +9,7 @@ import { normalise } from "../game/search";
 import { tPlace } from "../i18n/places";
 import { findStart } from "./NewGame";
 import { CITIES, zoneCountry } from "../game/cities";
-import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoards, HOST_ACCOUNTS, session, setBoard, type BoardRow } from "../game/account";
+import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoards, HOST_ACCOUNTS, playingKind, session, setBoard, type BoardRow } from "../game/account";
 import { CAN_SIGN_IN_THROUGH_APP, HOST_LOGIN, signInThroughApp } from "../game/hostSession";
 import { exact } from "../game/format";
 import { t, tCountry } from "../i18n";
@@ -127,7 +127,13 @@ function Boards() {
     .filter((id) => !mine.includes(id)).sort((a, b) => collate(cityName(a), cityName(b)));
   const lands = [...new Set([...mine.map((id) => zoneCountry(id)?.toLowerCase() ?? ""), ...Object.keys(st.list).filter((k) => k.startsWith(COUNTRY)).map((k) => k.slice(COUNTRY.length))].filter(Boolean))];
   const meIn = d?.me && d.rows.some((r) => r.rank === d.me!.rank && r.name === d.me!.name);
+  const kind = st.kind ?? playingKind();
   return <>
+    {HOST_ACCOUNTS && <div class="group new-game-mode lb-kind">
+      {(["nol", "tpl"] as const).map((k) => <button type="button" class={"btn" + (kind === k ? " on" : "")} aria-pressed={kind === k}
+        data-tip={k === "nol" ? "Game yang dibangun dari nol" : "Game yang mulai dari jaringan nyata (template Jabodetabek)"}
+        onClick={() => { if (k !== kind) void fetchBoards(key, k); }}>{k === "nol" ? "Dari nol" : "Template"}</button>)}
+    </div>}
     <CityPick boardKey={key} mine={mine} all={new Set([...mine, ...others])} countries={lands} />
     {!d ? <p class="small muted">{st.error || t("leaderboard.loading")}</p>
       : <ol class="lb-rows">

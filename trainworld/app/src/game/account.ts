@@ -296,18 +296,22 @@ export async function setBoard(on: boolean, name = "") {
 
 // ---------------------------------------------------------------- the boards
 
-export const boards = signal<{ list: Record<string, number>; data: Board | null; key: string; at: number; error: string }>({ list: {}, data: null, key: "points", at: 0, error: "" });
+/** 168Railway: two sets of boards, games built from nothing ("nol") and games started from a real-network
+ * template ("tpl"), which begin with millions of points already */
+export type BoardKind = "nol" | "tpl";
+export const playingKind = (): BoardKind => (moneyState.peek()?.tpl ? "tpl" : "nol");
+export const boards = signal<{ list: Record<string, number>; data: Board | null; key: string; kind: BoardKind | null; at: number; error: string }>({ list: {}, data: null, key: "points", kind: null, at: 0, error: "" });
 let fetching = false;
-export async function fetchBoards(key = boards.peek().key) {
+export async function fetchBoards(key = boards.peek().key, kind: BoardKind = boards.peek().kind ?? playingKind()) {
   if (fetching) return;
   fetching = true;
-  boards.value = { ...boards.peek(), key };
+  boards.value = { ...boards.peek(), key, kind };
   try {
     const [list, data] = await Promise.all([
-      api<{ boards: Record<string, number> }>("GET", "trainworld/boards", undefined, { auth: false }),
-      api<Board>("GET", `trainworld/board?board=${encodeURIComponent(key)}`),
+      api<{ boards: Record<string, number> }>("GET", `trainworld/boards?kind=${kind}`, undefined, { auth: false }),
+      api<Board>("GET", `trainworld/board?board=${encodeURIComponent(key)}&kind=${kind}`),
     ]);
-    boards.value = { list: list.boards ?? {}, data, key, at: Date.now(), error: "" };
+    boards.value = { list: list.boards ?? {}, data, key, kind, at: Date.now(), error: "" };
   } catch (e) {
     boards.value = { ...boards.peek(), at: Date.now(), error: (e as Error).message };
   } finally {
@@ -405,11 +409,12 @@ export async function sendScores(now = false) {
   } else {
     const f = figures();
     if (!f) return;
-    const sig = JSON.stringify([f.points, f.cities]);
+    const kind = m.tpl ? "tpl" : "nol";
+    const sig = JSON.stringify([f.points, f.cities, kind]);
     const before = e.acct === acct ? e.sent : undefined;
     if (sig === before || (!before && f.points <= 0)) return;
     if (!now && before && Date.now() - (e.at ?? 0) < SEND_GAP_MS) return;
-    body = { mode: "normal", ...f };
+    body = { mode: "normal", ...f, kind };
     e.sent = sig;
   }
   sending = true;
