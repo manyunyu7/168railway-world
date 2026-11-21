@@ -233,6 +233,15 @@ function tokenGone() {
 }
 export function signOut() { tokenGone(); }
 
+/** 168Railway: signed in to the site from the start menu without a reload. The site gives the session a new CSRF
+ * token, so the old one goes, and the account (and its leaderboard setting) is asked for again. */
+export async function hostSignedIn() {
+  if (!HOST_ACCOUNTS) return;
+  csrf = null;
+  if (accountState.peek() !== "on") return; // the start's own refresh, after the config, finds the session
+  try { storeSession(await api("POST", "noritetsu/refresh")); } catch { /* signed out after all, or offline */ }
+}
+
 /** Sign in, register or log in: the answer is a session. */
 export async function signIn(path: "signin" | "login" | "register", body: unknown) {
   storeSession(await api<{ token: string; account: AccountView }>("POST", "noritetsu/" + path + (path === "register" ? SITE : ""), body, { auth: false }));

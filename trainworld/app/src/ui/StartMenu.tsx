@@ -9,6 +9,7 @@ import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { startMetroBackdrop } from "./metroBackdrop";
 import { noteVisit } from "../game/visitNote";
+import { hostSignedIn } from "../game/account";
 import { CAN_SIGN_IN_THROUGH_APP, checkHostAuth, finishSignInWindow, HOST_REGISTER, IN_RAILWAY_APP, signInHere, signInThroughApp, signInWithGoogle } from "../game/hostSession";
 import { HOME_CITY, isCity } from "../game/cities";
 import { choosing } from "../game/loading";
@@ -121,7 +122,7 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
   const [error, setError] = useState("");
   // 168Railway app: one button, the app's own sign-in (it has sign-up too) and the game reopens signed in
   const viaApp = CAN_SIGN_IN_THROUGH_APP();
-  const signedIn = async () => { if ((await checkHostAuth()) !== "out") onIn(); };
+  const signedIn = async () => { if ((await checkHostAuth()) !== "out") { void hostSignedIn(); onIn(); } };
   const submit = async (e: Event) => {
     e.preventDefault();
     if (busy) return;
