@@ -220,9 +220,6 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
     setStartAt(!jaboStart && located ? { center: located.at, zoom: city ? city.zoom : LOCATED_WORLD_ZOOM } : null);
     // T-1441: a new game opens with the Destinations bubbles on; T-2685: Homes for the tutorial's
     display.value = { ...display.peek(), commuters: true, commuterEnd: newGameEnd(mode) };
-    // 168Railway: the whole of Indonesia puts dozens of intercity lines on one track out of Jakarta; side by side they
-    // draw a band wider than the city, so this start draws the lines on their track (Settings turns it back on)
-    if (jaboStart === "indo") display.value = { ...display.peek(), lineBands: false };
     noteVisit("start", { mode: spec.mode, city: spec.start ?? null, scen: jaboStart ?? (file ?? null) });
     onStart(spec);
   };

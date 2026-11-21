@@ -14,7 +14,10 @@ is one key in every file and the KRL, local and intercity lines meet at it.
 Three files, one realnet source each (they differ in how their trains an hour are counted):
   indo_krl_jabo_trips.csv  Jabodetabek's KRL (the `jak` routes and colours; counted by hour as `jak` is)
   indo_krl_trips.csv       every other KRL service (Bandung Raya, Yogyakarta, Jenggala, ...)
-  indo_rail_trips.csv      local and intercity trains of Java and Sumatra, a route per pair of end cities (every
+  indo_rail_trips.csv      local and intercity trains of Java and Sumatra. A train along one of the corridor families
+                           of pipeline/indo_families.json rides that family's line (route "ka_fam_<id>"), cut to its
+                           path and stopping where the family's line stops; any other train has a route per pair of
+                           end cities (every
                            train between them, whatever its name, both ways; realnet keeps its main stopping patterns
                            and gives the rest of its trains to them). The cities: the registry's nearest within
                            CITY_KM of the end station, else the station. Route ids start "ka_" (intercity) or "lok_"
@@ -30,7 +33,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gapeka_jak import SERVICES as JABO, trip_rows  # noqa: E402
+from gapeka_jak import SERVICES as JABO, metres, trip_rows  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(ROOT, "data", "raw", "gapeka2026")
@@ -75,6 +78,31 @@ def norm_stops(t):
     return {**t, "stops": [{**s, "is_pass_through": bool(s.get("is_pass_through"))} for s in t["stops"]]}
 
 
+def family_paths(fams, trains):
+    """Each family's path: the densest run of stations (stops and pass-throughs) any train takes from `from` to `to`
+    through `via`."""
+    chains = [[x["station_code"] for x in t["stops"]] for t in trains if t.get("train_type") != "freight"]
+    out = {}
+    for f in fams:
+        best = None
+        for c in chains:
+            for seq in (c, c[::-1]):
+                if f["from"] in seq and f["to"] in seq:
+                    i, j = seq.index(f["from"]), seq.index(f["to"])
+                    if i < j and (not f.get("via") or f["via"] in seq[i:j + 1]) and (best is None or j - i + 1 > len(best)):
+                        best = seq[i:j + 1]
+        if best:
+            out[f["id"]] = best
+        else:
+            print(f"  family {f['id']}: no train runs {f['from']} - {f['to']}")
+    return out
+
+
+def all_rows(t, st):
+    """Every station of a train with a time, pass-throughs too (GAPEKA times them), in its order."""
+    return trip_rows({**t, "stops": [{**x, "is_pass_through": False} for x in t["stops"]]}, st)
+
+
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else OUT
     os.makedirs(out, exist_ok=True)
@@ -82,6 +110,10 @@ def main():
     city = city_namer(st)
     java = json.load(open(os.path.join(RAW, "gapeka-jawa-2026.json"), encoding="utf-8"))["trains"]
     sumatra = json.load(open(os.path.join(RAW, "gapeka-sumatra-2026.json"), encoding="utf-8"))["trains"]
+    fam_cfg = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "indo_families.json"), encoding="utf-8"))
+    paths = family_paths(fam_cfg["families"], java + sumatra)
+    fam_name = {f["id"]: f["name"] for f in fam_cfg["families"]}
+    fam_trips = {k: [] for k in paths}  # id -> [(train, rows of every station on the path)]
     files = {k: [] for k in ("krl_jabo", "krl", "rail")}
     skipped = []
     for island, trains in (("jawa", java), ("sumatera", sumatra)):
@@ -105,20 +137,71 @@ def main():
             elif ty == "krl":
                 files["krl"].append((slug(name), name, t["train_number"], rows))
             else:
+                codes = [x["station_code"] for x in t["stops"]]
+                fit = max(((len(set(codes) & set(pth)) / len(set(codes)), fid) for fid, pth in paths.items()), default=(0.0, None))
+                # local trains (Feeder Whoosh, Batara Kresna, ...) keep lines of their own
+                if ty == "intercity" and fit[0] >= fam_cfg["share"]:
+                    on = set(paths[fit[1]])
+                    full = [r for r in all_rows(t, st) if r[0]["station_code"] in on]
+                    if len(full) >= 2:
+                        stops = {x["station_code"] for x in t["stops"] if not x["is_pass_through"]}
+                        fam_trips[fit[1]].append((t["train_number"], full, stops))
+                        continue
                 a, b = city(rows[0][0]["station_code"]), city(rows[-1][0]["station_code"])
                 if a[0] > b[0]:
                     a, b = b, a
                 kind = "lok" if ty == "local" else "ka"
                 shown = f"KA {a[1]} - {b[1]}" if a[0] != b[0] else f"KA {a[1]}"
                 files["rail"].append((f"{kind}_{a[0]}_{b[0]}", shown, t["train_number"], rows))
+    # a family's line stops where a share of the trains that run past the station stop there, and at its two ends
+    for fid, trips in fam_trips.items():
+        if not trips:
+            continue
+        pth = paths[fid]
+        ran, stopped = {}, {}
+        for _, full, stops in trips:
+            for s_, _, _ in full:
+                c = s_["station_code"]
+                ran[c] = ran.get(c, 0) + 1
+                stopped[c] = stopped.get(c, 0) + (c in stops)
+        keep = {c for c in ran if stopped[c] / ran[c] >= fam_cfg["stop_share"]} | {pth[0], pth[-1]}
+        n = 0
+        for number, full, _ in trips:
+            rows = [r for r in full if r[0]["station_code"] in keep]
+            # a train starting or ending off the line's stops starts or ends at the nearest one inside its run
+            if len(rows) >= 2:
+                # direction along the family's path, so every train's run is a piece of the one line either way
+                d = "0" if pth.index(rows[0][0]["station_code"]) < pth.index(rows[-1][0]["station_code"]) else "1"
+                files["rail"].append((f"ka_fam_{fid}", fam_name[fid], number, rows, d))
+                n += 1
+        # the line itself: one run over every stop of the path, so each train's run is a piece of it whatever its ends
+        # (no train runs the whole of some families, and two pieces from either end would be two lines). Its hop times are
+        # the trains' median between the stops, else 60 km/h; it adds one train a day to the family's count.
+        order = [c for c in pth if c in keep]
+        hop = {}
+        for _, full, _ in trips:
+            at = {r[0]["station_code"]: r[2] for r in full}
+            for a, b in zip(order, order[1:]):
+                if a in at and b in at:
+                    hop.setdefault((a, b), []).append(abs(at[b] - at[a]))
+        t, rows = 10 * 3600, []  # in the day window realnet counts patterns in
+        for i, c in enumerate(order):
+            if i:
+                a = order[i - 1]
+                dt = sorted(hop[(a, order[i])])[len(hop[(a, order[i])]) // 2] if hop.get((a, order[i])) else \
+                    metres((float(st[a]["lon"]), float(st[a]["lat"])), (float(st[c]["lon"]), float(st[c]["lat"]))) / (60 / 3.6)
+                t += max(60, int(dt))
+            rows.append(({"station_code": c}, (float(st[c]["lon"]), float(st[c]["lat"])), t))
+        files["rail"].append((f"ka_fam_{fid}", fam_name[fid], f"line-{fid}", rows, "0"))
+        print(f"family {fid}: {n} trains, {len(order)} stops on a path of {len(pth)} stations")
     for k, trips in files.items():
         p = os.path.join(out, f"indo_{k}_trips.csv")
         with open(p, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(["route", "direction", "trip", "stop", "name", "lon", "lat", "time", "route_name"])
-            for route, shown, number, rows in trips:
+            for route, shown, number, rows, *dirn in trips:
                 first, last = rows[0][0]["station_code"], rows[-1][0]["station_code"]
-                direction = "0" if first <= last else "1"
+                direction = dirn[0] if dirn else ("0" if first <= last else "1")
                 for s, (lon, lat), v in rows:
                     w.writerow([route, direction, number, s["station_code"], st[s["station_code"]]["name"],
                                 f"{lon:.6f}", f"{lat:.6f}", v, shown])

@@ -328,12 +328,16 @@ CITIES["indo"] = {
     "sources": [
         {**CITIES["jak"]["sources"][0], **_GAPEKA_ID, "name": "krl", "file": os.path.join(OUT, "indo_krl_jabo_trips.csv"), "min_trips": 4,
          "operator": "kci"},
+        # each KRL service one line where its runs are pieces of its longest (`fold_all`), not a line per short turn
         {**_GAPEKA_ID, "name": "krld", "adapter": "trips", "file": os.path.join(OUT, "indo_krl_trips.csv"), "min_trips": 1, "tph_day": True, "keep_lost": True,
+         "fold_all": True,
          "operator": "kci", "train_m": {"_": 160}},
         # a route is a pair of end cities: its patterns with a fifth of its trains are lines, the rest ride the one they
         # overlap most; one that overlaps none by half (another way between the cities) is a line too (`keep_lost`)
         {**_GAPEKA_ID, "name": "ka", "adapter": "trips", "file": os.path.join(OUT, "indo_rail_trips.csv"), "min_trips": 1, "tph_day": True,
          "min_share": 0.2, "keep_lost": True, "train_m": {"_": 200},
+         # a corridor family's trains all stop at its line's stops: the longest run is the line, the rest pieces of it
+         "fold": [f"ka_fam_{f['id']}" for f in json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "indo_families.json"), encoding="utf-8"))["families"]],
          # KAI's navy for intercity trains and its orange for local ones, a few shades each, not a rainbow
          "palette": {"ka_": ["#1f3a68", "#2c4f86", "#3a5f94", "#24467a"], "lok_": ["#d9822b", "#c46a1f", "#e0954a"]}},
         CITIES["jak"]["sources"][1],
@@ -741,12 +745,13 @@ def build_lines(src, trips, xy, cxy=(0.0, 0.0)):
         # (KRL Cikarang: Cikarang-Kampung Bandan by Manggarai and by Pasar Senen, the rest short turns of
         # them), so the longest patterns go first and one whose stops are all on a kept one, either way, joins it; else every
         # short turn is a line of its own and one track draws as seven bands
-        fold = route in src.get("fold", ())
+        fold = route in src.get("fold", ()) or src.get("fold_all", False)
         # (a train passing a stop of the long service without stopping, Pasar Senen, is one of its too)
         piece = (lambda c, k: set(c) <= set(k)) if fold else is_piece
         order = (lambda kv: (-len(kv[0]), -weight(kv[0]))) if fold else (lambda kv: (-weight(kv[0]), -len(kv[0])))
         for c, n in sorted(cnt.items(), key=order):
-            if n < max(min_share * total, min_trips) or any(piece(c, k) for k in kept):
+            # (a folded route's longest pattern is its line however few of its trains run all of it)
+            if (n < max(min_share * total, min_trips) and not (fold and not kept and src.get("tph_day"))) or any(piece(c, k) for k in kept):
                 continue
             # the same ends and nearly the same stops as a busier pattern: a variant of it (a stop
             # skipped one way for works, say), not a service of its own; splitting it off would

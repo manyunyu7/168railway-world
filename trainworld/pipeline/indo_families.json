@@ -1,0 +1,14 @@
+{
+  "what": "168Railway: the corridor lines of the `indo` template. Each family is one line along the path a GAPEKA 2026 train takes from `from` to `to` (through `via`). An intercity train whose stations (stops and pass-throughs) lie at least `share` along a family's path rides that family (the one it shares most with), whatever its name or end: its trains count toward the family's frequency and it is cut to the family's path. The line stops where at least `stop_share` of its trains stop. A train in no family keeps its own line by its end cities (gapeka_indo.py). The game has no skip-stop trips within a line, so a line has one stopping pattern. KRL is not grouped here.",
+  "share": 0.45,
+  "stop_share": 0.2,
+  "families": [
+    {"id": "utara", "name": "KA Lintas Utara Jakarta - Semarang - Surabaya Pasarturi", "from": "GMR", "to": "SBI", "via": "SMT"},
+    {"id": "selatan", "name": "KA Lintas Selatan Jakarta - Purwokerto - Yogyakarta - Surabaya Gubeng", "from": "GMR", "to": "SGU", "via": "PWT"},
+    {"id": "bandung", "name": "KA Jakarta - Bandung", "from": "GMR", "to": "BD", "via": "PWK"},
+    {"id": "bdsby", "name": "KA Bandung - Yogyakarta - Surabaya Gubeng", "from": "BD", "to": "SGU", "via": "TSM"},
+    {"id": "malang", "name": "KA Surabaya - Malang - Blitar", "from": "SGU", "to": "BL", "via": "ML"},
+    {"id": "tapalkuda", "name": "KA Surabaya - Jember - Banyuwangi", "from": "SGU", "to": "KTG", "via": "JR"},
+    {"id": "smgsolo", "name": "KA Semarang - Solo", "from": "SMC", "to": "SLO", "via": "GD"}
+  ]
+}
