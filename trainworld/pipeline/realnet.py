@@ -317,7 +317,7 @@ for _id, _what, _keep, _buses in [
 # whole country in one frame from Jakarta's pack (as `jpn` from Tokyo's), no boundary. A train that runs a few
 # times a day has its trains an hour as its day's trains over 24 hours (`tph_day`): the hour windows would miss a
 # night train altogether. Station keys are GAPEKA's national codes (`group`), so the sources meet at a station.
-_GAPEKA_ID = {"group": {"prefix": "g"}, "min_share": 0.0, "kind": "commuter", "operator": "kai"}
+_GAPEKA_ID = {"group": {"prefix": "g"}, "min_share": 0.0, "kind": "commuter", "operator": "kai", "plain_name": True}
 CITIES["indo"] = {
     "pack": "jak",
     "boundary": False,
@@ -332,14 +332,13 @@ CITIES["indo"] = {
         {**_GAPEKA_ID, "name": "krld", "adapter": "trips", "file": os.path.join(OUT, "indo_krl_trips.csv"), "min_trips": 1, "tph_day": True, "keep_lost": True,
          "fold_all": True,
          "operator": "kci", "train_m": {"_": 160}},
-        # a route is a pair of end cities: its patterns with a fifth of its trains are lines, the rest ride the one they
-        # overlap most; one that overlaps none by half (another way between the cities) is a line too (`keep_lost`)
+        # a route is a train name: its longest pattern is its line and its short runs pieces of it (`fold_all`);
+        # a pattern no kept one overlaps by half is a line of its own (`keep_lost`)
         {**_GAPEKA_ID, "name": "ka", "adapter": "trips", "file": os.path.join(OUT, "indo_rail_trips.csv"), "min_trips": 1, "tph_day": True,
-         "min_share": 0.2, "keep_lost": True, "train_m": {"_": 200},
-         # a corridor family's trains all stop at its line's stops: the longest run is the line, the rest pieces of it
-         "fold": [f"ka_fam_{f['id']}" for f in json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "indo_families.json"), encoding="utf-8"))["families"]],
-         # KAI's navy for intercity trains and its orange for local ones, a few shades each, not a rainbow
-         "palette": {"ka_": ["#1f3a68", "#2c4f86", "#3a5f94", "#24467a"], "lok_": ["#d9822b", "#c46a1f", "#e0954a"]}},
+         "keep_lost": True, "fold_all": True, "train_m": {"_": 200},
+         # one KAI navy for every intercity line and one orange for every local one: the map draws lines of one
+         # colour on one track as one band (map/lineBands.ts sameColour), so Jakarta's trunk stays a few bands wide
+         "palette": {"ka_": ["#1f3a68"], "lok_": ["#d9822b"]}},
         CITIES["jak"]["sources"][1],
     ],
     "buses": CITIES["jak"]["buses"],
@@ -951,6 +950,8 @@ def cmd_net(city=None):
         ls = build_lines(src, trips, xy, cxy)
         for l in ls:
             l["name"] = rn.get(l["route"], l["route"])
+            if src.get("plain_name"):  # 168Railway: realsave takes the name as it is, no "<feed> " before it
+                l["plain_name"] = True
             # T-1625: the n02 adapter's own services, in whole trains per level
             p = src.get("plan", {}).get(l["route"])
             if p:

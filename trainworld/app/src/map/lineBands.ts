@@ -96,7 +96,7 @@ const HOLD_M = 50;
 const ALIGN_M = 100;
 const ALIGN_NEAR_M = 80;
 
-interface BandLine { id: number; ok: boolean; path: number[]; bus?: unknown }
+interface BandLine { id: number; ok: boolean; path: number[]; bus?: unknown; colour?: unknown }
 interface BandEdge { id: number; a: number; b: number }
 
 /**
@@ -141,7 +141,10 @@ export function lineBands(lines: readonly BandLine[], edges: readonly BandEdge[]
   const ends = new Map(edges.map((e) => [e.id, e]));
   /** per edge: the lines on it, each with its first entry in its path */
   const on = new Map<number, { line: BandLine; k: number }[]>();
-  const rail = lines.filter((l) => l.ok && !l.bus && l.path.length);
+  const all = lines.filter((l) => l.ok && !l.bus && l.path.length);
+  // 168Railway: lines of one colour share one band where they run on one edge (sameColour, below)
+  const share = sameColour(all);
+  const rail = share ? share.ents : all;
   for (const l of [...rail].sort((a, b) => a.id - b.id)) {
     l.path.forEach((p, k) => {
       const e = p >> 1;
@@ -152,17 +155,116 @@ export function lineBands(lines: readonly BandLine[], edges: readonly BandEdge[]
   }
   // the same paths over the same edges as last time (a rebuild for trains or a timetable): the same bands
   let sig = `${opts?.corridors ?? CORRIDORS},${opts?.within ?? ""},${bandMode};`;
-  for (const l of rail) sig += `${l.id}:${l.path.join(",")};`;
+  for (const l of all) sig += `${l.id}:${String(l.colour ?? "")}:${l.path.join(",")};`;
   const used = [...on.keys()].map((e) => [pts.get(e), ends.get(e)?.a, ends.get(e)?.b] as const);
   if (!opts?.debug && last && last.sig === sig && last.used.length === used.length && used.every((u, i) => u[0] === last!.used[i][0] && u[1] === last!.used[i][1] && u[2] === last!.used[i][2])) return { ...last.out, corridor: last.corridor.slice() };
-  const out = bands(rail, on, ends, pts, opts);
+  const raw = bands(rail, on, ends, pts, opts);
   if (bandCheck && !opts?.debug) {
-    const bad = bandsDiffer(out, bands(rail, on, ends, pts, { ...opts, fresh: true }));
+    const bad = bandsDiffer(raw, bands(rail, on, ends, pts, { ...opts, fresh: true }));
     if (bad) console.error(`T-2238 check: bands worked out again for an edit differ from a whole pass: ${bad}`);
   }
+  const out = share ? share.unfold(raw) : raw;
   // (a copy: the clock worker transfers the array it posts)
   last = { sig, used, out, corridor: out.corridor.slice() };
   return out;
+}
+
+/**
+ * 168Railway: lines of one colour share one band where they run on the same edge (the whole-Indonesia
+ * template's dozens of intercity lines, all KAI navy, out of Jakarta are one band, not a ribbon wider than
+ * the city). The bands are worked out over "band lines" instead of lines: per colour, the longest line takes
+ * every edge it runs on; each shorter line of that colour takes the edges no longer one of its colour has
+ * taken, each run of them a band line of its own (a negative id), and on the edges already taken it rides
+ * the taker's band. `unfold` gives every line its own profile back: its own runs' knots, and on a ridden edge
+ * the taker's knots there (turned round when it runs the other way). Lines are still drawn, picked and
+ * highlighted one by one: only where their strokes sit is shared. A colour no other line has changes nothing.
+ */
+function sameColour(rail: readonly BandLine[]): { ents: BandLine[]; unfold: (b: LineBands) => LineBands } | null {
+  const count = new Map<string, number>();
+  for (const l of rail) if (l.colour != null) count.set(String(l.colour), (count.get(String(l.colour)) ?? 0) + 1);
+  if (![...count.values()].some((n) => n > 1)) return null;
+  /** per colour and edge: the band line that has it, and its entry there */
+  const taken = new Map<string, { ent: BandLine; k: number }>();
+  /** per line that rides somewhere: per path entry, the band line and entry its band comes from */
+  const from = new Map<number, ({ ent: BandLine; k: number } | null)[]>();
+  const ents: BandLine[] = [];
+  const order = [...rail].sort((a, b) => b.path.length - a.path.length || a.id - b.id);
+  for (const l of order) {
+    const col = l.colour == null ? "" : String(l.colour);
+    if (!col || count.get(col)! < 2) {
+      ents.push(l);
+      continue;
+    }
+    const src: ({ ent: BandLine; k: number } | null)[] = l.path.map(() => null);
+    const free = l.path.map((p) => !taken.has(`${col}|${p >> 1}`));
+    if (free.every(Boolean)) {
+      ents.push(l);
+      l.path.forEach((p, k) => { if (!taken.has(`${col}|${p >> 1}`)) taken.set(`${col}|${p >> 1}`, { ent: l, k }); });
+      continue;
+    }
+    let run = 0;
+    for (let k = 0; k < l.path.length; ) {
+      if (!free[k]) {
+        src[k] = taken.get(`${col}|${l.path[k] >> 1}`)!;
+        k++;
+        continue;
+      }
+      let j = k;
+      while (j < l.path.length && free[j]) j++;
+      const ent: BandLine = { id: -(l.id * 1024 + ++run), ok: true, path: l.path.slice(k, j), colour: l.colour };
+      ents.push(ent);
+      for (let i = k; i < j; i++) {
+        const key = `${col}|${l.path[i] >> 1}`;
+        if (!taken.has(key)) taken.set(key, { ent, k: i - k });
+        src[i] = { ent, k: i - k };
+      }
+      k = j;
+    }
+    from.set(l.id, src);
+  }
+  const unfold = (b: LineBands): LineBands => {
+    if (!from.size) return b;
+    const of = new Map(b.of);
+    for (const [id, src] of from) {
+      const line = rail.find((l) => l.id === id)!;
+      const per: number[][] = src.map((s, k) => {
+        const prof = s ? b.of.get(s.ent.id) : undefined;
+        // on no shared track there: no shift, the line's own width (a knot at each end, as every entry has)
+        if (!s || !prof) return [0, 0, 0, -1, 0, 1, 0, 0, -1, 0];
+        const [o, c] = bandKnots(prof, s.k);
+        if (c <= 0) return [0, 0, 0, -1, 0, 1, 0, 0, -1, 0];
+        const knots: number[] = [];
+        for (let i = 0; i < c; i++) knots.push(...prof.subarray(o + i * KNOT, o + (i + 1) * KNOT));
+        // the other way along the edge: the knots reversed, the shift and the metres to the other side
+        if (((s.ent.path[s.k] & 1) === 1) !== ((line.path[k] & 1) === 1)) {
+          const back: number[] = [];
+          for (let i = c - 1; i >= 0; i--) {
+            const x = knots.slice(i * KNOT, (i + 1) * KNOT);
+            back.push(1 - x[0], -x[1], x[2], x[3], -x[4]);
+          }
+          return back;
+        }
+        return knots;
+      });
+      if (src.every((s) => !s || !b.of.get(s.ent.id))) {
+        of.delete(id);
+        continue;
+      }
+      const n = line.path.length, prof = new Float32Array(2 + n + per.reduce((t, k) => t + k.length, 0));
+      prof[0] = n;
+      let at = 0;
+      per.forEach((k, i) => {
+        prof[1 + i] = at;
+        prof.set(k, 2 + n + at * KNOT);
+        at += k.length / KNOT;
+      });
+      prof[1 + n] = at;
+      of.set(id, prof);
+    }
+    for (const e of ents) if (e.id < 0) of.delete(e.id);
+    return { ...b, of };
+  };
+  return { ents, unfold };
 }
 
 /** `?patch=check` (T-2238): every build's bands also worked out whole and compared */

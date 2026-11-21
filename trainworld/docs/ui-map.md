@@ -218,7 +218,14 @@ has no hover of its own; the track tool's tag names the class and its factor [T-
   number on the left of that line's travel; an edge's order is by how many of the others each line
   is left of, which is the pairwise order wherever that is one. So bands cross only at a node where
   the two routes part or meet, or where three or more lines' partings go around in a circle (some
-  pair has to cross). **Tracks side by side** (corridors, T-1799 stage 3, T-1848; `map/corridors.ts`)
+  pair has to cross). **168Railway: one band per colour.** Lines of one colour on one edge share one band
+  (`sameColour` in `map/lineBands.ts`): per colour the longest line takes every edge it runs on, each shorter
+  line of that colour takes the edges none of its colour has yet (each run of them worked out as a band line of
+  its own) and on the rest rides the taker's band, its knots turned round where it runs the other way. Lines
+  are still drawn, picked, hovered and selected one by one; only where their strokes sit is shared. The
+  whole-Indonesia template gives every intercity line one KAI navy and every local train one orange for this,
+  so Jakarta's trunk is a few bands wide rather than one per train (pipeline/realnet.py `indo`).
+  **Tracks side by side** (corridors, T-1799 stage 3, T-1848; `map/corridors.ts`)
   are one ribbon too, decided per place, not per edge: every edge with lines is sampled every 25 m
   (`SAMPLE_M`), and a sample records the other edges running the same way (within about 25 degrees)
   within 20 m (`CORRIDOR_M`; a four-track trunk is two double tracks 8 m apart, T-1305;

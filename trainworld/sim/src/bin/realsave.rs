@@ -320,7 +320,7 @@ fn main() {
             let cars = l["cars"].as_u64().unwrap().clamp(1, 20) as u8;
             let trains: Option<[u32; 3]> = l["trains"].as_array().map(|a| [0, 1, 2].map(|i| a[i].as_u64().unwrap() as u32));
             let id = net.alloc_line();
-            let name = format!("{} {}", l["feed"].as_str().unwrap(), l["name"].as_str().unwrap());
+            let name = if l["plain_name"].as_bool() == Some(true) { l["name"].as_str().unwrap().to_string() } else { format!("{} {}", l["feed"].as_str().unwrap(), l["name"].as_str().unwrap()) };
             let name = names::tidy_line(&name, "").unwrap_or(name);
             let colour = l["colour"].as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(PALETTE[li % PALETTE.len()]);
             let r = net.set_line(id, Some(LineData { symbol: String::new(), trains, auto: None, name, colour, stops, path, tph: [tph[0], tph[1], tph[2]], dwell_s: 30.0, turnaround_s: 180.0, cars, fast: false, bus: None, ferry: None, group: 0, group_name: String::new(), group_look: Default::default(), day: 0, hand: false, one_way: false, limit: 0, twin: Default::default(), weekend: Default::default() }));
@@ -434,7 +434,7 @@ fn main() {
         }
         let tph: Vec<f32> = l["tph"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap() as f32).collect();
         let id = net.alloc_line();
-        let name = format!("{} {}", l["feed"].as_str().unwrap(), l["name"].as_str().unwrap());
+        let name = if l["plain_name"].as_bool() == Some(true) { l["name"].as_str().unwrap().to_string() } else { format!("{} {}", l["feed"].as_str().unwrap(), l["name"].as_str().unwrap()) };
         let name = names::tidy_line(&name, "").unwrap_or(name);
         // the line's real colour ("#rrggbb", `pipeline/realcolour.py`), else the palette
         let colour = l["colour"].as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(PALETTE[li % PALETTE.len()]);

@@ -1616,7 +1616,7 @@
   "newGame.jabo.jak_tj": "TransJakarta saja",
   "newGame.jabo.jak_bogor": "Satu lini: Bogor",
   "newGame.jabo.indo": "Seluruh Indonesia (GAPEKA 2026)",
-  "newGame.jaboTip.indo": "Semua KA penumpang GAPEKA 2026 Jawa dan Sumatera: 31 lini KRL dan 33 lini KA (antarkota Jawa digabung per lintas: utara, selatan, Jakarta-Bandung, dan lainnya), plus MRT, LRT, Kalayang, dan TransJakarta. Rel ganda dan tunggal sesuai lintasnya.",
+  "newGame.jaboTip.indo": "Semua KA penumpang GAPEKA 2026 Jawa dan Sumatera, tiap KA dengan namanya sendiri: 31 lini KRL, 149 lini KA (Argo Lawu, Taksaka, dan lainnya), plus MRT, LRT, Kalayang, dan TransJakarta. Rel ganda dan tunggal sesuai lintasnya.",
   "newGame.jaboTip.jak": "28 lini: 9 KRL (jadwal GAPEKA 2026), MRT, LRT Jakarta, LRT Jabodebek, Kalayang, dan TransJakarta koridor 1–14.",
   "newGame.jaboTip.jak_mulai": "KRL Bogor (Red Line) dan Tangerang (Brown Line) dengan TransJakarta koridor 1–14. MRT, LRT, dan lini KRL lain kamu yang bangun.",
   "newGame.jaboTip.jak_2019": "Seperti 2019: belum ada LRT Jabodebek dan TransJakarta koridor 14. Bangun sendiri yang belum ada.",
