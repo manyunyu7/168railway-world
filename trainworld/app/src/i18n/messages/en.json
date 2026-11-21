@@ -1548,7 +1548,7 @@
   "newGame.jabo.jak_tj": "TransJakarta only",
   "newGame.jabo.jak_bogor": "One line: Bogor",
   "newGame.jabo.indo": "All of Indonesia (GAPEKA 2026)",
-  "newGame.jaboTip.indo": "Every GAPEKA 2026 passenger train in Java and Sumatra: 33 KRL lines, 160 local and intercity lines, plus MRT, LRT, Kalayang and TransJakarta. Double or single track as each lintas has it.",
+  "newGame.jaboTip.indo": "Every GAPEKA 2026 passenger train in Java and Sumatra: 34 KRL lines, 101 local and intercity lines (one per pair of end cities), plus MRT, LRT, Kalayang and TransJakarta. Double or single track as each lintas has it.",
   "newGame.jaboTip.jak": "28 lines: 9 KRL (GAPEKA 2026 timetables), MRT, LRT Jakarta, LRT Jabodebek, Kalayang and TransJakarta corridors 1–14.",
   "newGame.jaboTip.jak_mulai": "KRL Bogor (Red Line) and Tangerang (Brown Line) with TransJakarta corridors 1–14. You build the MRT, LRT and the other KRL lines.",
   "newGame.jaboTip.jak_2019": "As in 2019: no LRT Jabodebek and no TransJakarta corridor 14 yet. Build what is missing.",

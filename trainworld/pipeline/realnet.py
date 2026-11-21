@@ -328,10 +328,14 @@ CITIES["indo"] = {
     "sources": [
         {**CITIES["jak"]["sources"][0], **_GAPEKA_ID, "name": "krl", "file": os.path.join(OUT, "indo_krl_jabo_trips.csv"), "min_trips": 4,
          "operator": "kci"},
-        {**_GAPEKA_ID, "name": "krld", "adapter": "trips", "file": os.path.join(OUT, "indo_krl_trips.csv"), "min_trips": 1, "tph_day": True,
+        {**_GAPEKA_ID, "name": "krld", "adapter": "trips", "file": os.path.join(OUT, "indo_krl_trips.csv"), "min_trips": 1, "tph_day": True, "keep_lost": True,
          "operator": "kci", "train_m": {"_": 160}},
+        # a route is a pair of end cities: its patterns with a fifth of its trains are lines, the rest ride the one they
+        # overlap most; one that overlaps none by half (another way between the cities) is a line too (`keep_lost`)
         {**_GAPEKA_ID, "name": "ka", "adapter": "trips", "file": os.path.join(OUT, "indo_rail_trips.csv"), "min_trips": 1, "tph_day": True,
-         "train_m": {"_": 200}},
+         "min_share": 0.2, "keep_lost": True, "train_m": {"_": 200},
+         # KAI's navy for intercity trains and its orange for local ones, a few shades each, not a rainbow
+         "palette": {"ka_": ["#1f3a68", "#2c4f86", "#3a5f94", "#24467a"], "lok_": ["#d9822b", "#c46a1f", "#e0954a"]}},
         CITIES["jak"]["sources"][1],
     ],
     "buses": CITIES["jak"]["buses"],
@@ -774,6 +778,22 @@ def build_lines(src, trips, xy, cxy=(0.0, 0.0)):
                 for lv in levs:
                     hop[(ks[i], ks[i + 1])][lv].append(dt)
                 hop[(ks[i], ks[i + 1])]["all"].append(dt)
+        # 168Railway (`keep_lost`): a pattern that overlaps no kept one by half (Jakarta-Surabaya by the north and by
+        # the south) is a line of its own, unless one of those already added takes it, rather than its trains
+        # dropped
+        if src.get("keep_lost"):
+            every = Counter(canon)
+            for c, _ in sorted(((c, every[c]) for c in every if assign.get(c) is None), key=lambda kv: (-kv[1], -len(kv[0]))):
+                ov = [(len(set(c) & set(k)) / len(c), k) for k in kept]
+                best = max(ov) if ov else (0.0, None)
+                if best[0] >= 0.5:
+                    assign[c] = best[1]
+                else:
+                    kept.append(c)
+                    assign[c] = c
+        lost = sum(1 for c in canon if assign.get(c) is None)
+        if lost:
+            print(f"  {name} {route}: {lost} of {len(canon)} trips on no line (their stops overlap no kept pattern by half)")
         for k in kept:
             n_lev = {lv: 0.0 for lv in LEVEL_WINDOWS}
             for c, h in zip(canon, mid_t):
@@ -982,6 +1002,20 @@ def cmd_net(city=None):
     for l, c in zip(lines, realcolour.line_colours(cfg, lines)):
         if c:
             l["colour"] = c
+    # 168Railway: a source's `palette` (route id prefix -> colours, taken in turn) over any other colour
+    for src in cfg["sources"]:
+        pal = src.get("palette")
+        if not pal:
+            continue
+        turn = Counter()
+        for l in lines:
+            if l["feed"] != src["name"]:
+                continue
+            for pre, cs in pal.items():
+                if l["route"].startswith(pre):
+                    l["colour"] = cs[turn[pre] % len(cs)]
+                    turn[pre] += 1
+                    break
     # the arrays DemandApi::set_network takes
     st_xy, line_n, stops, times, tph, cars = [], [], [], [], [], []
     for s in st_list:

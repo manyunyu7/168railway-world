@@ -14,7 +14,11 @@ is one key in every file and the KRL, local and intercity lines meet at it.
 Three files, one realnet source each (they differ in how their trains an hour are counted):
   indo_krl_jabo_trips.csv  Jabodetabek's KRL (the `jak` routes and colours; counted by hour as `jak` is)
   indo_krl_trips.csv       every other KRL service (Bandung Raya, Yogyakarta, Jenggala, ...)
-  indo_rail_trips.csv      local and intercity trains of Java and Sumatra, a route per train name
+  indo_rail_trips.csv      local and intercity trains of Java and Sumatra, a route per pair of end cities (every
+                           train between them, whatever its name, both ways; realnet keeps its main stopping patterns
+                           and gives the rest of its trains to them). The cities: the registry's nearest within
+                           CITY_KM of the end station, else the station. Route ids start "ka_" (intercity) or "lok_"
+                           (local), which the line colours read.
 
 A pass-through is no stop; a stop with no time gets one by distance between the timed stops either side (as
 gapeka_jak.py). Direction: "0" if the first station's code sorts before the last's, else "1".
@@ -32,8 +36,24 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(ROOT, "data", "raw", "gapeka2026")
 OUT = os.environ.get("REALNET_OUT", os.path.join(ROOT, "data", "work", "realnet"))
 
-# names GAPEKA shortens, as players know the trains
-NAMES = {"Anggrek": "Argo Bromo Anggrek", "Ka Feeder": "Feeder Whoosh", "Exspres Rajabasa": "Rajabasa"}
+CITY_KM = 30.0
+REGISTRY = os.path.join(ROOT, "app", "src", "game", "registry.json")
+
+
+def city_namer(st):
+    """A station code -> the registry city (id, name) its station is in reach of, else the station's own."""
+    import math
+    cities = [c for c in json.load(open(REGISTRY, encoding="utf-8"))["cities"] if c.get("country") == "ID"]
+
+    def of(code):
+        lon, lat = float(st[code]["lon"]), float(st[code]["lat"])
+        best = None
+        for c in cities:
+            d = math.hypot((c["center"][0] - lon) * math.cos(math.radians(lat)), c["center"][1] - lat) * 111.32
+            if d <= CITY_KM and (best is None or d < best[0]):
+                best = (d, c["id"], c["name"])
+        return (best[1], best[2]) if best else (code.lower(), st[code]["name"])
+    return of
 
 
 def slug(s):
@@ -59,6 +79,7 @@ def main():
     out = sys.argv[1] if len(sys.argv) > 1 else OUT
     os.makedirs(out, exist_ok=True)
     st = load_stations()
+    city = city_namer(st)
     java = json.load(open(os.path.join(RAW, "gapeka-jawa-2026.json"), encoding="utf-8"))["trains"]
     sumatra = json.load(open(os.path.join(RAW, "gapeka-sumatra-2026.json"), encoding="utf-8"))["trains"]
     files = {k: [] for k in ("krl_jabo", "krl", "rail")}
@@ -84,8 +105,12 @@ def main():
             elif ty == "krl":
                 files["krl"].append((slug(name), name, t["train_number"], rows))
             else:
-                shown = "KA " + NAMES.get(name, name)
-                files["rail"].append((slug(island + "_" + name), shown, t["train_number"], rows))
+                a, b = city(rows[0][0]["station_code"]), city(rows[-1][0]["station_code"])
+                if a[0] > b[0]:
+                    a, b = b, a
+                kind = "lok" if ty == "local" else "ka"
+                shown = f"KA {a[1]} - {b[1]}" if a[0] != b[0] else f"KA {a[1]}"
+                files["rail"].append((f"{kind}_{a[0]}_{b[0]}", shown, t["train_number"], rows))
     for k, trips in files.items():
         p = os.path.join(out, f"indo_{k}_trips.csv")
         with open(p, "w", newline="", encoding="utf-8") as f:
