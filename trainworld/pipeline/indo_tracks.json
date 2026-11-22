@@ -1,5 +1,5 @@
 {
-  "what": "168Railway: which lintas of the `indo` template are double track (GAPEKA 2026 network, as of late 2026). Everything not listed is single track. A lintas runs between two GAPEKA station codes along the line a GAPEKA train takes between them (pipeline/indo_tracks.py), so it is the same along its whole length. Correct a row and rebuild (realnet.py net/geom, realcorridors, indo_tracks.py, realsave, gamesave). `check: true` = the owner should confirm.",
+  "what": "168Railway: which lintas of the `indo` template are double track (GAPEKA 2026 network, as of late 2026). Everything not listed is single track. A lintas runs between two GAPEKA station codes along the line a GAPEKA train takes between them (pipeline/indo_tracks.py), so it is the same along its whole length. Correct a row and rebuild (realnet.py net/geom, realcorridors, indo_tracks.py, realsave, gamesave). `osm` = checked against live OSM (Overpass) on that date: every double lintas had two or more parallel tracks wherever OSM rail was found; Tanjung Karang - Prabumulih only about a third, so it stays single.",
   "default_tracks": 1,
   "lintas": [
     {"name": "Lintas utara: Jatinegara - Bekasi - Cikampek", "from": "JNG", "to": "CKP", "tracks": 2, "note": "DDT Manggarai-Cikarang is four tracks; the game's lines still run as one pair here"},
@@ -10,22 +10,22 @@
     {"name": "Lintas selatan: Cirebon - Prupuk - Purwokerto - Kroya", "from": "CN", "to": "KYA", "via": "PWT", "tracks": 2},
     {"name": "Lintas selatan: Kroya - Kutoarjo - Yogyakarta - Solo Balapan", "from": "KYA", "to": "SLO", "via": "YK", "tracks": 2},
     {"name": "Lintas selatan: Solo Balapan - Madiun - Kertosono - Surabaya Gubeng", "from": "SLO", "to": "SGU", "via": "MN", "tracks": 2},
-    {"name": "Padalarang - Bandung - Kiaracondong - Cicalengka", "from": "PDL", "to": "CCL", "via": "BD", "tracks": 2, "check": true, "note": "Kiaracondong-Cicalengka double track since 2022"},
+    {"name": "Padalarang - Bandung - Kiaracondong - Cicalengka", "from": "PDL", "to": "CCL", "via": "BD", "tracks": 2, "osm": "2026-11-22", "note": "Kiaracondong-Cicalengka double track since 2022"},
     {"name": "Lintas Jakarta: Manggarai - Bogor", "from": "MRI", "to": "BOO", "tracks": 2},
     {"name": "Lintas Jakarta: Jakarta Kota - Manggarai", "from": "JAKK", "to": "MRI", "tracks": 2},
     {"name": "Lintas Jakarta: Manggarai - Tanah Abang - Duri - Kampung Bandan", "from": "MRI", "to": "KPB", "via": "THB", "tracks": 2},
     {"name": "Lintas Jakarta: Kampung Bandan - Pasar Senen - Jatinegara", "from": "KPB", "to": "JNG", "via": "PSE", "tracks": 2},
     {"name": "Lintas Jakarta: Tanah Abang - Serpong - Parung Panjang - Maja", "from": "THB", "to": "MJ", "via": "SRP", "tracks": 2},
-    {"name": "Lintas Jakarta: Maja - Rangkasbitung", "from": "MJ", "to": "RK", "tracks": 2, "check": true},
-    {"name": "Lintas Jakarta: Jakarta Kota - Tanjung Priok", "from": "JAKK", "to": "TPK", "tracks": 2, "check": true},
-    {"name": "Lintas Jakarta: Batu Ceper - Bandara Soekarno-Hatta", "from": "BPR", "to": "BST", "tracks": 2, "check": true},
-    {"name": "Yogyakarta: Kedundang - Bandara YIA", "from": "KDG", "to": "YIA", "tracks": 2, "check": true},
-    {"name": "Lintas Jakarta: Duri - Tangerang", "from": "DU", "to": "TNG", "tracks": 2, "check": true, "note": "OSM shows two tracks the whole way"},
-    {"name": "Bogor Paledang - Cicurug (jalur ganda Bogor-Sukabumi tahap 1)", "from": "BOP", "to": "CCR", "tracks": 2, "check": true},
+    {"name": "Lintas Jakarta: Maja - Rangkasbitung", "from": "MJ", "to": "RK", "tracks": 2, "osm": "2026-11-22"},
+    {"name": "Lintas Jakarta: Jakarta Kota - Tanjung Priok", "from": "JAKK", "to": "TPK", "tracks": 2, "osm": "2026-11-22"},
+    {"name": "Lintas Jakarta: Batu Ceper - Bandara Soekarno-Hatta", "from": "BPR", "to": "BST", "tracks": 2, "osm": "2026-11-22"},
+    {"name": "Yogyakarta: Kedundang - Bandara YIA", "from": "KDG", "to": "YIA", "tracks": 2, "osm": "2026-11-22"},
+    {"name": "Lintas Jakarta: Duri - Tangerang", "from": "DU", "to": "TNG", "tracks": 2, "osm": "2026-11-22", "note": "OSM shows two tracks the whole way"},
+    {"name": "Bogor Paledang - Cicurug (jalur ganda Bogor-Sukabumi tahap 1)", "from": "BOP", "to": "CCR", "tracks": 2, "osm": "2026-11-22"},
     {"name": "Surabaya Kota - Surabaya Gubeng", "from": "SB", "to": "SGU", "tracks": 2},
-    {"name": "Medan - Kualanamu (jalur layang dan KA Bandara)", "from": "MDN", "to": "KNM", "tracks": 2, "check": true, "note": "OSM shows two tracks"},
-    {"name": "Sumatera Selatan: Kertapati - Prabumulih - Muaraenim", "from": "KPT", "to": "ME", "via": "PBM", "tracks": 2, "check": true, "note": "jalur ganda angkutan batu bara; OSM shows two tracks"},
-    {"name": "Sumatera Selatan/Lampung: Tanjung Karang - Kotabumi - Baturaja - Prabumulih", "from": "TNK", "to": "PBM", "via": "BTA", "tracks": 1, "check": true, "note": "jalur ganda batu bara baru sebagian: OSM shows two tracks on about 115 of 310 km (Kotabumi-Ketapang, Martapura-Baturaja, Payakabung-Prabumulih and others), so the lintas stays single; set 2 when the whole lintas is double"}
+    {"name": "Medan - Kualanamu (jalur layang dan KA Bandara)", "from": "MDN", "to": "KNM", "tracks": 2, "osm": "2026-11-22", "note": "OSM shows two tracks"},
+    {"name": "Sumatera Selatan: Kertapati - Prabumulih - Muaraenim", "from": "KPT", "to": "ME", "via": "PBM", "tracks": 2, "osm": "2026-11-22", "note": "jalur ganda angkutan batu bara; OSM shows two tracks"},
+    {"name": "Sumatera Selatan/Lampung: Tanjung Karang - Kotabumi - Baturaja - Prabumulih", "from": "TNK", "to": "PBM", "via": "BTA", "tracks": 1, "osm": "2026-11-22", "note": "jalur ganda batu bara baru sebagian: OSM shows two tracks on about 115 of 310 km (Kotabumi-Ketapang, Martapura-Baturaja, Payakabung-Prabumulih and others), so the lintas stays single; set 2 when the whole lintas is double"}
   ],
   "single_notes": [
     "Citayam - Nambo, Rangkasbitung - Merak, Cikampek - Purwakarta - Padalarang, Cicalengka - Banjar - Kroya, Semarang - Gundih - Solo, Bangil - Malang - Blitar - Kertosono, Surabaya - Bangil - Banyuwangi, Sidoarjo - Porong, Sumatera Utara except Medan - Kualanamu, Sumatera Barat and Muaraenim - Lahat - Lubuklinggau: single track"
