@@ -12,7 +12,18 @@ class SpikeWorker {
     w.on("message", data => { const e = { data }; this.onmessage?.(e); for (const f of this.ls) f(e) });
     w.on("error", err => { console.error("worker error", String(url).split("/").pop(), err?.stack ?? err); this.onerror?.({ message: String(err), error: err }) });
   }
-  postMessage(m, transfer) { this.w.postMessage(m, Array.isArray(transfer) ? transfer : transfer?.transfer) }
+  postMessage(m, transfer) {
+    if (process.env.SPIKE_CLOCK_INPUTS && (m.kind === "init" || m.kind === "open")) {
+      const keys = Object.fromEntries(Object.entries(m).map(([k,v]) => [k, Array.isArray(v) ? v.map(x => x?.id ?? (typeof x === "number" ? x : typeof x)) : typeof v]));
+      fs.appendFileSync(path.join(process.env.SPIKE_CLOCK_INPUTS, "packs.jsonl"), JSON.stringify(keys) + "\n");
+    }
+    if (process.env.SPIKE_CLOCK_INPUTS && ["income", "riders", "regionShares", "transfers", "points", "solve"].includes(m.kind)) {
+      const key = m.kind === "riders" ? "riders" + m.day : m.kind;
+      fs.writeFileSync(path.join(process.env.SPIKE_CLOCK_INPUTS, key + ".json"),
+        JSON.stringify(m, (_, v) => ArrayBuffer.isView(v) ? Array.from(v) : v));
+    }
+    this.w.postMessage(m, Array.isArray(transfer) ? transfer : transfer?.transfer);
+  }
   addEventListener(t, f) { if (t === "message") this.ls.add(f); else if (t === "error") this.onerror = f }
   removeEventListener(t, f) { this.ls.delete(f) }
   terminate() { this.w.terminate() }

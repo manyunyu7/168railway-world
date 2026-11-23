@@ -23,6 +23,23 @@ fn array<'a>(h: &Value, bin: &'a [u8], key: &str, dtype: &str, size: usize) -> O
         .checked_mul(size)?;
     bin.get(start..start.checked_add(len)?)
 }
+// clock.worker.ts ensureStreets: packs predating the street grid use the default road speed.
+pub(super) fn install_streets(api: &mut trainworld_sim::track::wasm::TrackApi, h: &Value, cells: &[u8]) -> Option<bool> {
+    let f32s = |name| Some(array(h, cells, name, "f32", 4)?.chunks_exact(4)
+        .map(|v| f32::from_le_bytes(v.try_into().unwrap())).collect::<Vec<_>>());
+    let u32s = |name| Some(array(h, cells, name, "u32", 4)?.chunks_exact(4)
+        .map(|v| u32::from_le_bytes(v.try_into().unwrap())).collect::<Vec<_>>());
+    let u16s = |name| Some(array(h, cells, name, "u16", 2)?.chunks_exact(2)
+        .map(|v| u16::from_le_bytes(v.try_into().unwrap())).collect::<Vec<_>>());
+    let g = &h["gravity"];
+    Some(api.add_pack_streets(
+        g["zone_m"].as_f64()?, g["grid_origin_m"][0].as_f64()?, g["grid_origin_m"][1].as_f64()?,
+        g["grid"][0].as_u64()?.try_into().ok()?, g["grid"][1].as_u64()?.try_into().ok()?,
+        &f32s("pop")?, &f32s("jobs")?, &u32s("zone")?, &u16s("zone_gx")?, &u16s("zone_gy")?,
+        array(h, cells, "zone_size", "u8", 1).unwrap_or_default(), &u32s("zone_cells9")?,
+        h["origin"]["lon"].as_f64()?, h["origin"]["lat"].as_f64()?,
+    ))
+}
 pub(super) fn attach(
     world: &mut World,
     header: &str,

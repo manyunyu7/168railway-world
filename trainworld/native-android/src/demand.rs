@@ -26,6 +26,7 @@ fn commute(
     let fares = super::fares::Fares::read(&world.header["fares"], country);
     let mut api = world.api;
     let city: Value = serde_json::from_str(header).map_err(|e| e.to_string())?;
+    super::city_surface::install_streets(&mut api, &city, cells);
     let origin = &city["origin"];
     let frame = Frame::new(
         FrameKind::Equirect,
@@ -113,6 +114,28 @@ fn commute(
             upgrades[*i as usize] = pair[1] as u8;
         }
     }
+    let mut complexes: Vec<u32> = (0..ix.len() as u32).collect();
+    let net = &api.world().net;
+    for (&station, &index) in &ix {
+        if station as usize >= net.node_count() || complexes[index as usize] != index {
+            continue;
+        }
+        let members = net.built_complex_of(station);
+        if let Some(group) = members.iter().filter_map(|s| ix.get(s)).min().copied() {
+            for member in members.iter().filter_map(|s| ix.get(s)) {
+                complexes[*member as usize] = group;
+            }
+        }
+    }
+    for (id, hall) in net.buildings.iter().enumerate() {
+        if hall.is_some() {
+            for member in api.building_members(id as u32) {
+                if let Some(&slot) = ix.get(&member) {
+                    upgrades[slot as usize] |= trainworld_sim::track::upgrades::IN_BUILDING;
+                }
+            }
+        }
+    }
     let mut passages = vec![];
     for pair in api.station_links().chunks_exact(2) {
         if let (Some(a), Some(b)) = (ix.get(&pair[0]), ix.get(&pair[1])) {
@@ -190,7 +213,7 @@ fn commute(
     }
     #[cfg(test)]
     if let Ok(path) = std::env::var("WORLD_NETWORK_EXPORT") {
-        let packed = json!({"xy":xy,"ll":ll_all,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars,"upgrades":upgrades,"passages":passages,"span":span,"tram":tram,"ferry":ferry,"catchN":catch_n,"catchXY":catch_xy,"catchLL":catch_ll,"hopKm":hop_km,"baseMul":base_mul,"rateMul":rate_mul,"localFare":fares.local,"marketFare":fares.market,"rawFare":fares.raw,"country":country});
+        let packed = json!({"xy":xy,"ll":ll_all,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars,"complexes":complexes,"upgrades":upgrades,"passages":passages,"span":span,"tram":tram,"ferry":ferry,"catchN":catch_n,"catchXY":catch_xy,"catchLL":catch_ll,"hopKm":hop_km,"baseMul":base_mul,"rateMul":rate_mul,"localFare":fares.local,"marketFare":fares.market,"rawFare":fares.raw,"country":country});
         std::fs::write(path, packed.to_string()).map_err(|e| e.to_string())?;
     }
     let mut solver = DemandApi::new(header, cells)?;
@@ -200,6 +223,9 @@ fn commute(
     let wallet = scalar(local, "weight");
     solver.set_fare_weight(wallet)?;
     outings.set_fare_weight(wallet)?;
+    solver.set_chunked(true);
+    solver.set_complexes(&complexes);
+    outings.set_complexes(&complexes);
     solver.set_upgrades(&upgrades);
     outings.set_upgrades(&upgrades);
     solver.set_passages(&passages);
@@ -235,6 +261,7 @@ fn commute(
         let regional = &fares.market;
         m.set_fare_weight(scalar(regional, "weight"))?;
         m.set_fare_factors(&regional["factors"].to_string())?;
+        m.set_complexes(&complexes);
         m.set_upgrades(&upgrades);
         m.set_passages(&passages);
         m.set_span(&span);
@@ -392,7 +419,11 @@ mod tests {
             .as_ref()
             .map(|_| std::fs::read(dir.join("market-drives.bin")).unwrap());
         let zone = std::fs::read_to_string(dir.join(format!("{id}.market.json"))).unwrap();
-        let zones = [zone.as_str()];
+        let market_zones = std::env::var("WORLD_MARKET_ZONES").unwrap_or_else(|_| id.clone());
+        let zone_headers: Vec<_> = market_zones.split(',')
+            .map(|z| std::fs::read_to_string(dir.join(format!("{z}.market.json"))).unwrap())
+            .collect();
+        let zones: Vec<_> = zone_headers.iter().map(String::as_str).collect();
         let market = mi
             .as_ref()
             .zip(drives.as_ref())

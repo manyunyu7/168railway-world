@@ -16,7 +16,7 @@ const work=new DemandApi(h,c), outings=EverydayApi.beside(work,h,c);
 let market,packs;
 const regionalInput=process.argv.slice(7); // index.json.gz, market-drives.bin, one or more zone.market.json
 try {
-  const access=(p)=>{p.set_upgrades(Uint8Array.from(n.upgrades));p.set_passages(Uint32Array.from(n.passages));p.set_span(Float32Array.from(n.span));};
+  const access=(p)=>{if(n.complexes)p.set_complexes(Uint32Array.from(n.complexes));p.set_upgrades(Uint8Array.from(n.upgrades));p.set_passages(Uint32Array.from(n.passages));p.set_span(Float32Array.from(n.span));};
   const fares=(p,f)=>{
      p.set_fares(f.base,f.rate,Float32Array.from(n.hopKm));p.set_fare_mul(Float32Array.from(n.rateMul));p.set_base_mul(Float32Array.from(n.baseMul));p.set_fare_curve(Float32Array.from(f.curve));
   };
@@ -29,6 +29,7 @@ try {
     market.set_network_ll(Float64Array.from(n.ll),Uint32Array.from(n.counts),Uint32Array.from(n.stops),Float32Array.from(n.times),Float32Array.from(n.tph),Float32Array.from(n.cars));
     fares(market,n.marketFare);assert.ok(market.solve(q));
   }
+  work.set_chunked(true);
   for(const p of [work,outings]){
     p.set_fare_weight(n.localFare.weight);access(p);p.set_bus(Uint32Array.from(n.catchN),Float32Array.from(n.catchXY));if(p===work)p.set_tram_lines(Uint8Array.from(n.tram));
     p.set_back_stops(Uint32Array.from(n.back));

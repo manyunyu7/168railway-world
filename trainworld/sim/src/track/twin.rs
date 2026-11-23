@@ -168,10 +168,19 @@ impl Network {
     /// and demand's transfers use): linked by distance (`near_enough`), by the player's links (T-197)
     /// or by touching one station building (T-2217), directly or through others.
     pub fn complex_of(&self, n: u32) -> Vec<u32> {
-        if !self.is_station(n) {
-            return vec![];
-        }
-        let stations: Vec<u32> = (0..self.node_count() as u32).filter(|&m| self.is_station(m)).collect();
+        self.station_complex(n, false)
+    }
+
+    /// Constructed platforms only, as the demand snapshot sees them. A blueprint
+    /// between two platforms must not join their catchments.
+    pub fn built_complex_of(&self, n: u32) -> Vec<u32> {
+        self.station_complex(n, true)
+    }
+
+    fn station_complex(&self, n: u32, built_only: bool) -> Vec<u32> {
+        let eligible = |id: u32| self.is_station(id) && (!built_only || self.node_built[id as usize]);
+        if !eligible(n) { return vec![]; }
+        let stations: Vec<u32> = (0..self.node_count() as u32).filter(|&id| eligible(id)).collect();
         // each building's corners' box, its members found only once a member of the complex is near it
         let halls: Vec<(&[P], [f64; 4])> = self
             .buildings
@@ -191,7 +200,7 @@ impl Network {
             let a = out[k];
             k += 1;
             let add = |m: u32, out: &mut Vec<u32>| {
-                if !out.contains(&m) {
+                if eligible(m) && !out.contains(&m) {
                     out.push(m);
                 }
             };
