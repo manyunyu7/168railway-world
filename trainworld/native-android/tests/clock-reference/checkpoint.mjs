@@ -23,6 +23,9 @@ await import(path.join(assets, entry));
 const { port1, port2 } = new MessageChannel();
 const send = data => port1.postMessage(JSON.stringify(data));
 const preview = process.env.SPIKE_TRAIN_PREVIEW;
+const overlay = process.env.SPIKE_OVERLAY;
+if (overlay && !["trips","network"].includes(overlay)) throw Error("Unknown overlay");
+const layers = {};
 let previewRows = [];
 let chunks, size, offset = 0, playing = false, saving = false;
 try {
@@ -34,17 +37,25 @@ try {
         const msg = JSON.parse(event.data);
         switch (msg.type) {
           case "ready":
-            send({ type: "open", id: 1, size: bytes.length, trainLoads: !!preview });
+            send({ type: "open", id: 1, size: bytes.length, trainLoads: !!preview, overlay, overlayCity: process.env.SPIKE_OVERLAY_CITY });
             for (let k = 0; k < bytes.length; k += 49152) {
               send({ type: "input", id: 1, offset: k, base64: bytes.subarray(k, k + 49152).toString("base64") });
             }
             send({ type: "finish", id: 1 });
             break;
+          case "overlayPart":
+            (layers[msg.section] ??= []).push(...msg.rows);
+            break;
+          case "overlayEnd":
+            assert.ok(overlay);
+            clearTimeout(timeout);
+            resolve(Buffer.from(JSON.stringify(layers)));
+            break;
           case "trainLoads":
             if (preview && !playing) previewRows.push(...msg.rows);
             break;
           case "opened":
-            if (preview) { send({type:"pause"}); break; }
+            if (preview || overlay) { send({type:"pause"}); break; }
             playing = true;
             send({ type: "play", rate: 240 });
             break;
@@ -96,8 +107,10 @@ try {
     globalThis.dispatchEvent({ type: "message", data: JSON.stringify({ type: "connect" }), ports: [port2], source: null, origin: "" });
   });
   fs.writeFileSync(output, checkpoint, { flag: "wx" });
+  if (!overlay) {
   const end = decode(checkpoint);
   console.log(JSON.stringify({ clock: end.clock, cash: end.cash, ledger: end.ledger?.at(-1) }));
+  }
 } finally {
   port1.close();
   await Promise.all(workers.map(w => w.terminate()));

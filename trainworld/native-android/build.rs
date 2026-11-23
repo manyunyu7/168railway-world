@@ -63,6 +63,24 @@ fn main() {
     }
     places.push_str("];");
     fs::write(out_dir.join("places.rs"), places).unwrap();
+    let frame = &registry["market"]["frame"];
+    let mut overlay = format!(
+        "const MARKET_ORIGIN:(f64,f64)=({:?},{:?});\nconst OVERLAY_PLACES:&[(&str,u32,bool)]=&[\n",
+        frame["lon"].as_f64().unwrap(),
+        frame["lat"].as_f64().unwrap()
+    );
+    for c in registry["cities"].as_array().unwrap() {
+        writeln!(
+            overlay,
+            "({:?},{},{}),",
+            c["id"].as_str().unwrap(),
+            c["place"].as_u64().unwrap(),
+            c["market"].as_i64().unwrap_or(-1) >= 0
+        )
+        .unwrap();
+    }
+    overlay.push_str("];");
+    fs::write(out_dir.join("overlay_places.rs"), overlay).unwrap();
     let mut boxes = String::from("const ZONE_BOXES: &[(&str, [f64; 4])] = &[\n");
     for city in registry["cities"].as_array().unwrap() {
         let bounds: [f64; 4] = std::array::from_fn(|i| city["box"][i].as_f64().unwrap());

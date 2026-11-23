@@ -20,6 +20,9 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     var snapshot: (() -> ByteArray?)? = null
     private val main = Handler(Looper.getMainLooper())
     private var worker: StudioReferenceClock? = null
+    var manifest: ((ByteArray) -> String)? = null
+    private var nativeTask: java.util.concurrent.Future<*>? = null
+    private companion object { val executor = java.util.concurrent.Executors.newSingleThreadExecutor() }
     private var generation = 0
     private var error: String? = null
     private var loading = ""
@@ -57,6 +60,8 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     }
     fun stop() {
         generation++
+        nativeTask?.cancel(true)
+        nativeTask = null
         val w = worker
         worker = null
         loading = ""
@@ -72,7 +77,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     }
     fun startNeeded() {
         val activity = activity ?: return
-        if (activity.isDestroyed || activity.isFinishing || worker != null || error != null) return
+        if (activity.isDestroyed || activity.isFinishing || loading.isNotEmpty() || error != null) return
         val kind = when {
             selection[0] != "none" && "trips" !in loaded -> "trips"
             (selection[1] != "none" || track != "line") && "network" !in loaded -> "network"
@@ -86,6 +91,28 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             stop()
             error = reason
             redraw()
+        }
+        if (kind == "trips") {
+            val zone = city
+            val inputs = requireNotNull(manifest)
+            nativeTask = executor.submit {
+                val result = runCatching {
+                    val packed = NativeRidership.tripCells(bytes,inputs(bytes),zone)
+                    require(packed.size % 10 == 0)
+                    List(packed.size / 10) { i -> packed.copyOfRange(i*10,i*10+10) }
+                }
+                main.post {
+                    if (generation == id) result.fold({ rows ->
+                        cells.addAll(rows)
+                        loaded.add(kind)
+                        gridKey = ""
+                        stop()
+                        redraw()
+                        startNeeded()
+                    }, { failure(it.localizedMessage ?: "Data perjalanan belum tersedia.") })
+                }
+            }
+            return
         }
         val clock = StudioReferenceClock(activity, {}, ::failure)
         worker = clock

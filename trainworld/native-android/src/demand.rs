@@ -46,7 +46,7 @@ fn commute(
     period: usize,
     market_input: Option<MarketInput>,
 ) -> Result<Value, String> {
-    Ok(solve(save, packs, &[period], market_input, None, None)?.remove(0))
+    Ok(solve(save, packs, &[period], market_input, None, None, None)?.remove(0))
 }
 
 fn solve(
@@ -56,6 +56,7 @@ fn solve(
     market_input: Option<MarketInput>,
     mut account: Option<&mut super::passenger_account::Forecast>,
     geo: Option<&crate::demand_zones::Geography>,
+    cells: Option<(&str, &mut Vec<f64>)>,
 ) -> Result<Vec<Value>, String> {
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
     let first = packs.first().ok_or("Paket kota tidak tersedia")?;
@@ -248,7 +249,7 @@ fn solve(
         span.clear();
     }
     let mut cities = Vec::new();
-    for (pack, (id, frame)) in packs.iter().zip(frames) {
+    for (pack, (id, frame)) in packs.iter().zip(frames.iter().cloned()) {
         let project = |points: &[f64]| -> Vec<f32> {
             points
                 .chunks_exact(2)
@@ -484,13 +485,26 @@ fn solve(
                 &fares.local,
             )?;
         }
-        for (work, other) in &mut cities {
+        for (i, (work, other)) in cities.iter_mut().enumerate() {
+            if cells.as_ref().is_some_and(|(id, _)| *id == frames[i].0) {
+                continue;
+            }
             work.forget_period(period);
             other.forget_period(period);
         }
-        if let Some(m) = market.as_mut() {
-            m.forget_period(period);
+        if cells.is_none() {
+            if let Some(m) = market.as_mut() {
+                m.forget_period(period);
+            }
         }
+    }
+    if let Some((id, out)) = cells {
+        let i = frames
+            .iter()
+            .position(|r| r.0 == id)
+            .ok_or("Zona perjalanan tidak tersedia")?;
+        *out =
+            crate::trip_cells::rows(id, frames[i].1, &cities[i].0, &cities[i].1, market.as_ref())?;
     }
     Ok(results)
 }
@@ -587,6 +601,7 @@ impl Inputs {
             market,
             Some(&mut forecast),
             Some(&self.geo),
+            None,
         )?;
         for pack in &self.packs {
             let header: Value = serde_json::from_str(&pack.header).map_err(|e| e.to_string())?;
@@ -691,6 +706,8 @@ mod tests {
                 &zone_ids,
             )
             .unwrap();
+            let mut cells = Vec::new();
+            let output = std::env::var("WORLD_TRIP_EXPORT").ok();
             solve(
                 &save,
                 &packs,
@@ -698,8 +715,12 @@ mod tests {
                 market,
                 Some(&mut forecast),
                 Some(&geo),
+                output.as_ref().map(|_| (id.as_str(), &mut cells)),
             )
             .unwrap();
+            if let Some(path) = output {
+                std::fs::write(path, serde_json::to_vec(&cells).unwrap()).unwrap();
+            }
             let dir = std::path::PathBuf::from(dir);
             std::fs::create_dir_all(&dir).unwrap();
             if let Ok(reference) = std::env::var("WORLD_REFERENCE_CHECKPOINT") {
@@ -775,5 +796,62 @@ mod tests {
         assert!(r["rail"].as_f64().unwrap() > 0.);
         assert!(r["rail"].as_f64().unwrap() < r["trips"].as_f64().unwrap());
         assert!(r["boardings"].as_f64().unwrap() > 0.);
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_NativeRidership_tripCells(
+    mut env: JNIEnv,
+    _: JClass,
+    bytes: JByteArray,
+    manifest: JString,
+    city: JString,
+) -> jni::sys::jfloatArray {
+    let calculate = || -> Result<_, String> {
+        let save = env.convert_byte_array(bytes).map_err(|e| e.to_string())?;
+        let spec: String = env.get_string(&manifest).map_err(|e| e.to_string())?.into();
+        let city: String = env.get_string(&city).map_err(|e| e.to_string())?.into();
+        let files: DemandFiles = serde_json::from_str(&spec).map_err(|e| e.to_string())?;
+        let data = files.read()?;
+        let zones: Vec<_> = data.markets.iter().map(String::as_str).collect();
+        let market = (!zones.is_empty()).then_some((
+            data.index.as_slice(),
+            data.drives.as_slice(),
+            zones.as_slice(),
+        ));
+        let mut cells = Vec::new();
+        solve(
+            &save,
+            &data.packs,
+            &[0, 1, 2, 3, 4],
+            market,
+            None,
+            None,
+            Some((&city, &mut cells)),
+        )?;
+        let world = World::open(&save).ok_or("Simpanan tidak dapat dibaca")?;
+        let mut packed = Vec::with_capacity(cells.len());
+        for row in cells.chunks_exact(10) {
+            packed.extend(
+                world
+                    .api
+                    .from_lonlat(row[0], row[1])
+                    .into_iter()
+                    .map(|v| v as f32),
+            );
+            packed.extend(row[2..].iter().map(|v| *v as f32));
+        }
+        let size = i32::try_from(packed.len()).map_err(|e| e.to_string())?;
+        let array = env.new_float_array(size).map_err(|e| e.to_string())?;
+        env.set_float_array_region(&array, 0, &packed)
+            .map_err(|e| e.to_string())?;
+        Ok(array.into_raw())
+    };
+    match calculate() {
+        Ok(array) => array,
+        Err(reason) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", reason);
+            std::ptr::null_mut()
+        }
     }
 }

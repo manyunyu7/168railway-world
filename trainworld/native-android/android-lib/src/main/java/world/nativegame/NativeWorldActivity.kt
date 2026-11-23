@@ -148,6 +148,11 @@ class NativeWorldActivity : Activity() {
             workshop = this@NativeWorldActivity.workshop
             trainEngine = { handle }
             overlay.city = city.id
+            val overlayCity = city.id
+            overlay.manifest = { bytes ->
+                val local = cityStore.load(overlayCity)
+                NativeRidership.inputs(this@NativeWorldActivity,bytes,local.header,local.cells,true).toString()
+            }
             overlay.project = { coordinates -> CitySurface.project(handle,coordinates) }
             overlay.allowTap = { !removingTrack && !selectingInfrastructure && !restoringEdit }
             overlay.snapshot = {

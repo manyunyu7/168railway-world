@@ -7,6 +7,7 @@ mod demand_zones;
 mod passenger_account;
 mod timed_account;
 mod train_loads;
+mod trip_cells;
 mod demolition;
 mod fare_editor;
 mod fares;

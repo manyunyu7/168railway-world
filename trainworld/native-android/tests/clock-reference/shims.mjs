@@ -56,7 +56,7 @@ export function install(g) {
   def("document", {
     visibilityState: "visible", hidden: false, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return true },
     createElement: () => ({ style: {}, setAttribute() {}, appendChild() {}, addEventListener() {}, getContext: () => null }),
-    querySelectorAll: () => [], querySelector: () => null, documentElement: { lang: "id", dir: "ltr", style: { setProperty() {}, removeProperty() {} }, dataset: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, setAttribute() {}, getAttribute: () => null, removeAttribute() {} },
+    getElementsByTagName: () => [], querySelectorAll: () => [], querySelector: () => null, documentElement: { lang: "id", dir: "ltr", style: { setProperty() {}, removeProperty() {} }, dataset: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, setAttribute() {}, getAttribute: () => null, removeAttribute() {} },
     fonts: { ready: Promise.resolve(), add() {} }, body: { appendChild() {}, classList: { add() {}, remove() {} } }, head: { appendChild() {} },
   });
   def("navigator", {
