@@ -24,15 +24,6 @@ internal class StudioReferenceClock(
     private val onClock: (Double) -> Unit,
     private val onUnavailable: (String) -> Unit,
 ) {
-    var showTutorial = false
-    var feature: String? = null
-    var station = -1
-    var mapLayer: String? = null
-    var editorSurface: ViewGroup? = null
-    var onPicture: ((ByteArray) -> Unit)? = null
-    private var picture: ByteArray? = null
-    private var pictureOffset = 0
-    var onEditorSave: (() -> Unit)? = null
     var onTrainLoads: ((Long,org.json.JSONArray) -> Unit)? = null
     var overlayKind: String? = null
     var overlayCity: String? = null
@@ -42,7 +33,7 @@ internal class StudioReferenceClock(
 
     private val main = Handler(Looper.getMainLooper())
     private val origin = Uri.parse("https://studio-clock.invalid")
-    private val entry get() = "$origin/clock/" + if (editorSurface == null) "index.html" else "editor.html"
+    private val entry get() = "$origin/clock/index.html"
     private val resources = StudioClockResources(activity.applicationContext, origin)
     private var view: WebView? = null
     private var channel: WebMessagePort? = null
@@ -71,12 +62,10 @@ internal class StudioReferenceClock(
         runCatching {
             val web = WebView(activity)
             view = web
-            if (editorSurface == null) {
-                web.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-                web.isFocusable = false
-                web.isClickable = false
-                web.alpha = 0f
-            }
+            web.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            web.isFocusable = false
+            web.isClickable = false
+            web.alpha = 0f
             web.settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -98,8 +87,7 @@ internal class StudioReferenceClock(
                 }
             }
             // A one-pixel attached document keeps workers alive while the native map is visible.
-            editorSurface?.addView(web, ViewGroup.LayoutParams(-1,-1))
-                ?: activity.findViewById<ViewGroup>(android.R.id.content).addView(web, ViewGroup.LayoutParams(1, 1))
+            activity.findViewById<ViewGroup>(android.R.id.content).addView(web, ViewGroup.LayoutParams(1, 1))
             web.loadUrl(entry)
         }.onFailure { fail(it.message ?: "WebView Studio tidak dapat dibuka.") }
     }
@@ -185,35 +173,10 @@ internal class StudioReferenceClock(
                 val bytes = checkNotNull(initial)
                 openId = ++sequence
                 val command = JSONObject().put("type","open").put("id",openId).put("size",bytes.size)
-                if (editorSurface != null) command.put("currency",StudioCurrency.current(activity).code).put("showTutorial",showTutorial).put("mapLayer", mapLayer).put("feature", feature).put("station", station)
                 if (overlayKind != null) command.put("overlay",overlayKind).put("overlayCity",overlayCity)
                 if (onTrainLoads != null) command.put("trainLoads",true)
                 if (send(command)) feed(bytes,0)
             }
-            "notice" -> if (editorSurface != null) android.widget.Toast.makeText(activity,msg.optString("message").take(180),android.widget.Toast.LENGTH_LONG).show()
-            "pictureBegin" -> if (editorSurface != null) {
-                val size = msg.getInt("size")
-                require(size in 8..32 * 1024 * 1024)
-                picture = ByteArray(size)
-                pictureOffset = 0
-            }
-            "picturePart" -> if (editorSurface != null) {
-                val dest = checkNotNull(picture)
-                val chunk = msg.getString("base64")
-                require(msg.getInt("offset") == pictureOffset && chunk.length in 1..65536)
-                val part = Base64.decode(chunk,Base64.NO_WRAP)
-                require(part.isNotEmpty() && part.size <= dest.size - pictureOffset)
-                part.copyInto(dest,pictureOffset)
-                pictureOffset += part.size
-            }
-            "pictureEnd" -> if (editorSurface != null) {
-                val bytes = checkNotNull(picture)
-                picture = null
-                require(pictureOffset == bytes.size && bytes.copyOfRange(0,8).contentEquals(byteArrayOf(-119,80,78,71,13,10,26,10)))
-                onPicture?.invoke(bytes)
-            }
-            "saveRequest" -> if (editorSurface != null && phase == Phase.READY) onEditorSave?.invoke()
-            "currency" -> if (editorSurface != null && phase == Phase.READY) StudioCurrency.select(activity,msg.getString("code"))
             "opened" -> {
                 check(phase == Phase.OPENING && msg.getInt("id") == openId)
                 disarm()
@@ -257,7 +220,7 @@ internal class StudioReferenceClock(
                 check(offset == bytes.size)
                 val clock = msg.getDouble("clock")
                 val header = WorldDocuments.header(bytes)
-                check(clock.isFinite() && (editorSurface != null || clock + 0.01 >= lastClock) && kotlin.math.abs(clock - header.getDouble("clock")) < 0.01)
+                check(clock.isFinite() && clock + 0.01 >= lastClock && kotlin.math.abs(clock - header.getDouble("clock")) < 0.01)
                 output = null
                 disarm()
                 deliverClock(msg)
