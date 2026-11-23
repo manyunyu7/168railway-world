@@ -96,13 +96,13 @@ internal object BuildWheel {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         val dialog = android.app.Dialog(activity, android.R.style.Theme_Translucent_NoTitleBar)
         val root = android.widget.FrameLayout(activity).apply {
-            setBackgroundColor(0x7322204a)
+            setBackgroundColor(0xd022204a.toInt())
             setOnClickListener { dialog.dismiss() }
         }
         val head = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(20), dp(64), dp(20), 0)
+            setPadding(dp(20), dp(132), dp(20), 0)
         }
         head.addView(StudioUi.title(activity, title, 30f, StudioUi.WHITE).apply { gravity = Gravity.CENTER })
         head.addView(StudioUi.text(activity, "Ketuk alat untuk mulai membangun", 15f, true, 0xe6ffffff.toInt()).apply { gravity = Gravity.CENTER })
@@ -169,7 +169,7 @@ internal object BuildWheel {
                 setOnClickListener { action() }
             })
         }
-        root.addView(wheel, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.CENTER).apply { topMargin = dp(70) })
+        root.addView(wheel, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.CENTER).apply { topMargin = dp(150) })
         dialog.setContentView(root)
         dialog.window?.let { w ->
             w.setLayout(-1, -1)

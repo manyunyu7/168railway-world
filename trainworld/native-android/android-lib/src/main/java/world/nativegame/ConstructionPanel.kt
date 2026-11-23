@@ -65,25 +65,34 @@ internal object ConstructionPanel {
         lateinit var go: Button
         StudioUi.sheet(host,tool.label,pinnedAction={go}) { body, dialog ->
             fun dp(n:Int)=StudioUi.dp(host,n)
-            fun label(s:String) { body.addView(StudioUi.text(host,s,16f,true,StudioDepot.TEAL),
-                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10); bottomMargin=dp(3) }) }
+            fun label(s:String) { body.addView(StudioUi.section(host,s),
+                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(4); bottomMargin=dp(2) }) }
             fun choices(title:String, items:List<Pair<Int,String>>,current:Int,perRow:Int,change:(Int)->Unit): (Int,Boolean)->Unit {
                 label(title)
                 val buttons=mutableListOf<Pair<Int,Button>>()
                 var active=current
+                // Segmented pill: the chosen option is a white tab on a soft track.
                 fun paint() { buttons.forEach { (id,b) ->
                     b.isSelected=id==active
-                    StudioUi.style(b,if(id==active) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE)
+                    b.background=if(id==active) StudioUi.pill(host,StudioUi.WHITE,14) else android.graphics.drawable.ColorDrawable(0)
+                    b.elevation=if(id==active) dp(2).toFloat() else 0f
+                    b.setTextColor(if(id==active) StudioUi.INK else StudioUi.MUTED)
+                    b.alpha=if(b.isEnabled) 1f else .4f
                 } }
                 items.chunked(perRow).forEach { part ->
-                    val row=LinearLayout(host)
+                    val row=LinearLayout(host).apply {
+                        background=StudioUi.pill(host,0x1422204a,18)
+                        setPadding(dp(4),dp(4),dp(4),dp(4))
+                    }
                     part.forEach { (id,text) ->
                         val b=StudioUi.button(host,text) { active=id; change(id); paint() }
-                        b.textSize=14f
+                        b.textSize=13f
+                        b.minHeight=dp(40); b.minimumHeight=dp(40)
+                        b.setPadding(dp(6),0,dp(6),0)
                         buttons.add(id to b)
-                        row.addView(b,LinearLayout.LayoutParams(0,-2,1f).apply { marginEnd=dp(3) })
+                        row.addView(b,LinearLayout.LayoutParams(0,dp(40),1f).apply { marginStart=dp(2); marginEnd=dp(2) })
                     }
-                    body.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(3) })
+                    body.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
                 }
                 paint()
                 return { selected, enabled ->
@@ -97,20 +106,20 @@ internal object ConstructionPanel {
                 EditText(host).apply {
                     setSingleLine(); filters=arrayOf(InputFilter.LengthFilter(48))
                     setText(plan.name); setSelectAllOnFocus(true); textSize=17f; typeface=StudioUi.face(host)
-                    setPadding(dp(12),dp(4),dp(12),dp(4)); minHeight=dp(48)
-                    background=StudioUi.panel(host,StudioUi.WHITE,12)
+                    setTextColor(StudioUi.INK); setPadding(dp(18),dp(4),dp(18),dp(4)); minHeight=dp(52)
+                    background=StudioUi.pill(host,StudioUi.WHITE,26)
                     body.addView(this,LinearLayout.LayoutParams(-1,-2))
                 }
             } else null
             var designField:EditText?=null
             var flyField:EditText?=null
             fun speedInput(title:String, value:Double, parent:LinearLayout): EditText {
-                parent.addView(StudioUi.text(host,title,15f,true,StudioDepot.TEAL))
+                parent.addView(StudioUi.text(host,title,13f,true,StudioUi.MUTED).apply { setPadding(dp(4),dp(8),0,dp(4)) })
                 return EditText(host).apply {
                     inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                     setSingleLine(); setText(value.toString().removeSuffix(".0")); setSelectAllOnFocus(true)
-                    typeface=StudioUi.face(host); minHeight=dp(48); setPadding(dp(10),0,dp(10),0)
-                    background=StudioUi.panel(host,StudioUi.WHITE,12); parent.addView(this)
+                    typeface=StudioUi.face(host,true); setTextColor(StudioUi.INK); minHeight=dp(48); setPadding(dp(16),0,dp(16),0)
+                    background=StudioUi.pill(host,StudioUi.WHITE,24); parent.addView(this)
                 }
             }
             when(tool) {
@@ -141,7 +150,8 @@ internal object ConstructionPanel {
                     flyField=speedInput("Kecepatan persilangan (km/jam)",plan.flySpeed,advanced)
                     fun toggle(text:String, checked:Boolean, change:(Boolean)->Unit): android.widget.CheckBox {
                         return android.widget.CheckBox(host).apply {
-                            this.text=text; typeface=StudioUi.face(host); minHeight=dp(48); isChecked=checked
+                            this.text=text; typeface=StudioUi.face(host,true); setTextColor(StudioUi.INK); minHeight=dp(48); isChecked=checked
+                            buttonTintList=android.content.res.ColorStateList.valueOf(StudioUi.LEAF)
                             setOnCheckedChangeListener { _,on -> change(on) }
                             advanced.addView(this)
                         }
@@ -153,8 +163,12 @@ internal object ConstructionPanel {
                 }
                 BuildTool.STATION -> {
                     label("Panjang peron")
-                    val row=LinearLayout(host).apply { gravity=Gravity.CENTER_VERTICAL }
-                    val value=StudioUi.text(host,"",18f,true,StudioDepot.TEAL).apply { gravity=Gravity.CENTER }
+                    val row=LinearLayout(host).apply {
+                        gravity=Gravity.CENTER_VERTICAL
+                        background=StudioUi.card(host,24)
+                        setPadding(dp(8),dp(8),dp(8),dp(8))
+                    }
+                    val value=StudioUi.title(host,"",22f).apply { gravity=Gravity.CENTER }
                     lateinit var minus: Button; lateinit var plus: Button
                     fun update(n:Int) {
                         plan=plan.copy(platform=n.coerceIn(20,400))
@@ -164,7 +178,7 @@ internal object ConstructionPanel {
                     }
                     minus=StudioUi.iconButton(host,"Perpendek peron",StudioUi.Icon.MINUS) { update(plan.platform-20) }
                     plus=StudioUi.iconButton(host,"Perpanjang peron",StudioUi.Icon.PLUS) { update(plan.platform+20) }
-                    row.addView(minus); row.addView(value,LinearLayout.LayoutParams(0,-2,1f)); row.addView(plus)
+                    row.addView(minus,LinearLayout.LayoutParams(dp(52),dp(52))); row.addView(value,LinearLayout.LayoutParams(0,-2,1f)); row.addView(plus,LinearLayout.LayoutParams(dp(52),dp(52)))
                     body.addView(row); update(plan.platform)
                 }
                 BuildTool.LINE -> choices("Jenis kereta",listOf(-1 to "Otomatis",0 to "Komuter",1 to "Cepat",4 to "Trem"),plan.vehicle,2) { plan=plan.copy(vehicle=it) }

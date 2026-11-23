@@ -23,18 +23,18 @@ internal object StudioZonePicker {
             val query = EditText(activity).apply {
                 setSingleLine()
                 hint = "Cari kota"
-                minHeight = dp(48)
+                minHeight = dp(54)
                 textSize = 16f
-                typeface = StudioUi.face(context)
+                typeface = StudioUi.face(context, true)
                 setTextColor(StudioUi.INK)
                 setHintTextColor(StudioUi.MUTED)
-                setPadding(dp(14), 0, dp(14), 0)
-                background = StudioUi.panel(context, StudioUi.BACKGROUND, 14)
+                setPadding(dp(18), 0, dp(18), 0)
+                background = StudioUi.pill(context, StudioUi.WHITE, 27)
             }
             column.addView(query, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
             val local = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
             column.addView(local,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
-            local.addView(StudioUi.text(activity,"Kota Indonesia",17f,true,StudioDepot.TEAL))
+            local.addView(StudioUi.section(activity,"Kota Indonesia"))
             fun cityCard(city: CityPackStore.City): View {
                 val cache = if (catalog.cached(city.id)) "Tersedia offline" else
                     "Unduh %.1f MB".format(Locale.forLanguageTag("id-ID"),city.bytes / 1_000_000.0)
@@ -47,15 +47,15 @@ internal object StudioZonePicker {
             }
             val shortList = LinearLayout(activity)
             local.addView(HorizontalScrollView(activity).apply {
-                isHorizontalScrollBarEnabled = true
+                isHorizontalScrollBarEnabled = false
                 addView(shortList)
             },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
             for (id in featured) {
                 shortList.addView(cityCard(catalog.city(id)),LinearLayout.LayoutParams(dp(235),-2).apply { marginEnd=dp(6) })
             }
-            local.addView(StudioUi.text(activity,"Kota lainnya",17f,true,StudioDepot.TEAL),
-                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
-            val missing = StudioUi.text(activity, "Kota tidak ditemukan.", 15f, color = StudioUi.MUTED)
+            local.addView(StudioUi.section(activity,"Kota lainnya"),
+                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
+            val missing = StudioUi.text(activity, "Kota tidak ditemukan.", 15f, true, StudioUi.MUTED)
             missing.visibility = View.GONE
             column.addView(missing, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             val matches = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }

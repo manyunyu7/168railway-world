@@ -42,11 +42,14 @@ class StudioLibraryActivity : Activity() {
                 insets
             }
         }
-        window.statusBarColor = StudioDepot.PAPER
-        window.navigationBarColor = StudioDepot.PAPER
+        window.statusBarColor = 0xff9fd8f7.toInt()
+        window.navigationBarColor = 0xffbfe6a8.toInt()
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
             (if (Build.VERSION.SDK_INT >= 26) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0)
-        setContentView(ScrollView(this).apply { setBackgroundColor(StudioDepot.PAPER); isVerticalScrollBarEnabled = false; addView(body) })
+        setContentView(FrameLayout(this).apply {
+            addView(KScene.Sky(context), FrameLayout.LayoutParams(-1, -1))
+            addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(body) }, FrameLayout.LayoutParams(-1, -1))
+        })
         requestedAction = if (state == null) intent.getStringExtra("studioAction") else null
         if (owner.isBlank() || owner != user()) {
             setResult(RESULT_CANCELED, Intent().putExtra("studioError","Masuk kembali ke akun 168Railway untuk membuka koleksi dunia."))
@@ -68,14 +71,8 @@ class StudioLibraryActivity : Activity() {
         click: () -> Unit
     ): Button {
         val button = StudioUi.button(this,label,tone,icon) { if (!locked) click() }
-        if (tone == StudioUi.Tone.PRIMARY) {
-            button.background = StudioDepot.touch(this,StudioDepot.CORAL,16)
-            button.setTextColor(StudioDepot.TEAL)
-            button.setPadding(dp(16),dp(8),dp(16),dp(8))
-            button.minHeight = dp(52)
-        }
-        button.gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
-        body.addView(button,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(8) })
+        button.minHeight = dp(54)
+        body.addView(button,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
         return button
     }
     private fun <T> runJob(message: String, task: () -> T, allowNavigation: Boolean = false, done: (T) -> Unit) {
@@ -100,16 +97,19 @@ class StudioLibraryActivity : Activity() {
             body.addView(view,LinearLayout.LayoutParams(-1,if (height < 0) height else dp(height)).apply { topMargin = dp(gap) })
         val toolbar = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(StudioDepot.tools(context,StudioUi.Icon.BACK,"Kembali") { if (!locked) finish() },
-                LinearLayout.LayoutParams(dp(48),dp(48)))
-            addView(StudioUi.text(context,"168Railway Studio",18f,true,StudioDepot.TEAL),
-                LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
-            addView(StudioDepot.tools(context,StudioUi.Icon.CLOUD,"Muat ulang daftar akun") { if (!locked) refresh() },
-                LinearLayout.LayoutParams(dp(48),dp(48)))
+            val heading = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(StudioUi.text(context,"168Railway Studio",13f,true,StudioUi.MUTED))
+                addView(StudioUi.title(context,"Duniaku",32f).apply { includeFontPadding = false })
+            }
+            addView(KScene.glassIcon(context,StudioUi.Icon.BACK,"Kembali") { if (!locked) finish() },
+                LinearLayout.LayoutParams(dp(50),dp(50)))
+            addView(heading, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
+            addView(KScene.glassIcon(context,StudioUi.Icon.CLOUD,"Muat ulang daftar akun") { if (!locked) refresh() },
+                LinearLayout.LayoutParams(dp(50),dp(50)))
         }
         append(toolbar)
-        append(StudioDepot.scene(this,"Duniaku","Pustaka jaringan"),12,146)
-        status = StudioUi.text(this,"",14f,color = StudioDepot.SECONDARY).apply {
+        status = StudioUi.text(this,"",14f,true,StudioUi.MUTED).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         val mine = WorldDocuments.list(this).mapNotNull { slot ->
@@ -117,11 +117,6 @@ class StudioLibraryActivity : Activity() {
             if (link?.optString("owner") == owner) slot to link else null
         }
         val active = mine.firstOrNull { it.first.id == source }
-        if (active != null) {
-            append(StudioDepot.shelf(this,active.first.title),16)
-            action("Simpan perubahan ke Studio",StudioUi.Icon.SAVE,StudioUi.Tone.PRIMARY) { upload(active.first, false) }
-            action("Simpan sebagai dunia baru",StudioUi.Icon.FOLDER) { upload(active.first, true) }
-        }
         fun createWorld() {
             StudioCityStart.begin(this) { slot ->
                 remember(slot.id,JSONObject().put("id",UUID.randomUUID().toString()).put("version",0).put("name",slot.title))
@@ -129,33 +124,78 @@ class StudioLibraryActivity : Activity() {
                 open(slot)
             }
         }
-        action("Bangun dunia baru",StudioUi.Icon.PLUS,StudioUi.Tone.PRIMARY) { createWorld() }
-        if (mine.isNotEmpty()) {
-            append(StudioDepot.shelf(this,"Di perangkat · ${mine.size}"),20)
-            val pending = StudioPendingSaves.pendingIds(this)
-            val shown = if (allLocal) mine else mine.take(2)
-            for ((slot,link) in shown) {
-                val revision = link.getInt("version")
-                val local = when {
-                    StudioPendingSaves.conflicted(this,slot.id) -> "Ada perubahan di HP dan web"
-                    StudioPendingSaves.failure(this,slot.id) != null -> "Belum tersinkron"
-                    slot.id in pending -> "Menunggu sinkronisasi"
-                    revision == 0 -> "Belum diunggah"
-                    else -> "Tersinkron · versi $revision"
-                }
-                val cityName = cities.firstOrNull { it.id == slot.city }?.name
-                val details = listOfNotNull(cityName,local).joinToString(" · ")
-                append(StudioDepot.ticket(this,slot.title,details,StudioUi.Icon.TRAIN) { if (!locked) confirmPlay(slot.title,slot.city,details) { open(slot) } },7)
+        val pending = StudioPendingSaves.pendingIds(this)
+        fun syncLabel(slot: WorldDocuments.Slot, link: JSONObject): String {
+            val revision = link.getInt("version")
+            return when {
+                StudioPendingSaves.conflicted(this,slot.id) -> "Ada perubahan di HP dan web"
+                StudioPendingSaves.failure(this,slot.id) != null -> "Belum tersinkron"
+                slot.id in pending -> "Menunggu sinkronisasi"
+                revision == 0 -> "Belum diunggah"
+                else -> "Tersinkron · versi $revision"
             }
-            if (mine.size > 2) action(if (allLocal) "Tampilkan lebih sedikit" else "Lihat semua dunia di perangkat") {
-                allLocal = !allLocal
-                refresh()
-            }
-        } else {
-            append(StudioDepot.shelf(this,"Di perangkat"),20)
-            append(StudioUi.text(this,"Belum ada dunia tersimpan di HP ini. Mulai dunia baru atau pilih simpanan akun di bawah.",15f,color=StudioDepot.SECONDARY),4)
         }
-        append(StudioDepot.shelf(this,"Dunia di akun"),20)
+        fun details(slot: WorldDocuments.Slot, link: JSONObject) =
+            listOfNotNull(cities.firstOrNull { it.id == slot.city }?.name, syncLabel(slot,link)).joinToString(" · ")
+        // Hero: the world just played (or the newest), a floating island over a glass card.
+        val hero = active ?: mine.firstOrNull()
+        if (hero != null) {
+            val (slot, link) = hero
+            val island = KScene.Island(this)
+            append(island,4,190)
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = StudioUi.glass(context, 30)
+                elevation = dp(3).toFloat()
+                setPadding(dp(18),dp(16),dp(18),dp(18))
+            }
+            card.addView(StudioUi.title(this,slot.title,27f).apply { maxLines = 2 })
+            val chips = LinearLayout(this).apply { setPadding(0,dp(8),0,dp(12)) }
+            cities.firstOrNull { it.id == slot.city }?.name?.let {
+                chips.addView(StudioUi.chip(this,it,StudioUi.TINT_ORANGE,0xff9a3a0b.toInt()),LinearLayout.LayoutParams(-2,-2).apply { marginEnd = dp(6) })
+            }
+            val sync = syncLabel(slot,link)
+            chips.addView(StudioUi.chip(this,sync,if (sync.startsWith("Tersinkron")) StudioUi.TINT_GREEN else StudioUi.TINT_PURPLE,
+                if (sync.startsWith("Tersinkron")) StudioUi.GOOD else 0xff3f2aa8.toInt()))
+            card.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) })
+            card.addView(StudioUi.button(this,"Main lagi",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
+                if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
+            }.apply { minHeight = dp(56); textSize = 17f })
+            if (active != null) {
+                card.addView(StudioUi.button(this,"Simpan perubahan ke Studio",StudioUi.Tone.BLUE,StudioUi.Icon.SAVE) { if (!locked) upload(active.first, false) },
+                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
+                card.addView(StudioUi.button(this,"Simpan sebagai dunia baru",icon = StudioUi.Icon.FOLDER) { if (!locked) upload(active.first, true) },
+                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(8) })
+            }
+            append(card,0)
+        } else {
+            append(KScene.Island(this),8,200)
+            append(StudioUi.text(this,"Belum ada dunia tersimpan di HP ini. Bangun pulau pertamamu atau pilih simpanan akun di bawah.",15f,true,StudioUi.MUTED).apply {
+                gravity = Gravity.CENTER
+            },4)
+        }
+        // Grid of the other islands on this phone, then the dashed "Pulau baru" card.
+        val others = mine.filter { it.first.id != hero?.first?.id }
+        val shown = if (allLocal) others else others.take(3)
+        val tiles = shown.map { (slot, link) ->
+            KScene.worldCard(this,slot.title,details(slot,link),0xffb5e08f.toInt()) {
+                if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
+            } as View
+        } + KScene.newIsland(this,"Pulau baru") { if (!locked) createWorld() }
+        if (others.isNotEmpty()) append(StudioUi.section(this,"Di perangkat · ${mine.size}"),12)
+        for (pair in tiles.chunked(2)) {
+            val line = LinearLayout(this)
+            pair.forEachIndexed { i, tile ->
+                line.addView(tile, LinearLayout.LayoutParams(0,-1,1f).apply { if (i == 1) marginStart = dp(12) })
+            }
+            if (pair.size == 1) line.addView(View(this), LinearLayout.LayoutParams(0,1,1f).apply { marginStart = dp(12) })
+            append(line,12)
+        }
+        if (others.size > 3) action(if (allLocal) "Tampilkan lebih sedikit" else "Lihat semua dunia di perangkat") {
+            allLocal = !allLocal
+            refresh()
+        }
+        append(StudioUi.section(this,"Dunia di akun"),20)
         append(status,3)
         if (requestedAction == "save" && active != null) {
             requestedAction = null
@@ -166,8 +206,8 @@ class StudioLibraryActivity : Activity() {
             status.text = if (rows.length() == 0) "Belum ada dunia di akun Studio." else ""
             for (i in 0 until rows.length()) {
                 val row = rows.getJSONObject(i)
-                val card = StudioDepot.ticket(this,row.getString("name"),"Simpanan akun · ${saveDetails(row)}",StudioUi.Icon.CLOUD,0xffdceaf1.toInt()) {
-                    if (locked) return@ticket
+                val card = StudioUi.row(this,StudioUi.Icon.CLOUD,StudioUi.TINT_BLUE,row.getString("name"),"Simpanan akun · ${saveDetails(row)}") {
+                    if (locked) return@row
                     val local = mine.firstOrNull { (_, link) ->
                         link.getString("id") == row.getString("id") && link.getInt("version") == row.getInt("version")
                     }
@@ -184,15 +224,15 @@ class StudioLibraryActivity : Activity() {
             val map = city?.let { StudioMapPreview.image(this,StudioMapPreview.cityPath(it.id),"Peta wilayah "+it.name) }
             if (map != null) {
                 content.addView(map,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
-                content.addView(StudioUi.text(this,title,22f,true,StudioDepot.TEAL))
+                content.addView(StudioUi.title(this,title,26f),LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
             } else {
-                content.addView(StudioDepot.scene(this,title,"Dunia Studio",true),
-                    LinearLayout.LayoutParams(-1,dp(130)).apply { topMargin=dp(8) })
+                content.addView(KScene.Island(this),LinearLayout.LayoutParams(-1,dp(150)).apply { topMargin=dp(4) })
+                content.addView(StudioUi.title(this,title,26f))
             }
-            content.addView(StudioUi.text(this,detail,15f,color=StudioDepot.SECONDARY))
+            content.addView(StudioUi.text(this,detail,15f,true,StudioUi.MUTED))
             content.addView(StudioUi.button(this,"Kembali") { dialog.dismiss() },
-                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
-            go = StudioUi.button(this,"Mainkan",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
+                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) })
+            go = StudioUi.button(this,"Main lagi",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
                 dialog.dismiss()
                 if (!locked && user() == owner) play()
             }

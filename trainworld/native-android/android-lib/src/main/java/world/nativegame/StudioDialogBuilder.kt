@@ -107,7 +107,10 @@ internal class StudioDialogBuilder(private val host: Activity) {
                 addView(button,LinearLayout.LayoutParams(-1,-2))
             }
         }
-        StudioUi.layoutSheet(host,dialog,title,ScrollView(host).apply { addView(body) },footer)
+        // Short confirmations (message + buttons only) float as a centred glass card.
+        val confirm = choices.isEmpty() && content == null && (message?.length ?: 0) < 400
+        if (confirm) detail.gravity = Gravity.CENTER_HORIZONTAL
+        StudioUi.layoutSheet(host,dialog,title,ScrollView(host).apply { addView(body) },footer,centered = confirm)
         dialog.setOnCancelListener(cancel)
         return dialog
     }

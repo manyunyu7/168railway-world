@@ -93,6 +93,13 @@ class NativeWorldActivity : Activity() {
     private lateinit var controlHint: LinearLayout
     private lateinit var cancel: Button
     private lateinit var sunArc: SunArcView
+    private lateinit var missionCard: LinearLayout
+    private lateinit var missionText: TextView
+    private lateinit var missionBar: StudioProgress.Bar
+    private var lastCash = Double.NaN
+    private var reportDay = -1
+    private var dayStartCash = Double.NaN
+    private var progressTick = 0L
     private lateinit var localTime: TextView
     private lateinit var balance: TextView
     private lateinit var balanceUnit: TextView
@@ -213,7 +220,24 @@ class NativeWorldActivity : Activity() {
 
         val mapTools = LinearLayout(this).apply { gravity = Gravity.TOP }
         hud.addView(mapTools, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
-        mapTools.addView(View(this), LinearLayout.LayoutParams(0,1,1f))
+        // Mission card: the closest unfinished badge, tap for Pencapaian.
+        val missionSlot = android.widget.FrameLayout(this)
+        missionCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = StudioUi.pill(context, StudioUi.GLASS_DARK, 22)
+            elevation = dp(3).toFloat()
+            setPadding(dp(14), dp(10), dp(14), dp(12))
+            isClickable = true
+            visibility = View.GONE
+            setOnClickListener { openProgress() }
+        }
+        missionCard.addView(StudioUi.text(this, "MISI", 11f, true, 0xffd9d0ff.toInt()).apply { letterSpacing = .08f })
+        missionText = StudioUi.text(this, "", 14f, color = StudioUi.WHITE).apply { typeface = StudioUi.heavy(context); maxLines = 2 }
+        missionCard.addView(missionText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        missionBar = StudioProgress.Bar(this, 0xffffd23f.toInt(), 0x40ffffff)
+        missionCard.addView(missionBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(8) })
+        missionSlot.addView(missionCard, android.widget.FrameLayout.LayoutParams(dp(if (compact) 210 else 236), -2))
+        mapTools.addView(missionSlot, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
         val rightTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rightTools.addView(save, LinearLayout.LayoutParams(dp(46), dp(46)).apply { bottomMargin = dp(8) })
         zoomTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -474,8 +498,55 @@ class NativeWorldActivity : Activity() {
         }
     }
 
+    private fun progressSnapshot(clockNow: Double) = StudioProgress.Snapshot(
+        map.routeCount, map.stationCount, map.trainCount, (clockNow / 86400).toInt() + 1,
+        if (lastCash.isFinite()) lastCash else map.balance)
+
+    private fun openProgress() {
+        if (handle == 0L) return
+        StudioProgress.show(this, currency, progressSnapshot(referenceTime ?: clock))
+    }
+
+    /** Mission card, new-badge toast and the end-of-day report. Cheap: runs at most twice a second. */
+    private fun updateProgress(clockNow: Double) {
+        if (handle == 0L || !::missionCard.isInitialized) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - progressTick < 500) return
+        progressTick = now
+        val snap = progressSnapshot(clockNow)
+        val list = StudioProgress.badges(currency)
+        val next = StudioProgress.nextMission(list, snap)
+        missionCard.visibility = if (next != null && !drawing && !removingTrack && !selectingInfrastructure) View.VISIBLE else View.GONE
+        if (next != null) {
+            missionText.text = next.goal
+            missionBar.fraction = StudioProgress.progress(next, snap).toFloat()
+        }
+        val world = local.baseFile.name
+        val seen = StudioProgress.seen(this, world)
+        val got = StudioProgress.unlocked(list, snap).map { it.id }.toSet()
+        if (seen.isEmpty() && got.isNotEmpty()) StudioProgress.remember(this, world, got)
+        else (got - seen).firstOrNull()?.let { id ->
+            StudioProgress.remember(this, world, seen + got)
+            val badge = list.first { it.id == id }
+            Toast.makeText(this, "Lencana baru: ${badge.title}!", Toast.LENGTH_LONG).show()
+        }
+        val day = snap.day
+        val cash = snap.cashMillions
+        if (reportDay < 0) { reportDay = day; dayStartCash = cash }
+        else if (day > reportDay) {
+            val finished = reportDay
+            val start = dayStartCash
+            reportDay = day
+            dayStartCash = cash
+            updateSummary()
+            if (referenceState == ReferenceState.PLAYING && foreground && !drawing && cash.isFinite() && start.isFinite())
+                StudioProgress.report(this, currency, finished, snap.trains, start, cash, null, next?.goal)
+        }
+    }
+
     private fun showBalance(cash: Double) {
         if (!cash.isFinite()) return
+        lastCash = cash
         balanceUnit.text = "KAS · ${currency.code}"
         balance.text = currency.compact(cash)
         balance.contentDescription = "Kas, ${currency.millions(cash)}"
@@ -507,6 +578,7 @@ class NativeWorldActivity : Activity() {
             if (map.stops.any { it.id >= 0 }) options.add("Pilih stasiun" to { chooseStation() })
             options.add("Peta penumpang & lalu lintas" to { passengerLayers() })
             if (workshop) options.add("Bongkar layanan atau stasiun" to { demolition() })
+            options.add("Pencapaian & misi" to { openProgress() })
             options.add("Tutorial bermain" to { chooseTutorial() })
             options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), city.name, ::openStation, map.cityLayer) { id ->
                 val record = trackPanelChanges("Jadwal layanan")
@@ -578,7 +650,7 @@ class NativeWorldActivity : Activity() {
             label.startsWith("Arsip") -> StudioUi.Icon.CLOUD to 0xffe3edf9.toInt()
             else -> StudioUi.Icon.FOLDER to 0xfffff3c4.toInt()
         }
-        val stations = map.stops.filter { it.id >= 0 }.distinctBy { it.id }.sortedBy { it.name }
+        val stations = map.stops.filter { it.id >= 0 }.distinctBy { it.name }.sortedBy { it.name }
         StudioUi.sheet(this, "Cari & menu") { column, dialog ->
             val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             fun row(label: String, sub: String?, icon: StudioUi.Icon, tint: Int, click: () -> Unit) {
@@ -757,23 +829,44 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun passengerLayers() {
-        StudioUi.sheet(this,"Peta penumpang & lalu lintas") { column,dialog ->
-            fun group(index: Int, name: String, options: List<Pair<String,String>>) {
-                column.addView(StudioUi.text(this,name,17f,true).apply { setPadding(0,dp(10),0,dp(4)) })
+        StudioUi.sheet(this,"Lapisan peta") { column,dialog ->
+            column.addView(StudioUi.text(this,"Pilih yang ingin dilihat di peta",14f,true,StudioUi.MUTED))
+            fun group(index: Int, name: String, tint: Int, icon: StudioUi.Icon, options: List<Pair<String,String>>) {
+                column.addView(StudioUi.section(this,name))
+                // Segmented chips: one choice per group, applied at once.
+                val chips = WrapRow(this)
                 options.forEach { (label,layer) ->
                     val selected = map.overlay.selection[index] == layer
-                    column.addView(StudioUi.button(this, if (selected) "✓  $label" else label,
-                        if (selected) StudioUi.Tone.PRIMARY else StudioUi.Tone.SURFACE) {
-                        dialog.dismiss()
-                        map.overlay.choose(index,layer)
-                        map.announceForAccessibility("$name · $label")
+                    chips.addView(StudioUi.text(this,label,14f,true,if (selected) StudioUi.WHITE else StudioUi.INK).apply {
+                        background = StudioDepot.touch(context, if (selected) StudioUi.INK else 0xd9ffffff.toInt(), 20)
+                        setPadding(dp(14),dp(9),dp(14),dp(10))
+                        isClickable = true
+                        contentDescription = "$name · $label"
+                        setOnClickListener {
+                            dialog.dismiss()
+                            map.overlay.choose(index,layer)
+                            map.announceForAccessibility("$name · $label")
+                        }
                     })
                 }
+                column.addView(chips)
             }
-            group(0,"Lingkaran perjalanan",listOf("Sembunyikan lingkaran perjalanan" to "none","Tujuan perjalanan" to "work","Asal perjalanan" to "home","Asal dan tujuan" to "both"))
-            group(1,"Penumpang stasiun",listOf("Sembunyikan penumpang stasiun" to "none","Memulai perjalanan" to "origins","Berganti layanan" to "transfers","Total penumpang" to "total"))
-            group(2,"Warna jalur",listOf("Warna layanan" to "line","Lalu lintas" to "traffic","Kecepatan" to "speed","Ketinggian" to "height","Laba" to "profit"))
-            column.addView(StudioUi.button(this,"Ringkasan penumpang") { dialog.dismiss(); showDemand() })
+            group(0,"Lingkaran perjalanan",StudioUi.TINT_PURPLE,StudioUi.Icon.ROUTE,listOf("Sembunyikan" to "none","Tujuan" to "work","Asal" to "home","Asal & tujuan" to "both"))
+            group(1,"Penumpang stasiun",StudioUi.TINT_RED,StudioUi.Icon.PIN,listOf("Sembunyikan" to "none","Mulai perjalanan" to "origins","Berganti layanan" to "transfers","Total" to "total"))
+            group(2,"Warna jalur",StudioUi.TINT_BLUE,StudioUi.Icon.TRAIN,listOf("Warna layanan" to "line","Lalu lintas" to "traffic","Kecepatan" to "speed","Ketinggian" to "height","Laba" to "profit"))
+            if (map.overlay.selection[1] != "none" || map.overlay.selection[2] == "traffic") column.addView(LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(4),dp(12),dp(4),0)
+                addView(StudioUi.text(context,"Sepi",12f,true,StudioUi.MUTED))
+                addView(View(context).apply {
+                    background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                        intArrayOf(0xffffd23f.toInt(),0xffff7a2f.toInt(),0xffe5484d.toInt())).apply { cornerRadius = dp(5).toFloat() }
+                }, LinearLayout.LayoutParams(0,dp(10),1f).apply { marginStart = dp(8); marginEnd = dp(8) })
+                addView(StudioUi.text(context,"Padat",12f,true,StudioUi.MUTED))
+            })
+            column.addView(StudioUi.row(this,StudioUi.Icon.CENTER,StudioUi.TINT_YELLOW,"Ringkasan penumpang","Asal dan tujuan perjalanan di kota",
+                StudioDepot.symbol(this,StudioUi.Icon.ROUTE,16f,StudioUi.MUTED)) { dialog.dismiss(); showDemand() },
+                LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(14) })
         }
     }
 
@@ -845,6 +938,15 @@ class NativeWorldActivity : Activity() {
             else -> render(play,"×8","Putar ×8",StudioUi.Icon.PLAY)
         }
         map.isDrafting = drawing
+        // Demolition mode reads as a red banner; everything else is the frosted status pill.
+        val danger = removingTrack
+        if (controlHint.tag != danger) {
+            controlHint.tag = danger
+            controlHint.background = if (danger) StudioUi.pill(this, 0xf2e5484d.toInt(), 22) else StudioUi.glass(this, 22)
+            dockTitle.setTextColor(if (danger) StudioUi.WHITE else StudioUi.INK)
+            status.setTextColor(if (danger) StudioUi.WHITE else StudioUi.MUTED)
+        }
+        if (danger) { dockTitle.text = "Mode bongkar"; dockTitle.visibility = View.VISIBLE }
     }
 
     private fun chooseTutorial() {
@@ -892,7 +994,12 @@ class NativeWorldActivity : Activity() {
                     choices.addView(StudioUi.button(this,"Layanan dan stasiun") { menu.dismiss(); demolition() })
                 }
             })
-            dialog = BuildWheel.show(this, "Mau bangun apa?", tiles)
+            val hint = when {
+                map.routeCount == 0 && map.stationCount == 0 -> "Mulai dari Rel, lalu taruh Stasiun, lalu buat Layanan."
+                map.stationCount > 0 && map.routeCount == 0 -> "Stasiun sudah ada. Buat Layanan supaya kereta jalan."
+                else -> "Saran: tambah Layanan di lintas yang padat, atau perpanjang Rel ke kawasan baru."
+            }
+            dialog = BuildWheel.show(this, "Mau bangun apa?", tiles, hint)
         }
     }
 
@@ -929,6 +1036,11 @@ class NativeWorldActivity : Activity() {
             BuildTool.LINE -> if(n==0) "Ketuk stasiun pertama yang akan dilayani." else "$n stasiun · Ketuk stasiun berikutnya sesuai urutan perjalanan."
             BuildTool.BUS -> if(n==0) "Ketuk lokasi awal bus di dekat jalan." else "$n titik · Ketuk tujuan berikutnya. Rute akan mengikuti jalan."
             BuildTool.FERRY -> if(n==0) "Ketuk pesisir untuk memilih dermaga awal." else "$n dermaga · Ketuk dermaga berikutnya. Tahan untuk menandai lintasan air."
+        }
+        // Live estimate while drawing: straight-line length of the marked points (cost follows in the review).
+        if(n>=2 && plan.tool in setOf(BuildTool.RAIL,BuildTool.BUS,BuildTool.FERRY)) {
+            val metres=(1 until n).sumOf { i -> Math.hypot((map.draft[i].x-map.draft[i-1].x).toDouble(),(map.draft[i].y-map.draft[i-1].y).toDouble()) }
+            dockTitle.text="${plan.specification} · ≈ ${java.lang.String.format(java.util.Locale.forLanguageTag("id-ID"),"%.1f",metres/1000)} km"
         }
         status.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
         map.contentDescription="Peta konstruksi ${plan.tool.label}. ${status.text}"
@@ -1075,6 +1187,9 @@ class NativeWorldActivity : Activity() {
                             body.addView(StudioDecision.draft(this,markers,bends,spec.tool.label,spec.specification,vertices),0)
                         }
                         cost.text="Biaya pembangunan · ${currency.compact(charge)}"
+                        cost.typeface=StudioUi.heavy(this)
+                        cost.background=StudioUi.pill(this,StudioUi.TINT_YELLOW,18)
+                        cost.setPadding(dp(14),dp(10),dp(14),dp(12))
                         primary.isEnabled=true
                     }
                 }
@@ -1111,6 +1226,7 @@ class NativeWorldActivity : Activity() {
     private fun refresh() {
         val displayClock = referenceTime ?: clock
         if (::sunArc.isInitialized) sunArc.second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
+        updateProgress(displayClock)
         val trainCount = map.updateTrains(displayClock, referenceState == ReferenceState.PLAYING)
         val second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         if(second!=lastStatus) {
@@ -1385,7 +1501,8 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun updateSummary() {
-        info.text = "${city.name} · ${map.routeCount} jalur · ${map.stationCount} stasiun"
+        val day = ((referenceTime ?: clock) / 86400).toInt() + 1
+        info.text = "Hari $day · ${map.routeCount} jalur · ${map.stationCount} stasiun"
         showBalance(map.balance)
     }
 

@@ -163,18 +163,21 @@ internal object StudioUi {
 
     /** A shared surface for pickers, confirmations and the larger gameplay tools. */
     fun layoutSheet(activity: Activity, dialog: Dialog, title: CharSequence?, body: View,
-                    footer: View?, heightFraction: Float = .9f) {
+                    footer: View?, heightFraction: Float = .9f, centered: Boolean = false) {
         val root = object : LinearLayout(activity) {
             override fun onMeasure(widthSpec: Int, heightSpec: Int) {
                 val available = MeasureSpec.getSize(heightSpec)
-                val limit = (activity.window.decorView.height * heightFraction).toInt()
+                val screen = activity.window.decorView.height
+                // Bottom sheets stop below the HUD pill so the clock and cash stay visible.
+                val limit = if (centered) (screen * heightFraction).toInt()
+                    else minOf((screen * heightFraction).toInt(), screen - dp(activity, 150))
                 val height = if (limit > 0) min(available, limit) else available
                 super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST))
             }
         }.apply {
             orientation = LinearLayout.VERTICAL
             isFocusableInTouchMode = true
-            background = glass(activity, 32, if (android.os.Build.VERSION.SDK_INT >= 31) GLASS else GLASS_STRONG)
+            background = glass(activity, 32, 0xf7ffffff.toInt())
             clipToOutline = true
             setPadding(dp(context,18),dp(context,10),dp(context,18),dp(context,14))
         }
@@ -185,9 +188,22 @@ internal object StudioUi {
             gravity = Gravity.CENTER_HORIZONTAL
             bottomMargin = dp(activity,10)
         })
-        if (!title.isNullOrEmpty()) root.addView(StudioUi.title(activity,title.toString(),24f).apply {
-            if (android.os.Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
-        }, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(activity,8) })
+        if (!title.isNullOrEmpty()) {
+            val heading = StudioUi.title(activity,title.toString(),if (centered) 22f else 24f).apply {
+                if (centered) gravity = Gravity.CENTER_HORIZONTAL
+                if (android.os.Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
+            }
+            if (centered) root.addView(heading, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(activity,8) })
+            else root.addView(LinearLayout(activity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(heading, LinearLayout.LayoutParams(0,-2,1f))
+                addView(iconButton(activity, "Tutup", Icon.CLOSE) { dialog.cancel() }.apply {
+                    background = pill(activity, 0xffefedf5.toInt(), 20)
+                    setPadding(0,0,0,0)
+                    textSize = 18f
+                }, LinearLayout.LayoutParams(dp(activity,40),dp(activity,40)).apply { marginStart = dp(activity,8) })
+            }, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(activity,8) })
+        }
         root.addView(body,LinearLayout.LayoutParams(-1,-2,1f))
         footer?.let { root.addView(it,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(activity,8) }) }
         dialog.setContentView(root)
@@ -205,9 +221,12 @@ internal object StudioUi {
         fun resize() {
             val available = host.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
             val wide = available >= dp(activity,600)
-            window.setGravity(if (wide) Gravity.CENTER else Gravity.BOTTOM)
-            window.setLayout(if (wide) min(available-dp(activity,48),dp(activity,660)) else available-dp(activity,16),-2)
-            window.attributes = window.attributes.apply { y = if (wide) 0 else dp(activity,8) }
+            window.setGravity(if (wide || centered) Gravity.CENTER else Gravity.BOTTOM)
+            window.setLayout(when {
+                centered -> min(available-dp(activity,44),dp(activity,420))
+                wide -> min(available-dp(activity,48),dp(activity,660))
+                else -> available-dp(activity,16) },-2)
+            window.attributes = window.attributes.apply { y = if (wide || centered) 0 else dp(activity,8) }
         }
         val listener = View.OnLayoutChangeListener { _,l,_,r,_,ol,_,or,_ ->
             if (r-l != or-ol) resize()
@@ -287,5 +306,35 @@ internal object StudioUi {
         setPadding(dp(context, 12), dp(context, 9), dp(context, 12), dp(context, 10))
         addView(text(context, caption, 12f, true, MUTED))
         addView(text(context, value, 17f, color = ink).apply { typeface = heavy(context) })
+    }
+
+    /** Big K toggle: green pill track, white knob. */
+    fun styleSwitch(sw: android.widget.CompoundButton) {
+        val c = sw.context
+        if (sw is android.widget.Switch) {
+            sw.thumbTintList = null; sw.trackTintList = null
+            sw.thumbDrawable = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL; setColor(WHITE); setSize(dp(c, 28), dp(c, 28)); setStroke(dp(c, 3), 0x00000000)
+            }
+            sw.trackDrawable = StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_checked), GradientDrawable().apply { setColor(LEAF); cornerRadius = dp(c, 17).toFloat(); setSize(dp(c, 54), dp(c, 34)); setStroke(dp(c, 3), LEAF) })
+                addState(intArrayOf(), GradientDrawable().apply { setColor(0x3022204a); cornerRadius = dp(c, 17).toFloat(); setSize(dp(c, 54), dp(c, 34)); setStroke(dp(c, 3), 0x00000000) })
+            }
+            sw.switchPadding = dp(c, 12)
+        }
+    }
+    /** Thick slider with a white knob ringed in ink. */
+    fun styleSeek(seek: android.widget.SeekBar, color: Int = INK) {
+        val c = seek.context
+        seek.progressTintList = null; seek.progressBackgroundTintList = null; seek.thumbTintList = null
+        val track = GradientDrawable().apply { setColor(0x2622204a); cornerRadius = dp(c, 5).toFloat() }
+        val fill = android.graphics.drawable.ClipDrawable(GradientDrawable().apply { setColor(color); cornerRadius = dp(c, 5).toFloat() }, Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL)
+        seek.progressDrawable = LayerDrawable(arrayOf(track, fill)).apply {
+            setId(0, android.R.id.background); setId(1, android.R.id.progress)
+        }
+        seek.minimumHeight = dp(c, 10); if (android.os.Build.VERSION.SDK_INT >= 29) { seek.minHeight = dp(c, 10); seek.maxHeight = dp(c, 10) }
+        seek.thumb = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(WHITE); setStroke(dp(c, 4), color); setSize(dp(c, 30), dp(c, 30)) }
+        seek.splitTrack = false
+        seek.setPadding(dp(c, 16), dp(c, 10), dp(c, 16), dp(c, 10))
     }
 }

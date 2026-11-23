@@ -40,7 +40,7 @@ internal class ScheduleEditor(
     private fun dp(v: Int) = StudioUi.dp(host, v)
     private fun gap(v: Int) = LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(v) }
     private fun group() = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
-    private fun section(label: String) = StudioUi.text(host,label,17f,true)
+    private fun section(label: String) = StudioUi.section(host,label)
     private fun watch(input: EditText, callback: () -> Unit) {
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -56,7 +56,7 @@ internal class ScheduleEditor(
         textSize = 16f
         setTextColor(StudioUi.INK)
         setSelectAllOnFocus(numeric)
-        background = StudioUi.panel(host, StudioUi.WHITE, 12)
+        background = StudioUi.pill(host, StudioUi.WHITE, 16)
         minHeight = dp(48)
         gravity = if (numeric) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
         setPadding(dp(8), 0, dp(8), 0)
@@ -67,24 +67,28 @@ internal class ScheduleEditor(
     fun show() {
         lateinit var footer: LinearLayout
         StudioUi.sheet(host, "Atur jadwal", .94f, pinnedAction = { footer }) { body, dialog ->
-            val card = group().apply {
-                background = StudioUi.panel(host, 0xff142c40.toInt(), 19, 0xff142c40.toInt())
-                setPadding(dp(15), dp(12), dp(15), dp(12))
-            }
             val titleRow = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-            titleRow.addView(View(host).apply { background = StudioUi.panel(host, colour, 5, Color.WHITE) },
-                LinearLayout.LayoutParams(dp(9), dp(24)).apply { marginEnd = dp(9) })
-            val routeTitle = StudioUi.text(host, service.getString("name"), 20f, true, Color.WHITE)
-            titleRow.addView(routeTitle)
-            card.addView(titleRow)
+            titleRow.addView(StudioUi.badge(host, ServicePanel.code(service.getString("name")), colour, 46), LinearLayout.LayoutParams(dp(46), dp(46)))
+            val heading = group()
+            val routeTitle = StudioUi.text(host, service.getString("name"), 17f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) }
+            heading.addView(routeTitle)
             val summary = listOf(service.getString("vehicle"), route.endpoints).filter { it.isNotBlank() }.joinToString("  ·  ")
-            card.addView(StudioUi.text(host, summary, 13f, color = 0xffd2e4f0.toInt()))
-            card.addView(StudioUi.text(host, "Pratinjau frekuensi · satu jam", 13f, true, Color.WHITE), gap(10))
+            heading.addView(StudioUi.text(host, summary, 13f, true, StudioUi.MUTED))
+            titleRow.addView(heading, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+            body.addView(titleRow, gap(4))
+            val card = group().apply {
+                background = StudioUi.card(host, 22)
+                setPadding(dp(14), dp(10), dp(14), dp(12))
+            }
+            card.addView(StudioUi.text(host, "Pratinjau frekuensi · satu jam", 13f, true, StudioUi.MUTED))
             card.addView(preview, LinearLayout.LayoutParams(-1, dp(92)))
-            body.addView(card, gap(8))
+            body.addView(card, gap(12))
 
             body.addView(section("Jadwal hari kerja"), gap(16))
-            val selector = LinearLayout(host)
+            val selector = LinearLayout(host).apply {
+                background = StudioUi.pill(host, 0x1422204a, 18)
+                setPadding(dp(4), dp(4), dp(4), dp(4))
+            }
             listOf("Jumlah ${route.vehicleUnit}", "Selang waktu").forEachIndexed { index, label ->
                 val btn = StudioUi.button(host, label) {
                     val nextMode = index == 1
@@ -95,24 +99,30 @@ internal class ScheduleEditor(
                         refresh()
                     }
                 }
-                selector.addView(btn, LinearLayout.LayoutParams(0, -2, 1f).apply { if (index == 1) marginStart = dp(5) })
+                btn.minHeight = dp(40); btn.minimumHeight = dp(40)
+                btn.setPadding(dp(8), 0, dp(8), 0)
+                selector.addView(btn, LinearLayout.LayoutParams(0, dp(40), 1f).apply { if (index == 1) marginStart = dp(4) })
                 modeButtons.add(btn)
             }
             body.addView(selector, gap(6))
             periods.forEachIndexed { i, period ->
                 val row = LinearLayout(host).apply {
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(9), dp(4), dp(4), dp(4))
-                    background = StudioUi.panel(host, StudioUi.BACKGROUND, 13)
+                    setPadding(dp(14), dp(8), dp(8), dp(8))
+                    background = StudioUi.card(host, 22)
                 }
                 val text = group()
-                text.addView(StudioUi.text(host, period, 16f, true))
-                val hint = StudioUi.text(host, "", 12f, color = StudioUi.MUTED)
+                text.addView(StudioUi.text(host, period, 16f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
+                val hint = StudioUi.text(host, "", 12f, true, StudioUi.MUTED)
                 text.addView(hint)
                 hints.add(hint)
                 row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
                 val initial = (if (byInterval) headwayDraft else countDraft)[i]
-                val edit = input(period, initial, true)
+                val edit = input(period, initial, true).apply {
+                    background = null
+                    typeface = StudioUi.heavy(host)
+                    textSize = 17f
+                }
                 fields.add(edit)
                 fun move(direction: Int) {
                     val current = edit.text.toString().toIntOrNull() ?: 0
@@ -124,11 +134,20 @@ internal class ScheduleEditor(
                 }
                 fun adjust(direction: Int) = StudioUi.iconButton(host,
                     "${if (direction < 0) "Kurangi" else "Tambah"} periode ${period.lowercase()}",
-                    if (direction < 0) StudioUi.Icon.MINUS else StudioUi.Icon.PLUS) { move(direction) }
-                row.addView(adjust(-1), LinearLayout.LayoutParams(dp(48), dp(48)))
-                row.addView(edit, LinearLayout.LayoutParams(dp(54), -2).apply { setMargins(dp(2),0,dp(2),0) })
-                row.addView(adjust(1), LinearLayout.LayoutParams(dp(48), dp(48)))
-                body.addView(row, gap(5))
+                    if (direction < 0) StudioUi.Icon.MINUS else StudioUi.Icon.PLUS) { move(direction) }.apply {
+                    // Round stepper: a soft minus and a solid plus.
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(if (direction < 0) 0x1422204a else StudioUi.INK)
+                    }
+                    setTextColor(if (direction < 0) StudioUi.INK else StudioUi.WHITE)
+                    setPadding(0, 0, 0, 0)
+                    textSize = 20f
+                }
+                row.addView(adjust(-1), LinearLayout.LayoutParams(dp(44), dp(44)))
+                row.addView(edit, LinearLayout.LayoutParams(dp(60), -2).apply { setMargins(dp(2),0,dp(2),0) })
+                row.addView(adjust(1), LinearLayout.LayoutParams(dp(44), dp(44)))
+                body.addView(row, gap(8))
                 watch(edit) {
                     (if (byInterval) headwayDraft else countDraft)[i] = edit.text.toString()
                     refresh()
@@ -145,7 +164,7 @@ internal class ScheduleEditor(
             body.addView(fold, gap(12))
             body.addView(advanced)
             fun option(title: String, value: String, numeric: Boolean = true): EditText {
-                advanced.addView(StudioUi.text(host,title,14f,true),gap(8))
+                advanced.addView(StudioUi.text(host,title,13f,true,StudioUi.MUTED).apply { setPadding(dp(4),0,0,0) },gap(10))
                 return input(title,value,numeric).also { advanced.addView(it,gap(3)) }
             }
             val name = option("Nama layanan", service.getString("name"), false)
@@ -217,7 +236,10 @@ internal class ScheduleEditor(
     private fun refresh() {
         modeButtons.forEachIndexed { i, btn ->
             btn.isSelected = (i == 1) == byInterval
-            StudioUi.style(btn, if (btn.isSelected) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE)
+            // Segmented control: the chosen mode is a white pill on the tinted track.
+            btn.background = if (btn.isSelected) StudioUi.pill(host, StudioUi.WHITE, 14) else null
+            btn.tag = null
+            btn.setTextColor(if (btn.isSelected) StudioUi.INK else StudioUi.MUTED)
         }
         val summaries = mutableListOf<String>()
         fields.forEachIndexed { i, field ->
@@ -250,7 +272,7 @@ internal class ScheduleEditor(
     private class FrequencyChart(private val host: Activity) : View(host) {
         val intervals = DoubleArray(3)
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = StudioUi.face(host, true) }
-        private val colors = intArrayOf(0xffffbb68.toInt(),0xff6cdbb2.toInt(),0xff99c9ff.toInt())
+        private val colors = intArrayOf(0xffff7a2f.toInt(),0xff6c4df6.toInt(),0xff3fb06a.toInt())
         private val labels = listOf("Sibuk","Sedang","Sepi")
         override fun onDraw(canvas: Canvas) {
             val d = resources.displayMetrics.density
@@ -262,10 +284,10 @@ internal class ScheduleEditor(
             val h = (height-textSize-6*d)/3
             for (i in intervals.indices) {
                 val y = (i+.5f)*h
-                paint.color = 0xffe4edf5.toInt()
+                paint.color = StudioUi.INK
                 paint.textAlign = Paint.Align.LEFT
                 canvas.drawText(labels[i],0f,y-(paint.ascent()+paint.descent())/2,paint)
-                paint.color = 0xff3b5366.toInt()
+                paint.color = 0x2622204a
                 paint.strokeWidth = d
                 canvas.drawLine(left,y,right,y,paint)
                 val seconds = intervals[i]
@@ -278,7 +300,7 @@ internal class ScheduleEditor(
                     x += spacing
                 }
             }
-            paint.color = 0xffbed2df.toInt()
+            paint.color = StudioUi.MUTED
             val baseline = height-paint.descent()
             for ((fraction,label) in listOf(0f to "0", .5f to "30", 1f to "60 mnt")) {
                 paint.textAlign = when (fraction) { 0f -> Paint.Align.LEFT; 1f -> Paint.Align.RIGHT; else -> Paint.Align.CENTER }

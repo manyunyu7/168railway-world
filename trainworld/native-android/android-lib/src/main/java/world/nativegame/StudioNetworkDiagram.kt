@@ -46,7 +46,7 @@ internal object StudioNetworkDiagram {
                 return@sheet
             }
             fun dp(n:Int)=StudioUi.dp(host,n)
-            val selection=StudioUi.text(host,city,16f,true)
+            val selection=StudioUi.title(host,city,20f)
             val details=StudioUi.button(host,"Buka detail"){
                 dialog.dismiss()
                 diagram.selectedStation?.let(station) ?: diagram.selectedService?.let(service)
@@ -56,16 +56,31 @@ internal object StudioNetworkDiagram {
                 details.visibility=if(canOpen) View.VISIBLE else View.GONE
             }
             col.addView(selection)
-            col.addView(diagram,LinearLayout.LayoutParams(-1,(host.resources.displayMetrics.heightPixels*.47).roundToInt()))
-            val tools=LinearLayout(host)
-            col.addView(tools)
+            // Rounded canvas card with soft sky-to-sand ground (drawn by the diagram itself).
+            diagram.background=StudioUi.card(host,26)
+            diagram.clipToOutline=true
+            col.addView(diagram,LinearLayout.LayoutParams(-1,(host.resources.displayMetrics.heightPixels*.47).roundToInt()).apply { topMargin=dp(6) })
+            val tools=LinearLayout(host).apply {
+                gravity=android.view.Gravity.CENTER_VERTICAL
+                background=StudioUi.glass(host,30)
+                setPadding(dp(8),dp(8),dp(8),dp(8))
+            }
+            col.addView(tools,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
             fun tool(label:String,icon:StudioUi.Icon,click:()->Unit){
-                tools.addView(StudioUi.iconButton(host,label,icon,click=click),LinearLayout.LayoutParams(0,dp(48),1f))
+                tools.addView(StudioUi.iconButton(host,label,icon,click=click).apply {
+                    background=StudioDepot.touch(host,0xd9ffffff.toInt(),24)
+                    setPadding(0,0,0,0)
+                },LinearLayout.LayoutParams(dp(48),dp(48)).apply { marginEnd=dp(6) })
             }
             tool("Perkecil diagram",StudioUi.Icon.MINUS){diagram.zoom(.7f)}
             tool("Perbesar diagram",StudioUi.Icon.PLUS){diagram.zoom(1.5f)}
             tool("Pusatkan diagram",StudioUi.Icon.CENTER){diagram.fit();diagram.invalidate()}
-            tool("Simpan diagram PNG",StudioUi.Icon.SAVE){
+            tools.addView(StudioUi.text(host,"Bagikan gambar",14f,true,StudioUi.WHITE).apply {
+                gravity=android.view.Gravity.CENTER
+                contentDescription="Simpan diagram PNG"
+                background=StudioDepot.touch(host,StudioUi.INK,24)
+                isClickable=true
+                setOnClickListener {
                 val source=staging(host)
                 runCatching {
                     source.outputStream().use(diagram::export)
@@ -76,20 +91,23 @@ internal object StudioNetworkDiagram {
                 }.onFailure {
                     source.delete();Toast.makeText(host,"Ekspor belum berhasil. ${it.localizedMessage.orEmpty()}",Toast.LENGTH_LONG).show()
                 }
-            }
-            col.addView(details)
+                }
+            },LinearLayout.LayoutParams(0,dp(48),1f))
+            StudioUi.style(details,StudioUi.Tone.PRIMARY)
+            col.addView(details,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
             if (diagram.hasInspectableStops) {
                 col.addView(StudioUi.button(host,"Cari stasiun di diagram",icon=StudioUi.Icon.PIN) {
                     diagram.chooseStation(host)
                 })
             }
             if(layer!=null) col.addView(android.widget.Switch(host).apply {
+                StudioUi.styleSwitch(this)
                 text="Tampilkan perairan"
-                minHeight=dp(48);setTextColor(StudioUi.INK);typeface=StudioUi.face(host)
+                minHeight=dp(52);setTextColor(StudioUi.INK);typeface=StudioUi.face(host,true);textSize=15f
                 isChecked=diagram.waterVisible
                 setOnCheckedChangeListener { _,on -> diagram.setWater(on) }
             })
-            val thickness=StudioUi.text(host,"",14f,true)
+            val thickness=StudioUi.text(host,"",14f,true,StudioUi.MUTED)
             col.addView(thickness)
             col.addView(SeekBar(host).apply {
                 max=10
@@ -111,24 +129,37 @@ internal object StudioNetworkDiagram {
                 routeRows.removeAllViews()
                 val routes=diagram.visibleRoutes
                 if(routes.isEmpty()) {
-                    routeRows.addView(StudioUi.text(host,"Belum ada layanan di area ini.",15f))
+                    routeRows.addView(StudioUi.text(host,"Belum ada layanan di area ini.",15f,true,StudioUi.MUTED))
                     return
                 }
-                routeRows.addView(StudioUi.text(host,"Jalur",17f,true))
+                routeRows.addView(StudioUi.section(host,"Jalur"))
+                // Line chips: colour dot + name, tap to highlight on the diagram.
+                val chips=WrapRow(host)
                 routes.forEach { route ->
-                    val row=StudioUi.button(host,route.name,icon=StudioUi.Icon.ROUTE) {
-                        diagram.selectRoute(route); diagram.requestFocus()
-                        (col.parent as? android.widget.ScrollView)?.smoothScrollTo(0,0)
-                    }
-                    row.setCompoundDrawables(StudioUi.glyph(host,StudioUi.Icon.ROUTE,route.color),null,null,null)
-                    row.gravity=android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
-                    routeRows.addView(row)
+                    chips.addView(StudioUi.text(host,route.name,13f,true).apply {
+                        val dot=android.graphics.drawable.GradientDrawable().apply {
+                            shape=android.graphics.drawable.GradientDrawable.OVAL;setColor(route.color);setSize(dp(12),dp(12))
+                        }
+                        setCompoundDrawablesRelativeWithIntrinsicBounds(dot,null,null,null)
+                        compoundDrawablePadding=dp(6)
+                        maxLines=1
+                        background=StudioDepot.touch(host,0xe6ffffff.toInt(),20)
+                        setPadding(dp(12),dp(9),dp(14),dp(10))
+                        isClickable=true
+                        contentDescription="Jalur ${route.name}"
+                        setOnClickListener {
+                            diagram.selectRoute(route); diagram.requestFocus()
+                            (col.parent as? android.widget.ScrollView)?.smoothScrollTo(0,0)
+                        }
+                    })
                 }
+                routeRows.addView(chips)
             }
             if(diagram.hasOtherCities) {
                 col.addView(android.widget.Switch(host).apply {
+                StudioUi.styleSwitch(this)
                     text="Seluruh jaringan · semua kota"
-                    minHeight=dp(48);setTextColor(StudioUi.INK);typeface=StudioUi.face(host)
+                    minHeight=dp(52);setTextColor(StudioUi.INK);typeface=StudioUi.face(host,true);textSize=15f
                     setOnCheckedChangeListener { _,on ->
                         diagram.changeScope(on)
                         refreshRoutes()
@@ -257,6 +288,11 @@ internal object StudioNetworkDiagram {
                 val search=android.widget.EditText(host).apply {
                     hint="Nama stasiun"
                     setSingleLine()
+                    typeface=StudioUi.face(host,true);textSize=16f
+                    setTextColor(StudioUi.INK);setHintTextColor(StudioUi.MUTED)
+                    background=StudioUi.pill(host,-1,28)
+                    setPadding(StudioUi.dp(host,18),0,StudioUi.dp(host,18),0)
+                    minHeight=StudioUi.dp(host,54)
                 }
                 body.addView(search)
                 val list=android.widget.ListView(host)
@@ -300,8 +336,11 @@ internal object StudioNetworkDiagram {
         }
         override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){fit()}
         private fun render(c:Canvas,w:Int,h:Int,centerX:Float,centerY:Float,k:Float,d:Float,selected:Boolean) {
-            c.drawColor(0xfffaf7ed.toInt())
-            val lineWidth=3*d*multiplier
+            paint.shader=LinearGradient(0f,0f,0f,h.toFloat(),0xffeaf6ff.toInt(),0xfffff6e8.toInt(),Shader.TileMode.CLAMP)
+            paint.style=Paint.Style.FILL
+            c.drawRect(0f,0f,w.toFloat(),h.toFloat(),paint)
+            paint.shader=null
+            val lineWidth=5*d*multiplier
             c.save(); c.translate(w*.5f,h*.5f);c.scale(k,k);c.translate(-centerX,-centerY)
             if (waterVisible && layer!=null) water?.let { bmp ->
                 val bounds=layer.bounds
@@ -324,15 +363,15 @@ internal object StudioNetworkDiagram {
                 val x=(s.x-centerX)*k+w*.5f;val y=(s.y-centerY)*k+h*.5f
                 if(x< -8*d || x>w+8*d || y< -8*d || y>h+8*d)return
                 val chosen=s===selectedPoint
-                val size=(if(chosen) 6f else 3f)*d*sqrt(multiplier)
-                paint.color=if(chosen)0xffdf7233.toInt() else 0xff273f38.toInt()
-                c.drawCircle(x,y,size,paint);paint.color=Color.WHITE;c.drawCircle(x,y,size*.56f,paint)
+                val size=(if(chosen) 7.5f else 4.5f)*d*sqrt(multiplier)
+                paint.color=if(chosen)0xffff7a2f.toInt() else 0xff22204a.toInt()
+                c.drawCircle(x,y,size,paint);paint.color=Color.WHITE;c.drawCircle(x,y,size*.58f,paint)
                 val col=floor(x/(91*d)).toLong();val row=floor(y/(28*d)).toLong()
                 if(chosen || labels.add((col shl 32) xor row)){
-                    paint.textSize=(if(chosen)13f else 10f)*d
+                    paint.textSize=(if(chosen)13f else 11f)*d
                     val tx=x+size+2*d;val ty=y-3*d
-                    paint.style=Paint.Style.STROKE;paint.strokeWidth=2.5f*d;paint.color=0xfffaf7ed.toInt()
-                    c.drawText(s.name,tx,ty,paint);paint.style=Paint.Style.FILL;paint.color=0xff24463d.toInt()
+                    paint.style=Paint.Style.STROKE;paint.strokeWidth=3f*d;paint.color=0xfffff8ee.toInt()
+                    c.drawText(s.name,tx,ty,paint);paint.style=Paint.Style.FILL;paint.color=0xff22204a.toInt()
                     c.drawText(s.name,tx,ty,paint)
                 }
             }

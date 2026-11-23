@@ -38,23 +38,53 @@ internal class StudioOperationsGuide(
         val mask = state.optInt("done",0)
         val index = tasks.indexOfFirst { mask and (1 shl it.bit) == 0 }
         StudioUi.sheet(activity, if (page == 2) "Operasikan layanan" else "Bangun lintas pertama") { body,dialog ->
+            fun dp(n: Int) = StudioUi.dp(activity,n)
             val complete = tasks.count { mask and (1 shl it.bit) != 0 }
             val task = tasks.getOrNull(index)
-            body.addView(StudioDecision(activity,task?.title ?: "Latihan selesai", "$complete dari ${tasks.size} langkah").apply {
-                if (task != null) addView(StudioUi.text(activity,task.detail,16f))
-            })
-            fun button(label: String, primary: Boolean = false, click: () -> Unit) {
-                body.addView(StudioUi.button(activity,label,if(primary) StudioUi.Tone.PRIMARY else StudioUi.Tone.SURFACE) {
-                    dialog.dismiss(); click()
-                }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = StudioUi.dp(activity,8) })
+            // Step card: "LANGKAH n DARI m", display title, purple progress segments.
+            val card = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                background = StudioUi.card(activity, 26, 0xf2ffffff.toInt())
+                setPadding(dp(18), dp(16), dp(18), dp(18))
             }
+            card.addView(StudioUi.text(activity,
+                if (task != null) "LANGKAH ${complete + 1} DARI ${tasks.size}" else "${tasks.size} DARI ${tasks.size} LANGKAH",
+                12f, true, StudioUi.BLUE).apply { letterSpacing = .06f })
+            card.addView(StudioUi.title(activity, task?.title ?: "Latihan selesai", 22f),
+                LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
+            card.addView(StudioUi.text(activity, task?.detail ?: "Semua langkah di panduan ini sudah kamu selesaikan.", 15f, true, StudioUi.MUTED).apply {
+                setLineSpacing(dp(2).toFloat(), 1f)
+            }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
+            val segments = LinearLayout(activity)
+            tasks.forEachIndexed { i, t ->
+                val done = mask and (1 shl t.bit) != 0
+                segments.addView(android.view.View(activity).apply {
+                    background = StudioUi.pill(activity, if (done || i == index) StudioUi.BLUE else 0x1f22204a, 4)
+                    alpha = if (i == index && !done) .55f else 1f
+                }, LinearLayout.LayoutParams(0, dp(6), 1f).apply { if (i > 0) marginStart = dp(4) })
+            }
+            card.addView(segments, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(14) })
+            body.addView(card)
             if (task != null) {
-                button(task.button,true) { perform(task.action) }
-                button("Tandai langkah ini selesai") { render(checkpoint(task.bit,page)) }
+                body.addView(StudioUi.button(activity,task.button,StudioUi.Tone.BLUE) {
+                    dialog.dismiss(); perform(task.action)
+                }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
             }
-            button(if (page == 1) "Panduan operasi layanan" else "Panduan membangun") {
+            val footer = LinearLayout(activity).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+            fun textButton(label: String, click: () -> Unit) = StudioUi.text(activity,label,15f,true,StudioUi.MUTED).apply {
+                gravity = android.view.Gravity.CENTER
+                minHeight = dp(48)
+                setPadding(dp(8),0,dp(8),0)
+                background = StudioDepot.touch(activity, 0x00ffffff, 16)
+                isClickable = true
+                setOnClickListener { dialog.dismiss(); click() }
+            }
+            if (task != null) footer.addView(textButton("Lewati langkah") { render(checkpoint(task.bit,page)) })
+            footer.addView(android.view.View(activity), LinearLayout.LayoutParams(0,1,1f))
+            footer.addView(textButton(if (page == 1) "Panduan operasi →" else "Panduan membangun →") {
                 render(checkpoint(-1,if(page == 1) 2 else 1))
-            }
+            })
+            body.addView(footer, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
         }
     }
 }

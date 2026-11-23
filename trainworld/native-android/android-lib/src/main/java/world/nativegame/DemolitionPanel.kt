@@ -13,16 +13,42 @@ internal object DemolitionPanel {
     @JvmStatic private external fun targets(handle: Long, kind: Int): String
     @JvmStatic external fun remove(handle: Long, kind: Int, id: Int, clock: Double, commit: Boolean): String
 
+    /** Red raised destructive button: #E5484D face over a #B02E33 edge. */
+    fun danger(button: android.widget.Button) {
+        val c = button.context
+        fun layers(pressed: Boolean) = android.graphics.drawable.LayerDrawable(arrayOf(
+            StudioUi.panel(c, 0xffb02e33.toInt(), 20, 0xffb02e33.toInt()),
+            StudioUi.panel(c, StudioUi.RED, 20, StudioUi.RED))).apply {
+            setLayerInset(1, 0, if (pressed) StudioUi.dp(c, 4) else 0, 0, if (pressed) 0 else StudioUi.dp(c, 5))
+        }
+        button.background = android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), layers(true))
+            addState(intArrayOf(), layers(false))
+        }
+        button.tag = "danger"
+        button.setTextColor(StudioUi.WHITE)
+    }
+
     fun show(activity: Activity, handle: Long, clock: Double, commit: (Int, Int, String) -> Unit) {
         val kinds = arrayOf("Layanan", "Stasiun atau peron")
-        StudioDialogBuilder(activity).setTitle("Bongkar")
-            .setItems(kinds) { _, kind ->
+        StudioUi.sheet(activity, "Bongkar") { column, menu ->
+            column.addView(StudioUi.text(activity, "Pilih yang ingin dibongkar. Dampaknya ditampilkan sebelum dikonfirmasi.", 14f, true, StudioUi.MUTED))
+            kinds.forEachIndexed { kind, label ->
+                column.addView(StudioUi.row(activity, if (kind == 0) StudioUi.Icon.ROUTE else StudioUi.Icon.PIN, StudioUi.TINT_RED, label,
+                    if (kind == 0) "Hapus layanan beserta jadwalnya" else "Bongkar peron atau stasiun") {
+                    menu.dismiss(); choose(activity, handle, clock, kinds, commit, kind)
+                }, android.widget.LinearLayout.LayoutParams(-1, -2).apply { topMargin = StudioUi.dp(activity, 8) })
+            }
+        }
+    }
+
+    private fun choose(activity: Activity, handle: Long, clock: Double, kinds: Array<String>, commit: (Int, Int, String) -> Unit, kind: Int) {
                 val rows = JSONArray(targets(handle, kind))
                 val choices = List(rows.length()) { rows.getJSONObject(it) }
                     .sortedBy { it.getString("name") }
                 if (choices.isEmpty()) {
                     Toast.makeText(activity, "Belum ada objek yang bisa dibongkar.", Toast.LENGTH_LONG).show()
-                    return@setItems
+                    return
                 }
                 val labels = choices.map { row ->
                     val name = row.getString("name").ifBlank { kinds[kind] }
@@ -35,14 +61,14 @@ internal object DemolitionPanel {
                         if (preview.has("error")) {
                             Toast.makeText(activity, preview.getString("error"), Toast.LENGTH_LONG).show()
                         } else {
-                            StudioDialogBuilder(activity).setTitle("Bongkar ${labels[i]}?")
+                            val confirm = StudioDialogBuilder(activity).setTitle("Bongkar ${labels[i]}?")
                                 .setView(impact(activity,kind,preview))
                                 .setNegativeButton("Batal", null)
                                 .setPositiveButton("Bongkar") { _, _ -> commit(kind, id, labels[i]) }
                                 .show()
+                            danger(confirm.getButton(android.content.DialogInterface.BUTTON_POSITIVE))
                         }
                     }.setNegativeButton("Batal", null).show()
-            }.setNegativeButton("Tutup", null).show()
     }
 
     fun impact(activity: Activity, kind: Int, preview: JSONObject): StudioDecision {
