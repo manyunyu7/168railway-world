@@ -981,7 +981,7 @@ onmessage = (e: MessageEvent<ToDemand>) => {
     opening = opening.then(async () => {
       try {
         const t0 = performance.now();
-        [raw, attractions] = await Promise.all([initWasm(() => init(), "demand worker"), loadAttractions()]); // i18n-ignore
+        [, attractions] = await Promise.all([initWasm(() => init(), "demand worker"), loadAttractions()]); // i18n-ignore
         if (msg.heapStep) set_heap_step(msg.heapStep);
         const t1 = performance.now();
         aux = !!msg.aux;
@@ -1543,13 +1543,27 @@ const sendsTable = (q: number) => tableAsked || (q === 0 && mkt.includes(0));
 /** The table's key (FNV-1a over the bits of every column as whole columns: from, to as u32, longer,
  * commute legs on every row, air, car) and, with `make`, the table. */
 function tableColumns(p: IntercityApi, make: boolean): { key: string; table: CorridorTable | null } {
+  if (!copies) {
+    const columns = p.corridor_columns(make);
+    try {
+      const n = columns.rows(), key = `${n}:${columns.hash().toString(36)}`;
+      if (!make) return { key, table: null };
+      const wide = columns.wide();
+      return { key, table: {
+        key, n, from: wide ? columns.take_from32() : columns.take_from16(),
+        to: wide ? columns.take_to32() : columns.take_to16(),
+        longer: columns.take_longer(), commuteAt: columns.take_commute_at(),
+        commuteLegs: columns.take_commute_legs(), air: columns.take_air(), car: columns.take_car(),
+      } };
+    } finally { columns.free(); }
+  }
   let h = 0x811c9dc5, n = 0;
   const words = (w: Uint32Array) => {
     for (let i = 0; i < w.length; i++) h = Math.imul(h ^ w[i], 0x01000193);
   };
-  // each column read in place, one at a time (`inPlace`)
+  // Reference path selected by ?perfOff=inPlace; copy one full column at a time.
   let from: Uint16Array | Uint32Array = new Uint32Array(0), to: Uint16Array | Uint32Array = new Uint32Array(0);
-  inPlace(raw!.intercityapi_corridor_rows_pairs, p, 4, (b, o, l) => new Uint32Array(b, o, l), () => p.corridor_rows_pairs(), (pairs) => {
+  withColumn(p.corridor_rows_pairs(), (pairs) => {
     n = pairs.length / 2;
     for (let j = 0; j < n; j++) h = Math.imul(h ^ pairs[2 * j], 0x01000193);
     for (let j = 0; j < n; j++) h = Math.imul(h ^ pairs[2 * j + 1], 0x01000193);
@@ -1560,12 +1574,12 @@ function tableColumns(p: IntercityApi, make: boolean): { key: string; table: Cor
     to = most < 65536 ? new Uint16Array(n) : new Uint32Array(n);
     for (let j = 0; j < n; j++) { from[j] = pairs[2 * j]; to[j] = pairs[2 * j + 1]; }
   });
-  const longer = inPlace(raw!.intercityapi_corridor_rows_trips, p, 8, (b, o, l) => new Float64Array(b, o, l), () => p.corridor_rows_trips(), (a) => {
+  const longer = withColumn(p.corridor_rows_trips(), (a) => {
     words(new Uint32Array(a.buffer, a.byteOffset, 2 * a.length));
     return make ? Float32Array.from(a) : null;
   });
   let commuteAt = new Uint32Array(0), commuteLegs = new Float64Array(0);
-  inPlace(raw!.intercityapi_corridor_rows_commutes, p, 8, (b, o, l) => new Float64Array(b, o, l), () => p.corridor_rows_commutes(), (legs) => {
+  withColumn(p.corridor_rows_commutes(), (legs) => {
     if (legs.length !== n) { for (let i = 0; i < 2 * n; i++) h = Math.imul(h, 0x01000193); return; }
     words(new Uint32Array(legs.buffer, legs.byteOffset, 2 * n));
     if (!make) return;
@@ -1577,7 +1591,7 @@ function tableColumns(p: IntercityApi, make: boolean): { key: string; table: Cor
     for (let k = 0; k < at.length; k++) commuteLegs[k] = legs[at[k]];
   });
   const air = new Uint16Array(make ? n : 0), car = new Uint16Array(make ? n : 0);
-  inPlace(raw!.intercityapi_corridor_rows_modes, p, 4, (b, o, l) => new Float32Array(b, o, l), () => p.corridor_rows_modes(), (modes) => {
+  withColumn(p.corridor_rows_modes(), (modes) => {
     const hasM = modes.length === 2 * n;
     // T-378: before any shares are known, all by car (1.0f is 0x3f800000)
     const mw = new Uint32Array(modes.buffer, modes.byteOffset, modes.length);
@@ -1590,23 +1604,9 @@ function tableColumns(p: IntercityApi, make: boolean): { key: string; table: Cor
   return { key, table: longer ? { key, n, from, to, longer, commuteAt, commuteLegs, air, car } : null };
 }
 
-/** The WASM's exports (`init`), for `inPlace`. */
-let raw: Awaited<ReturnType<typeof init>> | null = null;
-/**
- * T-2495: a vector a market getter returns (`IntercityApi.corridor_rows_*`), read where it lies in the
- * WASM's memory and freed there, without the copy the binding makes: the table's columns are 47 MB each
- * on the New York save, and a worker's copies stayed until its next garbage collection, which a solve
- * running in the WASM puts off for its whole length (about 190 MB a solving worker during a load).
- * `use` must not call into the WASM (memory growth would detach the view). `size`: bytes an element.
- */
-function inPlace<A, T>(get: (ptr: number) => [number, number], p: IntercityApi, size: number, view: (buf: ArrayBuffer, off: number, len: number) => A, copy: () => A, use: (a: A) => T): T {
-  if (copies) return use(copy());
-  const [ptr, len] = get((p as unknown as { __wbg_ptr: number }).__wbg_ptr);
-  try {
-    return use(view(raw!.memory.buffer as ArrayBuffer, ptr, len));
-  } finally {
-    raw!.__wbindgen_free(ptr, len * size, size);
-  }
+// Release each reference column before reading the next one.
+function withColumn<A, T>(column: A, read: (values: A) => T): T {
+  return read(column);
 }
 function corridorTable(p: IntercityApi): MadeTable {
   const id = p.corridors_id();

@@ -1030,6 +1030,8 @@ mod api;
 mod pass;
 mod setup;
 mod exports;
+mod table;
+pub use table::CorridorColumns;
 mod mem;
 mod selection;
 use logsum::*;

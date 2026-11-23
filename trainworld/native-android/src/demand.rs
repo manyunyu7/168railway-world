@@ -254,7 +254,8 @@ fn commute(
     };
     // Match the web worker's three rounds: freeze the combined loads before advancing
     // either population, since each shares the same seats and boarding capacity.
-    for _ in 0..3 {
+    let mut free_board = Vec::new();
+    for round in 0..=3 {
         let mut frozen = Vec::new();
         for (commute, everyday) in [
             (solver.seg(period), outings.seg(period)),
@@ -274,6 +275,25 @@ fn commute(
             for (f, x) in frozen.iter_mut().zip(loads) {
                 *f += x;
             }
+        }
+        let nodes = frozen.len() / 3;
+        let board = &frozen[nodes..2 * nodes];
+        if round == 0 {
+            free_board.extend_from_slice(board);
+        }
+        if round == 3 {
+            // The web accounts for passengers who would have boarded without crowding.
+            let arrivals = free_board.iter().zip(board).map(|(free, last)| free.max(*last)).collect::<Vec<_>>();
+            frozen.extend(arrivals);
+            if !solver.cap_with_external(period, &frozen)
+                || !outings.cap_with_external(period, &frozen)
+                || market.as_mut().is_some_and(|m| !m.cap_with_external(period, &frozen))
+            {
+                return Err("Susunan kapasitas akhir berbeda".into());
+            }
+            break;
+        }
+        if let Some(m) = market.as_mut() {
             if !m.crowd_with_external(period, &frozen) {
                 return Err("Perhitungan kepadatan regional gagal".into());
             }
@@ -378,11 +398,14 @@ mod tests {
             .zip(drives.as_ref())
             .map(|(i, d)| (i.as_slice(), d.as_slice(), zones.as_slice()));
         let info: Value = serde_json::from_str(&zone).unwrap();
+        let period = std::env::var("WORLD_PERIOD")
+            .map_or(0, |value| value.parse::<usize>().expect("WORLD_PERIOD must be 0..4"));
+        assert!(period < 5);
         let r = commute(
             &save,
             &h,
             &b,
-            0,
+            period,
             market,
             info["country"].as_str().unwrap_or(""),
         )

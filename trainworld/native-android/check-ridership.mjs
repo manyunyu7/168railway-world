@@ -36,11 +36,19 @@ try {
     fares(p,n.localFare);p.set_transfer_fare(n.localFare.transfer);if(p===outings)p.set_ferry(Uint8Array.from(n.ferry));
     assert.ok(p.solve(q));
   }
-  for(let round=0;round<3;round++){
+  let freeBoard;
+  for(let round=0;round<=3;round++){
     const parts=['seg','board','alight'].map(key=>{
       const a=work[key](q),b=outings[key](q);
       const m=market?.[key](q); return a.map((v,i)=>Math.fround(v+b[i])+(m?.[i]??0));
     });
+    if(round===0) freeBoard=parts[1].slice();
+    if(round===3){
+      const arrivals=freeBoard.map((v,i)=>Math.max(v,parts[1][i]));
+      const capacity=Float32Array.from([...parts,arrivals].flatMap(v=>Array.from(v)));
+      for(const population of [work,outings,market].filter(Boolean)) assert.ok(population.cap_with_external(q,capacity));
+      break;
+    }
     const sameLoad=Float32Array.from(parts.flatMap(v=>Array.from(v)));
     if(market)assert.ok(market.crowd_with_external(q,sameLoad));
     assert.ok(work.crowd_with_external(q,sameLoad));

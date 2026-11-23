@@ -148,15 +148,13 @@ impl Market {
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn directed_by(&self, b: f64, rel: f64, pull: f64, pull_near: f64, g: f64, t: f64, a: f64, ta: f64, d: f64) -> f64 {
-        let ground = if g > 0. { g * self.rule.ground(d) * a } else { 0. };
-        let tail = if t > 0. { t * self.rule.tail(d) * ta * rel } else { 0. };
-        b * self.pull_w(pull, pull_near, d) * (ground + tail)
+        self.rule.directed_by(b, rel, pull, pull_near, g, t, a, ta, d)
     }
     /// T-3240: a pair's pull at `d` km, from its full strength less 1, plus T-3254's unfaded local pull
     /// (exactly 1 with neither).
     #[inline(always)]
     pub(super) fn pull_w(&self, pull: f64, pull_near: f64, d: f64) -> f64 {
-        if pull > 0. || pull_near > 0. { 1. + pull * self.rule.pull_on(d) + pull_near } else { 1. }
+        self.rule.pull_w(pull, pull_near, d)
     }
     /// A 6 km zone pair's trips a day each way: the mean of the two directions. Near places' zones
     /// at their own distance, far places' at their centres' (so their pairs add up to the places').
@@ -290,8 +288,9 @@ impl Market {
         let home_gamma: Vec<f64> = self.countries.iter().map(|c| rule.pull_gamma_of(c, c)).collect();
         let near_gamma: Vec<f64> = self.countries.iter().map(|c| rule.pull_near_gamma_of(c, c)).collect();
         let off: Vec<bool> = self.countries.iter().map(|c| rule.pull_off.contains(c)).collect();
+        let (places, near, ground) = (&self.places, &self.near, self.ground);
         let factors = |i: usize, j: usize| {
-            let (p, q) = (&self.places[i], &self.places[j]);
+            let (p, q) = (&places[i], &places[j]);
             let b = if p.country == q.country {
                 1.
             } else if open_area[p.country as usize] && open_area[q.country as usize] {
@@ -321,46 +320,87 @@ impl Market {
         };
         // (corridor order is this loop's order, so the lists come sorted; sized for every pair of places
         // with zones, nearly all of which have trips, so they never grow by doubling)
-        let has = self.places.iter().filter(|p| p.has).count();
+        let has = places.iter().filter(|p| p.has).count();
         let mut at = vec![0u64; (np * (np + 1) / 2).div_ceil(64)];
         let mut ct: Vec<f32> = Vec::with_capacity(has * (has + 1) / 2);
         let mut daily = 0f64;
         let mut to_places = vec![0f64; np];
         let mut pairs = 0usize;
-        for i in 0..np {
-            let p = &self.places[i];
+        let build_row = |i: usize, emit: &mut dyn FnMut(usize, f64)| {
+            let p = &places[i];
             if !p.has {
-                continue;
+                return;
             }
             for j in i..np {
-                let q = &self.places[j];
+                let q = &places[j];
                 if !q.has {
                     continue;
                 }
                 let km = if i == j {
                     0.
-                } else if self.ground {
+                } else if ground {
                     chord_km(&p.u, &q.u)
                 } else {
                     ((p.x - q.x).hypot(p.y - q.y) / 1000.) as f64
                 };
                 let t = if km < rule.near_km {
-                    self.near.get(&(i as u32, j as u32)).copied().unwrap_or(0.)
+                    near.get(&(i as u32, j as u32)).copied().unwrap_or(0.)
                 } else {
                     let ((bi, ri, ui, ni), (bj, rj, uj, nj)) = (factors(i, j), factors(j, i));
-                    (self.directed_by(bi, ri, ui, ni, p.g, p.t, q.a, q.ta, km) + self.directed_by(bj, rj, uj, nj, q.g, q.t, p.a, p.ta, km)) * 0.5
+                    (rule.directed_by(bi, ri, ui, ni, p.g, p.t, q.a, q.ta, km) + rule.directed_by(bj, rj, uj, nj, q.g, q.t, p.a, p.ta, km)) * 0.5
                 };
                 if t > 0. {
-                    let c = tri(np, i, j);
-                    at[c / 64] |= 1 << (c % 64);
-                    ct.push((2. * t) as f32);
-                    daily += 2. * t;
-                    // a place's own pairs both start there
-                    to_places[i] += t;
-                    to_places[j] += t;
-                    pairs += if i == j { 1 } else { 2 };
+                    emit(j, t);
                 }
             }
+        };
+        let mut collect_pair = |i: usize, j: usize, t: f64| {
+            let c = tri(np, i, j);
+            at[c / 64] |= 1 << (c % 64);
+            ct.push((2. * t) as f32);
+            daily += 2. * t;
+            // a place's own pairs both start there
+            to_places[i] += t;
+            to_places[j] += t;
+            pairs += if i == j { 1 } else { 2 };
+        };
+        // Preserve the sequential order of floating-point sums. One queued row per
+        // worker bounds scratch memory even for world-sized markets.
+        #[cfg(not(target_arch = "wasm32"))]
+        let workers = if has >= 128 {
+            std::thread::available_parallelism().map_or(1, |n| n.get().min(4))
+        } else { 1 };
+        #[cfg(target_arch = "wasm32")]
+        let workers = 1;
+        if workers == 1 {
+            for i in 0..np {
+                build_row(i, &mut |j, t| collect_pair(i, j, t));
+            }
+        } else {
+            std::thread::scope(|scope| {
+                let mut rows = Vec::with_capacity(workers);
+                for first in 0..workers {
+                    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                    let build_row = &build_row;
+                    let worker = std::thread::Builder::new().spawn_scoped(scope, move || {
+                        for i in (first..np).step_by(workers) {
+                            let mut row = Vec::new();
+                            build_row(i, &mut |j, t| row.push((j, t)));
+                            if tx.send(row).is_err() { break; }
+                        }
+                    });
+                    rows.push(worker.ok().map(|_| rx));
+                }
+                for i in 0..np {
+                    if let Some(rx) = &rows[i % workers] {
+                        for (j, t) in rx.recv().expect("corridor worker exited") {
+                            collect_pair(i, j, t);
+                        }
+                    } else {
+                        build_row(i, &mut |j, t| collect_pair(i, j, t));
+                    }
+                }
+            });
         }
         let leaving_by: Vec<f64> = (0..np).map(|p| if self.places[p].has { (self.places[p].dep - to_places[p]).max(0.) } else { 0. }).collect();
         ct.shrink_to_fit();
@@ -411,5 +451,18 @@ impl Market {
             }
         }
         out
+    }
+}
+
+impl Rule {
+    #[inline(always)]
+    fn pull_w(&self, pull: f64, pull_near: f64, d: f64) -> f64 {
+        if pull > 0. || pull_near > 0. { 1. + pull * self.pull_on(d) + pull_near } else { 1. }
+    }
+    #[inline(always)]
+    fn directed_by(&self, b: f64, rel: f64, pull: f64, pull_near: f64, g: f64, t: f64, a: f64, ta: f64, d: f64) -> f64 {
+        let ground = if g > 0. { g * self.ground(d) * a } else { 0. };
+        let tail = if t > 0. { t * self.tail(d) * ta * rel } else { 0. };
+        b * self.pull_w(pull, pull_near, d) * (ground + tail)
     }
 }
