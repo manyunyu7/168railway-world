@@ -117,7 +117,7 @@ class NativeWorldActivity : Activity() {
     private var lastStatus = -1
     private var closed = false
     private enum class ReferenceState { OPENING, PLAYING, SAVING }
-    private var reference: StudioReferenceClock? = null
+    private var reference: SimulationClock? = null
     private var referenceState: ReferenceState? = null
     private var referenceTime: Double? = null
     private var trainPreview: StudioReferenceClock? = null
@@ -1348,18 +1348,21 @@ class NativeWorldActivity : Activity() {
             }
             idle.close()
         }
-        lateinit var runtime: StudioReferenceClock
-        runtime = StudioReferenceClock(this, { time ->
+        lateinit var runtime: SimulationClock
+        val onClock: (Double) -> Unit = { time ->
             if (reference === runtime && referenceState == ReferenceState.PLAYING && !closed) {
                 referenceTime = time
                 refresh()
             }
-        }, { reason ->
+        }
+        val onFailure: (String) -> Unit = { reason ->
             if (reference === runtime && referenceState != ReferenceState.SAVING) {
                 finishReference(runtime)
                 referenceUnavailable(reason)
             }
-        })
+        }
+        runtime = if (SimulationEngine.supportsEditor(handle)) NativeSimulationClock(onClock, onFailure)
+            else StudioReferenceClock(this, onClock, onFailure)
         runtime.onTrainLoads = { epoch, rows -> if (reference === runtime && !closed) map.trainLoads(epoch,rows) }
         runtime.onCash = { cash -> if (reference === runtime && !closed) showBalance(cash) }
         reference = runtime
@@ -1436,10 +1439,10 @@ class NativeWorldActivity : Activity() {
         }
     }
 
-    private var parked: StudioReferenceClock? = null
+    private var parked: SimulationClock? = null
     private var parkedBytes: ByteArray? = null
 
-    private fun parkReference(runtime: StudioReferenceClock) {
+    private fun parkReference(runtime: SimulationClock) {
         reference = null
         referenceState = null
         referenceTime = null
@@ -1459,7 +1462,7 @@ class NativeWorldActivity : Activity() {
         idle?.close()
     }
 
-    private fun finishReference(runtime: StudioReferenceClock) {
+    private fun finishReference(runtime: SimulationClock) {
         reference = null
         referenceState = null
         referenceTime = null

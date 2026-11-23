@@ -11,6 +11,7 @@ mod local_time;
 mod new_game;
 mod operating;
 mod regional;
+mod simulation;
 mod station_facilities;
 mod station_inspection;
 mod station_map;

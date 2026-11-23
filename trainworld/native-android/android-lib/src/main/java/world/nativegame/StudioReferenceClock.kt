@@ -23,13 +23,13 @@ internal class StudioReferenceClock(
     private val activity: Activity,
     private val onClock: (Double) -> Unit,
     private val onUnavailable: (String) -> Unit,
-) {
-    var onTrainLoads: ((Long,org.json.JSONArray) -> Unit)? = null
+) : SimulationClock {
+    override var onTrainLoads: ((Long,org.json.JSONArray) -> Unit)? = null
     var overlayKind: String? = null
     var overlayCity: String? = null
     var onOverlayPart: ((String, org.json.JSONArray) -> Unit)? = null
     var onOverlayEnd: (() -> Unit)? = null
-    var onCash: ((Double) -> Unit)? = null
+    override var onCash: ((Double) -> Unit)? = null
 
     private val main = Handler(Looper.getMainLooper())
     private val origin = Uri.parse("https://studio-clock.invalid")
@@ -50,9 +50,9 @@ internal class StudioReferenceClock(
     private var lastClock = Double.NEGATIVE_INFINITY
 
     private enum class Phase { NEW, LOADING, OPENING, READY, SAVING, CLOSED }
-    val isReady get() = phase == Phase.READY
+    override val isReady get() = phase == Phase.READY
 
-    fun open(snapshot: ByteArray, ready: () -> Unit) {
+    override fun open(snapshot: ByteArray, ready: () -> Unit) {
         check(Looper.myLooper() == Looper.getMainLooper())
         check(phase == Phase.NEW)
         phase = Phase.LOADING
@@ -119,7 +119,7 @@ internal class StudioReferenceClock(
         }.onFailure { fail(it.message ?: "Kanal mesin Studio gagal dibuka.") }
     }
 
-    fun play(rate: Double) {
+    override fun play(rate: Double) {
         if (phase != Phase.READY) return
         require(rate.isFinite() && rate > 0)
         send(JSONObject().put("type", "play").put("rate", rate))
@@ -129,7 +129,7 @@ internal class StudioReferenceClock(
         if (phase == Phase.READY) send(JSONObject().put("type", "pause"))
     }
 
-    fun snapshot(done: (Result<ByteArray>) -> Unit) = checkpoint(true, done)
+    override fun snapshot(done: (Result<ByteArray>) -> Unit) = checkpoint(true, done)
 
     fun checkpoint(pause: Boolean, done: (Result<ByteArray>) -> Unit) {
         if (phase != Phase.READY) {
@@ -262,7 +262,7 @@ internal class StudioReferenceClock(
         onUnavailable(message)
     }
 
-    fun close() {
+    override fun close() {
         if (phase != Phase.CLOSED) shutdown("Simulasi Studio ditutup.")
     }
 
