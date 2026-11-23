@@ -42,7 +42,42 @@ object NativeFinance {
                     minHeight = StudioUi.dp(activity,52)
                     setPadding(StudioUi.dp(activity,18),0,StudioUi.dp(activity,18),0)
                     background = StudioUi.card(activity,26,-1)
-                    column.addView(this,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=StudioUi.dp(activity,8) })
+                    column.addView(this,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=StudioUi.dp(activity,4) })
+                    // Slider for the three prices: drag to explore, the field keeps the exact value.
+                    if (key in prices) {
+                        val now = initial.getDouble(key)*currency.rate
+                        // Step scales with the currency so IDR and USD both get ~300 notches.
+                        val scale = Math.pow(10.0, kotlin.math.floor(kotlin.math.log10(maxOf(now, currency.rate*0.01)))).coerceAtLeast(0.01)
+                        val step = scale/10
+                        val top = maxOf(now*3, scale*10)
+                        val field = this
+                        var syncing = false
+                        val seek = android.widget.SeekBar(activity).apply {
+                            max = (top/step).toInt().coerceAtLeast(10)
+                            progress = (now/step).toInt().coerceIn(0,max)
+                            contentDescription = label
+                            StudioUi.styleSeek(this, if (key=="base") StudioUi.GREEN else if (key=="perKm") StudioUi.BLUE else StudioUi.LEAF)
+                            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                                override fun onProgressChanged(bar: android.widget.SeekBar, p: Int, fromUser: Boolean) {
+                                    if (!fromUser) return
+                                    syncing = true
+                                    field.setText(java.math.BigDecimal.valueOf(p*step).stripTrailingZeros().toPlainString())
+                                    syncing = false
+                                }
+                                override fun onStartTrackingTouch(bar: android.widget.SeekBar) {}
+                                override fun onStopTrackingTouch(bar: android.widget.SeekBar) {}
+                            })
+                        }
+                        addTextChangedListener(object : android.text.TextWatcher {
+                            override fun beforeTextChanged(s:CharSequence?,a:Int,b:Int,c:Int) {}
+                            override fun onTextChanged(s:CharSequence?,a:Int,b:Int,c:Int) {}
+                            override fun afterTextChanged(e:android.text.Editable?) {
+                                if (syncing) return
+                                e?.toString()?.replace(',','.')?.toDoubleOrNull()?.let { seek.progress = (it/step).toInt().coerceIn(0,seek.max) }
+                            }
+                        })
+                        column.addView(seek,LinearLayout.LayoutParams(-1,StudioUi.dp(activity,44)).apply { bottomMargin=StudioUi.dp(activity,8) })
+                    }
                 }
             }
             val fmt = NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID")).apply { maximumFractionDigits=2 }

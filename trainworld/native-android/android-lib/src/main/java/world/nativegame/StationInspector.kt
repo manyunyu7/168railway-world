@@ -12,6 +12,8 @@ import org.json.JSONObject
 import java.util.Locale
 
 internal object StationInspector {
+    /** Daily riders for a station node and its share of the busiest stop, when the passenger layer has data. */
+    var riders: ((Int) -> Pair<Int, Float>?)? = null
     @JvmStatic external fun structure(handle: Long, node: Int, clock: Double, command: String): String
     @JvmStatic external fun upgrade(handle:Long,node:Int,bit:Int,on:Int,clock:Double):String
     @JvmStatic external fun read(handle: Long, node: Int, line: Int, run: Int, clock: Double): String
@@ -97,17 +99,20 @@ internal object StationInspector {
         sheet.add(header,0)
         // Platform crowding, only when the engine reports who is waiting.
         val waiting = station.optInt("waiting",-1)
-        if (waiting >= 0) {
+        val daily = if (waiting < 0) riders?.invoke(node) else null
+        if (waiting >= 0 || daily != null) {
             val capacity = station.optInt("capacity",0).takeIf { it > 0 } ?: maxOf(1,platforms.sumOf { it.getInt("meters") } * 4)
-            val share = (waiting.toDouble()/capacity).coerceIn(0.0,1.0)
+            val share = if (daily != null) daily.second.toDouble() else (waiting.toDouble()/capacity).coerceIn(0.0,1.0)
+            val count = java.text.NumberFormat.getIntegerInstance(java.util.Locale.forLanguageTag("id-ID")).format(daily?.first ?: waiting)
+            val unit = if (daily != null) "penumpang/hari" else "orang"
             val crowd = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 background = StudioUi.card(activity,22)
                 setPadding(dp(14),dp(12),dp(14),dp(14))
             }
             val top = LinearLayout(activity)
-            top.addView(StudioUi.text(activity,"Keramaian peron",14f,true),LinearLayout.LayoutParams(0,-2,1f))
-            top.addView(StudioUi.text(activity,when { share > .75 -> "Padat"; share > .4 -> "Ramai"; else -> "Lengang" } + " · $waiting orang",
+            top.addView(StudioUi.text(activity,if (daily != null) "Keramaian stasiun" else "Keramaian peron",14f,true),LinearLayout.LayoutParams(0,-2,1f))
+            top.addView(StudioUi.text(activity,when { share > .75 -> "Padat"; share > .4 -> "Ramai"; else -> "Lengang" } + " · $count $unit",
                 14f,true,if (share > .75) 0xffb4500f.toInt() else StudioUi.MUTED))
             crowd.addView(top)
             val dots = LinearLayout(activity).apply { setPadding(0,dp(10),0,0) }
@@ -121,7 +126,7 @@ internal object StationInspector {
                 }, LinearLayout.LayoutParams(dp(20),dp(20)).apply { marginEnd = dp(5) })
             }
             crowd.addView(dots)
-            crowd.contentDescription = "Keramaian peron, $waiting orang menunggu"
+            crowd.contentDescription = "Keramaian, $count $unit"
             sheet.add(crowd,12)
         }
         val upcoming = departures.filter { byId.containsKey(it.getInt("line")) }

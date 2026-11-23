@@ -811,6 +811,7 @@ class NativeWorldActivity : Activity() {
         stopClock()
         map.showStationAboveSheet(node)
         val record = trackPanelChanges("Fasilitas stasiun")
+        StationInspector.riders = { id -> map.stops.firstOrNull { it.id == id }?.let { map.overlay.riders(it.x, it.y) } }
         StationInspector.show(this,handle,node,clock, {
             record()
             map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
