@@ -15,11 +15,9 @@ import kotlin.math.*
 internal class StudioPassengerOverlay(private val activity: Activity?, private val redraw: () -> Unit) {
     val selection = arrayOf("none","none","line")
     var city = ""
-    var project: ((DoubleArray) -> FloatArray)? = null
     var allowTap: (() -> Boolean)? = null
     var snapshot: (() -> ByteArray?)? = null
     private val main = Handler(Looper.getMainLooper())
-    private var worker: StudioReferenceClock? = null
     var manifest: ((ByteArray) -> String)? = null
     private var nativeTask: java.util.concurrent.Future<*>? = null
     private companion object { val executor = java.util.concurrent.Executors.newSingleThreadExecutor() }
@@ -62,10 +60,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         generation++
         nativeTask?.cancel(true)
         nativeTask = null
-        val w = worker
-        worker = null
         loading = ""
-        w?.close()
     }
     fun reset() {
         stop()
@@ -114,30 +109,19 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             }
             return
         }
-        val clock = StudioReferenceClock(activity, {}, ::failure)
-        worker = clock
-        clock.overlayKind = kind
-        clock.overlayCity = city
-        val pending = mutableMapOf<String,MutableList<FloatArray>>()
-        clock.onOverlayPart = { section, json ->
-            val stride = when(section) { "cells" -> 10; "stops" -> 4; "edges" -> 2; "spans" -> 5; "rail" -> 6; "road" -> 4; else -> error("Bagian lapisan tidak dikenal.") }
-            require(json.length() % stride == 0)
-            val out = pending.getOrPut(section){ mutableListOf() }
-            // The reference worker upgrades old save frames internally. Reproject its geographic
-            // coordinates into the native archive's own frame before matching hits to stations.
-            val pairs=when(section) { "cells","stops" -> 1; "rail" -> 2; else -> 0 }
-            val n=json.length()/stride
-            val xy=if (pairs==0) null else requireNotNull(project).invoke(DoubleArray(n*2*pairs) { k ->
-                json.getDouble((k/(2*pairs))*stride + k%(2*pairs))
-            })
-            if (xy!=null) require(xy.size==n*2*pairs)
-            for (row in 0 until n) out.add(FloatArray(stride){ j ->
-                if (xy!=null && j<2*pairs) xy[row*2*pairs+j] else json.getDouble(row*stride+j).toFloat()
-            })
-        }
-        clock.onOverlayEnd = {
-            if (id == generation) {
-                cells.addAll(pending["cells"].orEmpty())
+        val inputs = requireNotNull(manifest)
+        nativeTask = executor.submit {
+            val result = runCatching {
+                val data = org.json.JSONObject(NativeRidership.networkLayers(bytes,inputs(bytes)))
+                mapOf("stops" to 4, "edges" to 2, "spans" to 5, "rail" to 6, "road" to 4).mapValues { (name,stride) ->
+                    val packed = data.getJSONArray(name)
+                    require(packed.length() % stride == 0)
+                    List(packed.length()/stride) { i -> FloatArray(stride) { j -> packed.getDouble(i*stride+j).toFloat() } }
+                }
+            }
+            main.post {
+                if (id != generation) return@post
+                val pending = result.getOrElse { failure(it.localizedMessage ?: "Lapisan jaringan belum tersedia."); return@post }
                 stations.addAll(pending["stops"].orEmpty())
                 for (edge in pending["edges"].orEmpty()) edgeProfit[edge[0].toInt()] = edge[1]
                 for (s in pending["spans"].orEmpty()) {
@@ -171,7 +155,6 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 main.post { startNeeded() }
             }
         }
-        clock.open(bytes) { main.postDelayed({ if (id == generation) failure("Data perjalanan belum siap.") },120000) }
     }
     private fun mix(a:Int,b:Int,t:Float) = Color.rgb(
         (Color.red(a)+(Color.red(b)-Color.red(a))*t).roundToInt(),

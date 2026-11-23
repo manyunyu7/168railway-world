@@ -64,8 +64,15 @@ fn install_prices(api: &mut TrackApi, lines: &[f64]) {
 
 impl Costs {
     pub(super) fn new(api: &mut TrackApi) -> Self {
+        Self::with_prices(api, &[])
+    }
+    pub(super) fn with_prices(api: &mut TrackApi, factors: &[f64]) -> Self {
         let lines = api.lines_info();
-        install_prices(api, &lines);
+        if factors.is_empty() {
+            install_prices(api, &lines);
+        } else {
+            api.set_line_run_factors(factors);
+        }
         let mut groups: Vec<Group> = api
             .running_shifts()
             .iter()

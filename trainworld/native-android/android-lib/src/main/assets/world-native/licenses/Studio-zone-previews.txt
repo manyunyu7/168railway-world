@@ -3,5 +3,5 @@ https://168railway.com/studio-data/2026-11-18/DATA-CREDITS.txt
 
 Boundaries and coastal water derive from the zones in outlines.json, including geoBoundaries and Natural Earth.
 The eight featured cities also use release terrain classes from GEDTM30 (OpenGeoHub, CC BY 4.0) and place names and positions from © OpenStreetMap contributors, ODbL 1.0.
-For the full upstream credits and notices see world-native/clock/NOTICE.md in this package.
+For the full upstream credits and notices see world-native/NOTICE.md in this package.
 The images depict data adapted for the game's zones.

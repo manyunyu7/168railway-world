@@ -2069,6 +2069,15 @@ impl RouteTrace {
 impl TrackApi {
     /// Constructed infrastructure's daily upkeep, located by the Android regional ledger.
     #[cfg(not(target_arch = "wasm32"))]
+    pub fn map_upkeep(&self) -> (Vec<f64>, Vec<f64>) {
+        let n = &self.w.net;
+        let edges = (0..n.edge_count()).map(|i| edge_upkeep(n, i).unwrap_or(0.)).collect();
+        let nodes = (0..n.node_count()).map(|i| {
+            if upkept_port(n, i) { port_upkeep() } else if upkept_station(n, i) { station_upkeep(n, i) } else { 0. }
+        }).collect();
+        (edges, nodes)
+    }
+
     pub fn infrastructure_upkeep(&self) -> Vec<(f64, f64, f64)> {
         let n = &self.w.net;
         let frame = n.frame();

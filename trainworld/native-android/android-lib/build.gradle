@@ -14,6 +14,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = '17' }
+    androidResources { ignoreAssetsPattern "!clock" }
     sourceSets.main {
         assets.srcDirs += [file('../build/assets')]
         jniLibs.srcDirs += [file('../build/jniLibs')]

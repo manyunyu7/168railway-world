@@ -39,3 +39,7 @@ pub(super) fn running_price(lon: f64, lat: f64) -> f64 {
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map_or(1., |(_, price)| price)
 }
+
+pub(super) fn zone_price(id: &str) -> f64 {
+    ZONES.iter().find(|r| r.0 == id).map_or(1., |r| r.4)
+}

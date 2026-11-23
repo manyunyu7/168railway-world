@@ -17,7 +17,7 @@ internal object StudioMapPreview {
     }
 
     fun cityPath(id: String) = "world-native/zone-previews/$id.webp"
-    fun scenarioPath(id: String) = "world-native/clock/snapshots/$id.jpg"
+    fun scenarioPath(id: String) = "world-native/snapshots/$id.jpg"
 
     fun image(context: Context, path: String, description: String, thumbnail: Boolean = false): ImageView? {
         val bitmap = (if (thumbnail) thumbnails.get(path) else null) ?: try {

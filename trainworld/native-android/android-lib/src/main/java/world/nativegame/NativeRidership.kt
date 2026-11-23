@@ -13,6 +13,7 @@ import java.util.concurrent.Executors
 /** Read-only analysis of a world snapshot. Serialize expensive city assignments across screens. */
 object NativeRidership {
     private val executor = Executors.newSingleThreadExecutor()
+    @JvmStatic external fun networkLayers(save: ByteArray, manifest: String): String
     @JvmStatic external fun tripCells(save: ByteArray, manifest: String, city: String): FloatArray
     @JvmStatic external fun trainLoads(save: ByteArray, manifest: String, time: Double): IntArray?
     @JvmStatic private external fun plan(save: ByteArray, boundaries: String): String

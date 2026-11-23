@@ -153,7 +153,6 @@ class NativeWorldActivity : Activity() {
                 val local = cityStore.load(overlayCity)
                 NativeRidership.inputs(this@NativeWorldActivity,bytes,local.header,local.cells,true).toString()
             }
-            overlay.project = { coordinates -> CitySurface.project(handle,coordinates) }
             overlay.allowTap = { !removingTrack && !selectingInfrastructure && !restoringEdit }
             overlay.snapshot = {
                 if (closed || !this@NativeWorldActivity.foreground || handle == 0L) null else {
@@ -1385,11 +1384,13 @@ class NativeWorldActivity : Activity() {
         referenceState = ReferenceState.OPENING
         updateControls()
         status.text = "Menyiapkan simulasi anggaran…"
+        val requestedAt = android.os.SystemClock.elapsedRealtime()
         runtime.open(bytes) {
             if (reference !== runtime || closed) return@open
             if (!foreground) { finishReference(runtime); return@open }
             referenceState = ReferenceState.PLAYING
             updateControls()
+            android.util.Log.i("WorldSimulation", "play ready in ${android.os.SystemClock.elapsedRealtime()-requestedAt} ms")
             runtime.play(8.0)
         }
     }

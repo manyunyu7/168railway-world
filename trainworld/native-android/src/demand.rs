@@ -49,6 +49,40 @@ fn commute(
     Ok(solve(save, packs, &[period], market_input, None, None, None)?.remove(0))
 }
 
+// Each population sees the same frozen load. The summation between barriers stays ordered.
+fn advance(
+    cities: &mut [(DemandApi, trainworld_sim::demand::everyday::EverydayApi)],
+    market: Option<&mut trainworld_sim::demand::intercity::IntercityApi>,
+    period: usize,
+    round: usize,
+    load: &[f32],
+) -> bool {
+    let (work, outings): (Vec<_>, Vec<_>) = cities.iter_mut().map(|(s, e)| (s, e)).unzip();
+    std::thread::scope(|scope| {
+        let commuters = scope.spawn(move || {
+            work.into_iter().all(|s| match round {
+                0 => s.solve(period),
+                4 => s.cap_with_external(period, load),
+                _ => s.crowd_with_external(period, load),
+            })
+        });
+        let everyday = scope.spawn(move || {
+            outings.into_iter().all(|s| match round {
+                0 => s.solve(period),
+                4 => s.cap_with_external(period, load),
+                _ => s.crowd_with_external(period, load),
+            })
+        });
+        let regional = market.is_none_or(|s| match round {
+            0 => s.solve(period),
+            4 => s.cap_with_external(period, load),
+            _ => s.crowd_with_external(period, load),
+        });
+        let a = commuters.join().unwrap_or(false);
+        let b = everyday.join().unwrap_or(false);
+        a && b && regional
+    })
+}
 fn solve(
     save: &[u8],
     packs: &[LocalPack],
@@ -343,6 +377,7 @@ fn solve(
                 .collect::<Vec<_>>(),
         );
         if let Some(geo) = geo {
+            let mut prices = std::collections::BTreeMap::new();
             for (id, _, served, _) in &lines {
                 let zones = served
                     .iter()
@@ -351,17 +386,13 @@ fn solve(
                         geo.zone(ll_all[i], ll_all[i + 1])
                     })
                     .collect();
-                account.line_zones(*id, zones);
+                account.line_zones(*id, zones, &fares, &mut prices);
             }
         }
     }
     let mut results = Vec::new();
     for &period in periods {
-        if cities
-            .iter_mut()
-            .any(|(s, e)| !s.solve(period) || !e.solve(period))
-            || market.as_mut().is_some_and(|m| !m.solve(period))
-        {
+        if !advance(&mut cities, market.as_mut(), period, 0, &[]) {
             return Err("Periode perjalanan tidak tersedia".into());
         }
         // Match the web worker's three rounds: freeze the combined loads before advancing
@@ -418,26 +449,12 @@ fn solve(
                 rounds_board.extend_from_slice(board);
                 free_board = arrivals;
                 frozen.extend(&free_board);
-                if cities.iter_mut().any(|(solver, outings)| {
-                    !solver.cap_with_external(period, &frozen)
-                        || !outings.cap_with_external(period, &frozen)
-                }) || market
-                    .as_mut()
-                    .is_some_and(|m| !m.cap_with_external(period, &frozen))
-                {
+                if !advance(&mut cities, market.as_mut(), period, 4, &frozen) {
                     return Err("Susunan kapasitas akhir berbeda".into());
                 }
                 break;
             }
-            if let Some(m) = market.as_mut() {
-                if !m.crowd_with_external(period, &frozen) {
-                    return Err("Perhitungan kepadatan regional gagal".into());
-                }
-            }
-            if cities.iter_mut().any(|(solver, outings)| {
-                !solver.crowd_with_external(period, &frozen)
-                    || !outings.crowd_with_external(period, &frozen)
-            }) {
+            if !advance(&mut cities, market.as_mut(), period, round + 1, &frozen) {
                 return Err("Perhitungan kapasitas tidak tersedia".into());
             }
         }
@@ -482,7 +499,7 @@ fn solve(
                 &hop_km,
                 &base_mul,
                 &rate_mul,
-                &fares.local,
+                &fares.market,
             )?;
         }
         for (i, (work, other)) in cities.iter_mut().enumerate() {
@@ -508,7 +525,7 @@ fn solve(
     }
     Ok(results)
 }
-#[derive(serde::Deserialize)]
+#[derive(Clone, PartialEq, serde::Deserialize)]
 pub(super) struct DemandFiles {
     local: Vec<[String; 2]>,
     markets: Vec<String>,
@@ -517,6 +534,7 @@ pub(super) struct DemandFiles {
     boundaries: Option<String>,
 }
 pub(super) struct Inputs {
+    files: DemandFiles,
     packs: Vec<LocalPack>,
     markets: Vec<String>,
     index: Vec<u8>,
@@ -573,6 +591,7 @@ impl DemandFiles {
             .transpose()?
             .unwrap_or_default();
         Ok(Inputs {
+            files: self.clone(),
             geo,
             packs,
             markets,
@@ -581,12 +600,41 @@ impl DemandFiles {
         })
     }
 }
+// Preview, playback and network overlays share an assignment for identical track, fares and
+// immutable release assets. Holding the lock during the solve coalesces overlapping callers.
+struct CachedForecast {
+    track: Vec<u8>,
+    fares: Value,
+    files: DemandFiles,
+    forecast: std::sync::Arc<crate::passenger_account::Forecast>,
+}
+static FORECAST: std::sync::Mutex<Option<CachedForecast>> = std::sync::Mutex::new(None);
 impl Inputs {
-    pub(super) fn account(
+    fn forecast(
         &self,
         save: &[u8],
         world: &mut World,
-    ) -> Result<super::timed_account::Account, String> {
+    ) -> Result<std::sync::Arc<crate::passenger_account::Forecast>, String> {
+        for pack in &self.packs {
+            let header: Value = serde_json::from_str(&pack.header).map_err(|e| e.to_string())?;
+            super::city_surface::install_streets(&mut world.api, &header, &pack.cells);
+        }
+        if !world.api.world().svc.lines.iter().any(|s| s.running) {
+            return Ok(std::sync::Arc::new(
+                crate::passenger_account::Forecast::default(),
+            ));
+        }
+        let track = world.api.save();
+        let fares = &world.header["fares"];
+        let mut cache = FORECAST
+            .lock()
+            .map_err(|_| "Perhitungan perjalanan terputus")?;
+        if let Some(saved) = cache
+            .as_ref()
+            .filter(|c| c.track == track && c.fares == *fares && c.files == self.files)
+        {
+            return Ok(saved.forecast.clone());
+        }
         let mut forecast = crate::passenger_account::Forecast::default();
         let zones: Vec<_> = self.markets.iter().map(String::as_str).collect();
         let market = (!zones.is_empty()).then_some((
@@ -603,11 +651,22 @@ impl Inputs {
             Some(&self.geo),
             None,
         )?;
-        for pack in &self.packs {
-            let header: Value = serde_json::from_str(&pack.header).map_err(|e| e.to_string())?;
-            super::city_surface::install_streets(&mut world.api, &header, &pack.cells);
-        }
-        let costs = super::operating::Costs::new(&mut world.api);
+        let forecast = std::sync::Arc::new(forecast);
+        *cache = Some(CachedForecast {
+            track,
+            fares: fares.clone(),
+            files: self.files.clone(),
+            forecast: forecast.clone(),
+        });
+        Ok(forecast)
+    }
+    pub(super) fn account(
+        &self,
+        save: &[u8],
+        world: &mut World,
+    ) -> Result<super::timed_account::Account, String> {
+        let forecast = self.forecast(save, world)?;
+        let costs = super::operating::Costs::with_prices(&mut world.api, &forecast.run_prices());
         let clock = world.header["clock"].as_f64().ok_or("Jam tidak valid")?;
         let upkeep = self.geo.upkeep(&mut world.api);
         let account =
@@ -733,7 +792,19 @@ mod tests {
                         &p.cells,
                     );
                 }
-                let costs = crate::operating::Costs::new(&mut world.api);
+                let costs =
+                    crate::operating::Costs::with_prices(&mut world.api, &forecast.run_prices());
+                if let Ok(out) = std::env::var("WORLD_NETWORK_LAYERS") {
+                    std::fs::write(
+                        out,
+                        serde_json::to_vec(&crate::network_layers::build(
+                            &world.api,
+                            &forecast.map_lines(),
+                        ))
+                        .unwrap(),
+                    )
+                    .unwrap();
+                }
                 let upkeep = geo.upkeep(&mut world.api);
                 let mut account = crate::timed_account::Account::new(
                     &forecast,
@@ -849,6 +920,35 @@ pub extern "system" fn Java_world_nativegame_NativeRidership_tripCells(
     };
     match calculate() {
         Ok(array) => array,
+        Err(reason) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", reason);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_NativeRidership_networkLayers(
+    mut env: JNIEnv,
+    _: JClass,
+    bytes: JByteArray,
+    manifest: JString,
+) -> jstring {
+    let calculate = || -> Result<String, String> {
+        let save = env.convert_byte_array(bytes).map_err(|e| e.to_string())?;
+        let spec: String = env.get_string(&manifest).map_err(|e| e.to_string())?.into();
+        let files: DemandFiles = serde_json::from_str(&spec).map_err(|e| e.to_string())?;
+        let mut world = World::open(&save).ok_or("Simpanan tidak dapat dibaca")?;
+        let forecast = files.read()?.forecast(&save, &mut world)?;
+        super::operating::Costs::with_prices(&mut world.api, &forecast.run_prices());
+        let mut layers = crate::network_layers::build(&world.api, &forecast.map_lines());
+        layers.project(&world.api);
+        serde_json::to_string(&layers).map_err(|e| e.to_string())
+    };
+    match calculate() {
+        Ok(rows) => env
+            .new_string(rows)
+            .map_or(std::ptr::null_mut(), |s| s.into_raw()),
         Err(reason) => {
             let _ = env.throw_new("java/lang/IllegalStateException", reason);
             std::ptr::null_mut()
