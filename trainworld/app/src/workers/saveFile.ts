@@ -179,7 +179,7 @@ export interface Achieved { at: number; of?: string; v?: number; in?: string[] }
 /** T-1822: `done` is a bit per ticked step (`GUIDE_BITS` in game/guide.ts); `hidden`: closed with the
  * x, brought back in Settings; `closed`: finished and dismissed with Done; `card`: the second card is
  * up (T-2123); `zoom`: the game started on the world map, so the first card begins with a zoom step. */
-export interface GuideSave { done: number; hidden?: true; closed?: true; card?: 2; zoom?: true }
+export interface GuideSave { done: number; hidden?: true; closed?: true; card?: 2; zoom?: true; extension?: { stations: string[]; lines: string[]; length: number; previousDone: number } }
 
 /** T-1826: every header field this build reads, so a field added to `SaveHeader` must be listed. */
 const HEADER_FIELDS: Record<keyof SaveHeader, true> = {
@@ -625,11 +625,12 @@ export async function listSlots(): Promise<SaveSlot[]> {
 /** Save while preserving a slot's latest name (it may have been renamed elsewhere; `lastName`, the
  * name last seen, where the slot has gone, T-1829) and its origin and latest change when `v` has none
  * (T-2037); true if the slot was not there before. */
-export async function writeSlot(key: string, v: StoredSave, lastName?: string): Promise<boolean> {
+export async function writeSlot(key: string, v: StoredSave, lastName?: string, host?: HostWorldSource): Promise<boolean> {
   const s = await store("readwrite");
   const done = committed(s.transaction);
   const old = await req<StoredSave | undefined>(s.get(key));
   await req(s.put({ ...v, name: v.name ?? old?.name ?? lastName ?? slotName(key), origin: v.origin ?? old?.origin, edit: v.edit ?? old?.edit }, key));
+  if (host) await req(s.put({ ...host, at: v.at }, HOST_PREFIX + key));
   await done;
   return !old;
 }
@@ -647,6 +648,20 @@ export async function stampOrigins(origins: Map<string, string>, names: Map<stri
     }
     await done;
   } catch { /* stamped next time */ }
+}
+
+/** Link to the 168Railway archive, independent of upstream leaderboard IDs. */
+export type HostWorldSource = { user: string; id: string; version: number; name: string };
+export type HostWorldLink = HostWorldSource & { at: number; conflict?: boolean };
+const HOST_PREFIX = "168-world:";
+export async function readHostLink(key: string): Promise<HostWorldLink | undefined> {
+  return req((await store("readonly")).get(HOST_PREFIX + key));
+}
+export async function writeHostLink(key: string, link: HostWorldLink): Promise<void> {
+  const s = await store("readwrite");
+  const done = committed(s.transaction);
+  await req(s.put(link, HOST_PREFIX + key));
+  await done;
 }
 
 const SYNC_PREFIX = "sync:";
@@ -723,6 +738,7 @@ export async function deleteSlot(key: string): Promise<void> {
   const done = committed(s.transaction);
   await req(s.delete(key));
   await req(s.delete(SYNC_PREFIX + key));
+  await req(s.delete(HOST_PREFIX + key));
   await req(s.delete(AHEAD_PREFIX + key));
   // and its demand cache (T-328), backups (T-744) and copies kept aside as unreadable (T-743, T-3395)
   for (const k of await req(s.getAllKeys())) if (typeof k === "string" && (k.startsWith(`${DEMAND_PREFIX}${key}:`) || k.startsWith(`${BACKUP_PREFIX}${key}:`) || (k.startsWith(UNREADABLE_PREFIX) && k.endsWith(":" + key)))) s.delete(k);
@@ -976,7 +992,7 @@ export async function readDemandAhead<T>(save: string): Promise<T | null> {
  * new game, picked in the saves panel. The page reloads to free the last game's memory; the clock
  * worker takes this from storage as it starts. */
 export type PendingLoad =
-  | { kind: "import"; bytes: Uint8Array; name: string; from: string; /** T-2037: an account backup's game */ origin?: string; edit?: number;
+  | { kind: "import"; bytes: Uint8Array; name: string; from: string; host?: HostWorldSource; /** T-2037: an account backup's game */ origin?: string; edit?: number;
     /** T-3257: a network viewed from Community, held in no slot until saved under `name` */ view?: boolean }
   | { kind: "restore"; key: string; from: string }
   | { kind: "new"; spec: NewGameSpec; name?: string };

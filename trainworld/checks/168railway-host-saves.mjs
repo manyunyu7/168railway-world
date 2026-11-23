@@ -73,7 +73,7 @@ try{
       'Content-Type':'application/octet-stream','X-World-Name':encodeURIComponent(title),'X-World-Version':'0',
     }});assert.equal(res.status(),201);
     await page.locator('.host-worlds:visible summary').first().click();
-    await page.locator('.host-worlds:visible li').filter({hasText:title}).getByRole('button',{name:'Buka salinan lokal'}).click();
+    await page.locator('.host-worlds:visible li').filter({hasText:title}).getByRole('button',{name:'Lanjutkan dunia'}).click();
     await page.locator('.clock-text .time:visible').first().waitFor({timeout:120000});
     console.log('PASS imported file opened on web via account with its simulation clock.',bytes.length,'bytes');
   }else{
@@ -117,12 +117,12 @@ try{
     assert.equal(gunzipSync(bytes).subarray(0,4).toString(),'TWG1');
     const second=await context.request.put(url,{data:bytes,headers:{...hdr,'Content-Type':'application/octet-stream','X-CSRF-TOKEN':session.csrfToken,'X-World-Name':encodeURIComponent(world.name),'X-World-Version':'1'}});
     assert.equal(second.status(),200);
-  }else assert.equal(submitted,1);
+  }else assert.ok([...stored.values()].some(w=>w.meta.name===name&&w.meta.version===1));
   const row=panel.locator('li').filter({hasText:name});
   page.on('dialog',d=>d.accept());
   rival=true;await row.getByRole('button',{name:'Perbarui',exact:true}).click();
   await panel.getByText(/versi simpanan berubah/).waitFor();
-  if(!realHost)assert.equal(submitted,1);
+  if(!realHost)assert.equal([...stored.values()].find(w=>w.meta.name===name).meta.version,2);
   user='qa-b';if(realHost)await login('b');await row.getByRole('button',{name:'Perbarui',exact:true}).click();
   await panel.getByText(/Akun di browser berubah/).waitFor();
   await panel.getByRole('button',{name:'Muat ulang daftar'}).click();
@@ -140,7 +140,7 @@ try{
   if(process.env.FORK_IMPORT_SAVE)assert.ok(before.length>=1);
   else assert.equal(before.length,0,'a new untouched blank world stays out of local saves');
   user='qa-a';if(realHost)await login('a');await panel.getByRole('button',{name:'Muat ulang daftar'}).click();
-  await row.getByRole('button',{name:'Buka salinan lokal'}).click();
+  await row.getByRole('button',{name:'Lanjutkan dunia'}).click();
   await page.waitForFunction(()=>document.querySelector('.host-worlds[open]')===null,{},{timeout:90000});
   const timeout=Date.now()+60000;let after=[];
   while(Date.now()<timeout){
@@ -162,7 +162,23 @@ try{
   }),copyKey);
   assert.equal(copy.name,name,'the explicit account copy keeps its chosen name after reload');
   assert.ok(copy.bytes>0,'the new local slot contains a game snapshot');
-  if(!realHost)assert.equal(opened,1);console.log('PASS actual Rust/WASM gzip TWG1 snapshot, explicit account upload, stale version, switched account, isolation, and open local copy.',realHost?world.size:stored.values().next().value.bytes.length,'bytes', realHost?'Laravel session, storage and CSRF':'isolated HTTP fixtures');
+  if (!realHost) {
+    const id = [...stored.keys()].find(id => stored.get(id).meta.name === name);
+    const version = stored.get(id).meta.version;
+    await page.goto(new URL('?world=' + id, process.env.FORK_URL).href);
+    await page.locator('.tab.gear.save:visible').first().tap();
+    const upload = page.waitForResponse(r => r.url().endsWith('/worlds/' + id) && r.request().method() === 'PUT' && r.ok());
+    await page.locator('.save-now:visible').first().tap();
+    await upload;
+    assert.equal(stored.get(id).meta.version, version + 1, 'a normal save continued the downloaded UUID');
+    assert.ok((await page.evaluate(slotKeys)).includes(copyKey), 'the local game and its backup slot remain available');
+    const successful = submitted;
+    user = 'qa-b';
+    await page.goto(new URL('?world=' + id, process.env.FORK_URL).href);
+    await page.getByRole('alert').filter({hasText:'Dunia pada tautan'}).waitFor();
+    assert.equal(submitted, successful, 'an account switch did not modify either archive');
+  }
+  if(!realHost)assert.ok(opened >= 1);console.log('PASS actual Rust/WASM gzip TWG1 snapshot, explicit account upload, stale version, switched account, isolation, and open local copy.',realHost?world.size:stored.values().next().value.bytes.length,'bytes', realHost?'Laravel session, storage and CSRF':'isolated HTTP fixtures');
 } catch (error) {
   console.error((await page.locator('body').innerText()).slice(-1500));throw error;
 } finally{await browser.close();}

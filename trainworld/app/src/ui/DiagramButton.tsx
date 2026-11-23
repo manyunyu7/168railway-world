@@ -24,7 +24,7 @@ export function DiagramButton() {
 export function DiagramTopLeft() {
   const share = diagramProgress.value;
   return <div class="map-top-left">
-    <div class="map-top-row">
+    <div class="map-top-row diagram-controls">
       <button type="button" class="btn icon diagram-exit" data-tip={t("diagramButton.showMap")} aria-label={t("diagramButton.showMap")} onClick={() => (diagramShown.value = false)}><Icon.cross /></button>
       <button type="button" class={"btn icon diagram-water" + (diagramWater.value ? " on" : "")} data-tip={t("diagramButton.showWater")} aria-label={t("diagramButton.showWater")} aria-pressed={diagramWater.value} onClick={() => (diagramWater.value = !diagramWater.value)}><Icon.waves /></button>
       <label class="slider diagram-width" data-tip={t("diagramButton.lineWidth")}>

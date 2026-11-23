@@ -1,3 +1,4 @@
+import { inNativeEditor, requestEditorSave } from "../game/nativeEditor";
 import {HostWorlds} from "./HostWorlds";
 // The saved games panel (T-251; the cards from T-241; laid out by T-1395): a centred modal over the
 // page. The head's icon says where the games are kept; New game and Open a file are above the list
@@ -533,6 +534,16 @@ function MainMenuButton() {
 
 /** The modal. */
 export function SavesPanel() {
+  if (!inNativeEditor) return <WebSavesPanel />;
+  if (!savesOpen.value) return null;
+  return <div class="modal-backdrop"><div class="sheet" role="dialog" aria-label="Simpanan perangkat">
+    <h2>Simpanan perangkat</h2><p>Perubahan disimpan ke dunia yang sedang dibuka di HP ini.</p>
+    <button class="btn primary" onClick={() => { requestEditorSave(); savesOpen.value = false; }}>Simpan ke perangkat</button>
+    <button class="btn" onClick={() => { savesOpen.value = false; }}>Tutup</button>
+  </div></div>;
+}
+
+function WebSavesPanel() {
   const open = savesOpen.value;
   // T-728: New game shows the new game sheet in the panel's place
   const [sheet, setSheet] = useState(false);
@@ -540,7 +551,7 @@ export function SavesPanel() {
   useEffect(() => { if (open) { manageSaveSlot("refresh"); void refreshAccountGames(); void refreshMyShares(); } }, [open]);
   return (
     <Modal open={open} onClose={() => (savesOpen.value = false)} title={sheet ? t("savesPanel.newGame") : t("savesPanel.title")} head={sheet ? null : <><CommunityButton /><HeadMark /></>}>
-      {!sheet && open && <HostWorlds active openFile={file=>importGame(file)} />}
+      {!sheet && open && <HostWorlds active openFile={(file,host)=>importGame(file,{host})} />}
       {sheet
         ? <NewGameSheet heading={false} onBack={() => setSheet(false)} onStart={(game) => { newGame(game, "", startAtPicked()); savesOpen.value = false; }} />
         : <Saves onNewGame={() => setSheet(true)} />}

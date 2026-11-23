@@ -18,6 +18,8 @@ import { styleUp } from "./styleReady";
 import { busRoadFilter, railRoadFilter } from "./busRoads";
 import { demBytes, flattenDem, onRedraw } from "./demFlat";
 
+import { loadPlacesAt, places } from "../game/placeList";
+import { inNativeEditor } from "../game/nativeEditor";
 const POSITRON = "https://tiles.openfreemap.org/styles/positron";
 /** The one font stack every basemap label uses: Regular only, Zen Maru has no italic. */
 const FONT = ["Zen Maru Gothic Regular", "Noto Sans Regular"];
@@ -250,7 +252,7 @@ function checkBasemapWait(map: maplibregl.Map, polled = false) {
 }
 
 let demProtocolAdded = false;
-export const terrainUrl = (z: number, x: number, y: number) => TERRAIN_TILES.replace("{z}", `${z}`).replace("{x}", `${x}`).replace("{y}", `${y}`);
+export const terrainUrl = (z: number, x: number, y: number) => inNativeEditor ? new URL(`elevation/${z}/${x}/${y}.png`,document.baseURI).href : TERRAIN_TILES.replace("{z}", `${z}`).replace("{x}", `${x}`).replace("{y}", `${y}`);
 /** the clock worker loads the terrain blocks in view below this width (clock.worker.ts VIEW_SPAN_M) */
 const GRID_VIEW_M = 400_000;
 let demMap: maplibregl.Map | null = null;
@@ -275,6 +277,52 @@ function addDemProtocol() {
 
 /** Loads Positron into the map, restyled. Call once, right after creating the map. */
 export function loadBasemap(map: maplibregl.Map) {
+  if (inNativeEditor) {
+    map.setStyle({
+      version: 8,
+      glyphs: new URL("fonts/",document.baseURI).href + "{fontstack}/{range}.pbf",
+      sources: {
+        locality: { type: "geojson", data: { type: "FeatureCollection", features: [] }, attribution: "© OpenStreetMap contributors" },
+        land: { type: "geojson", data: new URL("../../native-clock/world-countries.geojson", import.meta.url).href, attribution: "Natural Earth (public domain)" },
+        openmaptiles: { type: "vector", tiles: [new URL("roads/{z}/{x}/{y}.pbf", document.baseURI).href.replaceAll("%7B", "{").replaceAll("%7D", "}")], minzoom: 0, maxzoom: 14, attribution: "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" },
+      },
+      layers: [
+        { id: "offline-water", type: "background", paint: { "background-color": "#d9e9ec" } },
+        { id: "offline-land", type: "fill", source: "land", paint: { "fill-color": "#eef0e8" } },
+        { id: "offline-boundary", type: "line", source: "land", paint: { "line-color": "#bfd1c5", "line-width": 1 } },
+        { id:"offline-parks", type:"fill", source:"openmaptiles", "source-layer":"park", paint:{"fill-color":"#dce8d2"} },
+        { id:"offline-water-bodies", type:"fill", source:"openmaptiles", "source-layer":"water", paint:{"fill-color":"#b7d7db"} },
+        { id:"offline-rivers", type:"line", source:"openmaptiles", "source-layer":"waterway", paint:{ "line-color":"#afcfd4", "line-width":["interpolate",["linear"],["zoom"],8,0.6,14,2,19,6] } },
+        { id:"offline-buildings", type:"fill", source:"openmaptiles", "source-layer":"building", minzoom:13, paint:{"fill-color":"#dedbd2","fill-outline-color":"#d4d1c5"} },
+        { id:"offline-roads", type:"line", source:"openmaptiles", "source-layer":"transportation", paint:{
+          "line-color":"#c4c2b2","line-width":["interpolate",["exponential",1.4],["zoom"],8,.6,12,1.5,16,4.6,20,15] } },
+        { id:"offline-road-names", type:"symbol", source:"openmaptiles", "source-layer":"transportation_name",minzoom:14,
+          layout:{"symbol-placement":"line","text-field":["get","name"],"text-font":["Zen Maru Gothic Regular","Noto Sans Regular"],"text-size":10},
+          paint:{"text-color":"#666b60","text-halo-color":"#f8f7f0","text-halo-width":1.4} },
+        { id: "offline-localities", type: "symbol", source: "locality", minzoom: 8, layout: {
+          "text-field": ["get","name"], "text-font": ["Zen Maru Gothic Regular","Noto Sans Regular"], "text-size": 12,
+          "symbol-sort-key": ["get","rank"], "text-max-width": 12,
+        }, paint: { "text-color": "#46584c", "text-halo-color": "#f7f8f0", "text-halo-width": 2 } },
+      ],
+    });
+    const refresh = () => {
+      const center = map.getCenter();
+      if (map.getZoom() >= 8) void loadPlacesAt(center.lng,center.lat).catch(() => {});
+    };
+    const publish = () => {
+      const source = map.getSource<maplibregl.GeoJSONSource>("locality");
+      if (!source) return;
+      source.setData({ type:"FeatureCollection",features:[...places.peek().values()].flat().map(p=>({
+        type:"Feature" as const,geometry:{type:"Point" as const,coordinates:[p.lng,p.lat]},
+        properties:{name:p.name,rank:-p.pop},
+      })) });
+    };
+    const off = places.subscribe(publish);
+    map.on("moveend", refresh);
+    map.on("style.load", () => { refresh(); publish(); });
+    map.once("remove",off);
+    return;
+  }
   demMap = map;
   addDemProtocol();
   addUsgsProtocol();

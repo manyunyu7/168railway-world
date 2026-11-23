@@ -7,6 +7,7 @@
 //
 // URL parameters: docs/code-map.md, "URL switches".
 
+import { editorHome, inNativeEditor, rememberEditorHome, takeEditorArchive } from "./game/nativeEditor";
 import "./ui/style.css";
 import "./ui/railway-theme.css";
 import "./ui/zenmaru.css";
@@ -16,7 +17,9 @@ import "./i18n/hanziround.css";
 import { computed, effect } from "@preact/signals";
 import { h, render } from "preact";
 import { clock, startClock } from "./game/clock";
-import { getWorldFrame, HOME_CITY } from "./game/cities";
+import { makeFrame } from "./game/frame";
+import { viewCentre } from "./game/listScope";
+import { activeCity, cityById, cityWithin, isCity, viewedZone, getWorldFrame, HOME_CITY } from "./game/cities";
 import { ZONE_LOAD_ZOOM } from "./game/zones";
 import { packToLngLat, lngLatToPack } from "./game/coords";
 import { ask, buildLevel, display, isBuildTool, mapShade, selection, shade, snapRealTram, snapRoads, snapStreets, stopEditing, tab, tool, tramTrack, VIDEO } from "./game/ui";
@@ -146,7 +149,7 @@ startTips();
 // ---- the clock: a new game starts on day 1 at 07:00 (morning peak) ----
 startClock(86400 + 7 * 3600);
 effect(() => clock.setBackground(display.value.runInBackground));
-if (params.get("paused") === "1") clock.setRunning(false);
+if (inNativeEditor || params.get("paused") === "1") clock.setRunning(false);
 // T-149, T-172: the clock is held until the viewed city's demand has its first estimate
 startLoadingGate();
 // T-3307: MapLibre cannot start without WebGL2; say what to do, start nothing (the throw ends this module)
@@ -170,19 +173,20 @@ if (!hasWasmSimd()) {
 // already drawn under it.
 // T-2545: the last load in this tab never ended (iOS reloads a page that ran out of memory): say so and
 // start no game, or a game too big for the device would load and die again
-const lastDied = lastLoadDied();
-const urlChoice = lastDied ? null : choiceFromUrl();
+const nativeArchive = takeEditorArchive();
+const lastDied = !nativeArchive && lastLoadDied();
+const urlChoice = nativeArchive ? { nativeArchive } as import("./workers/clockClient").GameChoice : lastDied ? null : choiceFromUrl();
 if (lastDied) loadCannotFinish(outOfMemoryText(), true);
 // Demand pool (T-026) first: its downloads and pack opening are the longest part of startup, so
 // they start before the map is set up (T-172). The clock worker's network snapshots go to
 // `submitNetwork` below (workers/demandClient.ts); `?demandTest=1` solves T-005's hand-made
 // network instead.
 const startDemandPool = (newGame: boolean) => {
-  startDemand(HOME_CITY, newGame);
+  startDemand(HOME_CITY, newGame, inNativeEditor);
 };
 if (urlChoice) {
   startGameWait(waitKey(urlChoice));
-  startDemandPool(!!urlChoice.newGame);
+  if (!nativeArchive) startDemandPool(!!urlChoice.newGame);
 }
 
 // ---- map and overlay ----
@@ -320,7 +324,7 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 window.addEventListener("online", retryDownloads);
 watchFigures(() => client.unansweredSince(), demandStuckSince); // T-3314
 // T-895, T-1196: a game opened from the saves panel (the page reloaded into it) fits its network
-if (urlChoice?.slot || (urlChoice?.pending && !urlChoice.game)) client.fitNextGame();
+if (nativeArchive || urlChoice?.slot || (urlChoice?.pending && !urlChoice.game)) client.fitNextGame();
 // T-2142: a new game starts paused, a sandbox too (the tutorial's last step is the play button); a
 // `?new=1` check page keeps running as before
 const pauseNewGame = (newGame: boolean | undefined) => { if (newGame && params.get("new") !== "1") clock.setRunning(false); };
@@ -766,8 +770,19 @@ render(h(TopBar, null), document.getElementById("topbar-root")!);
 render(h(ToolNotes, null), document.getElementById("tools-root")!);
 
 // ---- demand (the pool started at the top, or with the pick) ----
-onNetworkSnapshot(submitNetwork);
+let editorPoolStarted = false;
+function startEditorPool(location?: string | null) {
+  if (!nativeArchive || editorPoolStarted) return;
+  editorPoolStarted = true;
+  const focus = cityById(editorHome || location || HOME_CITY);
+  rememberEditorHome(focus.id);
+  activeCity.value = viewedZone.value = focus.id;
+  viewCentre.value = focus.center;
+  startDemand(focus.id,false,true);
+}
+onNetworkSnapshot(snap => { startEditorPool(); submitNetwork(snap); });
 onStationsAhead((frame, xy, fine, built, home) => {
+  if (nativeArchive) startEditorPool(home && isCity(home) ? home : cityWithin(...makeFrame(frame).toLonLat(xy[0],xy[1])));
   stationsAhead(frame, xy, fine, built);
   // T-1539: the camera on the loading save's network now, so its cached figures can show before it is worked out
   if (perfOff("cacheAhead")) return;

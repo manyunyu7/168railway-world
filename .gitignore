@@ -7,6 +7,7 @@ __pycache__/
 trainworld/sim/target/
 trainworld/app/src/wasm/
 trainworld/app/dist/
+trainworld/app/dist-native-clock/
 
 # game data (6 GB; the dev server fetches it from anita.garden when this folder is missing) and pipeline scratch
 trainworld/data/

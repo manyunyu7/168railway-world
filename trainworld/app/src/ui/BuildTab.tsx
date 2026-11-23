@@ -1,6 +1,7 @@
 // The Build tab: the tools and the blueprint quote. The track and station tools' options are on the
 // map while the tool is on (ToolBar.tsx, T-2282).
 
+import { inNativeEditor } from "../game/nativeEditor";
 import { tool } from "../game/ui";
 import { t } from "../i18n";
 import { BuildGlyph } from "./BuildGlyph";
@@ -32,6 +33,10 @@ export function BuildTab() {
             <BuildGlyph tool={id}/><span class="tool-label">{label}</span><kbd class="key muted">{key}</kbd>
           </button>)}
         </div>
+        {inNativeEditor && <button class={"btn text" + (cur === "trip" ? " on" : "")}
+          aria-pressed={cur === "trip"} onClick={() => cur === "trip" ? live.tools?.exit() : pickTool("trip")}>
+          {t("help.exploreTrip")}
+        </button>}
         <BlueprintPick />
       </div>
       <BlueprintControls />

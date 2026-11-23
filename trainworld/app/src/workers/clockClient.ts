@@ -37,9 +37,12 @@ import { loadFailText } from "../game/loadText";
 import { decodeSave, isDamagedError, isUncheckedError, readStored, writePending, type GuideSave, type NewGameSpec, type PendingLoad, type SaveSlot } from "./saveFile";
 import type { CloudContext } from "./cloud";
 import type { FrameSpec } from "../game/frame";
+import { inNativeEditor, requestEditorSave } from "../game/nativeEditor";
 import { dataUrl, TERRAIN_BASE } from "../game/dataBase";
 import { packedOutlines } from "../map/coarseOutlines";
 import { heapStep } from "./deviceMemory";
+import { newerHostWorld, queueHostSave, startHostSession } from "../game/hostWorldSync";
+import type { HostWorldSource } from "./saveFile";
 import { markDownloaded } from "../game/keepState";
 import { saveRefusal } from "../game/memoryCheck";
 import { askBeforeLeaving, keepStorage } from "../game/saveSafety";
@@ -68,8 +71,13 @@ const STOP_READS = new Set(["stopTiers", "stopGap", "insertStop", "passedStation
  * save, and the next click waited behind them */
 const STOP_HOLD_MS = 500;
 export function manageSaveSlot(action: Extract<ToClock, { kind: "saveSlot" }>["action"], key?: string, name?: string) {
+  if (inNativeEditor) { if (action === "save") requestEditorSave(); return; }
   // T-1196: a game opened or restored reloads the page into it, T-1197: if it fits
-  if (action === "open" && key && key !== saveSlotsState.peek().active) return void ifItFits({ key }, () => switchGame({ slot: key }));
+  if (action === "open" && key && key !== saveSlotsState.peek().active) {
+    return void newerHostWorld(key).then(remote => remote
+      ? importGame(remote.file, { host: remote.source })
+      : ifItFits({ key }, () => switchGame({ slot: key })).then(() => {}));
+  }
   if (action === "restore" && key) return void ifItFits({ key }, () => switchGame({ load: "restore" }, { kind: "restore", key, from: saveSlotsState.peek().active }));
   // T-1852: deleting the game being played ends it; the page then goes back to the start menu
   if (action === "delete" && key && key === saveSlotsState.peek().active && current?.running) {
@@ -416,14 +424,14 @@ export async function exportSlot(slot: SaveSlot): Promise<boolean> {
 }
 /** Load a save file the player picked, into a new slot named after the file (T-743).
  * `version`: the file is a version of that game (an account backup, T-2037), else a game of its own. */
-export async function importGame(file: File, version?: { origin: string; edit: number }) {
+export async function importGame(file: File, version?: { origin: string; edit: number } | { host: HostWorldSource }) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (await ifItFits({ bytes })) switchGame({ load: "file" }, { kind: "import", bytes, name: file.name.replace(/\.save$/i, ""), from: saveSlotsState.peek().active, ...version });
 }
 /** T-1612: a save file picked on the start menu, where no game is in hand to reload from: its game is
  * left in storage as after `switchGame`, and the menu's pick is `{ pending: true }`. A reason (to show)
  * when the file cannot open. */
-export async function fileChoice(file: File, version?: { origin: string; edit: number }, warn?: boolean): Promise<GameChoice | string | { warn: string }> {
+export async function fileChoice(file: File, version?: { origin: string; edit: number } | { host: HostWorldSource }, warn?: boolean): Promise<GameChoice | string | { warn: string }> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   try { await decodeSave(bytes); } catch (err) { return isDamagedError(err) ? t("clockWorker.saveDamaged") : isUncheckedError(err) ? loadFailText(String(err)) : t("clockClient.notSave"); }
   const why = await saveRefusal({ bytes }, warn);
@@ -465,6 +473,7 @@ export function pageWith(params: Record<string, string>): string {
  * last one held (its demand workers' memory never shrinks while they live: 2.5 GB each after all of
  * China). The game in hand is saved first; if it cannot be, the player is told and stays. */
 export function switchGame(params: Record<string, string>, pending?: PendingLoad) {
+  if (inNativeEditor) return;
   void leaveViewed().then((go) => { if (go) switchNow(params, pending); });
 }
 function switchNow(params: Record<string, string>, pending?: PendingLoad) {
@@ -479,6 +488,7 @@ function toStartMenu() {
 /** T-988: the page goes to the start menu, the game in hand saved and let go first; `then` runs just
  * before the reload, and only if the game could be saved. */
 export function leaveToMenu(then: () => void) {
+  if (inNativeEditor) return;
   const go = () => { then(); toStartMenu(); };
   if (current) void leaveViewed().then((ok) => { if (ok) current?.leave(undefined, go); });
   else go();
@@ -520,6 +530,8 @@ export function flipSide(): Promise<Float64Array | null> {
 
 /** Which game the page opens (T-677). */
 export interface GameChoice {
+  /** Bundled Android clock owns its TWG1 in native storage and has no browser save slot. */
+  nativeArchive?: ArrayBuffer;
   /** `?new=1`: a new game that owns no slot (T-320) */
   fresh?: boolean;
   /** the slot to open; absent, the one opened last */
@@ -669,7 +681,7 @@ export class ClockClient {
     if (this.worker) return;
     this.spawnWorker();
     const q = new URLSearchParams(location.search);
-    const fresh = !!choice.fresh;
+    const fresh = !!choice.fresh || !!choice.nativeArchive;
     // T-320: a check or stress page never writes over a saved game
     this.testPage = fresh || q.get("synth") === "1" || q.get("demandTest") === "1";
     let slot = choice.slot ?? "autosave";
@@ -678,7 +690,8 @@ export class ClockClient {
     const readFails = q.get("debug") === "1" ? Number(q.get("readFails")) || undefined : undefined;
     this.patchMode = q.get("patch") ?? "1";
     // (first, before any message posted ahead of the start)
-    this.waiting.unshift([{ kind: "init", pack: dataUrl(this.cityId), terrain: TERRAIN_BASE, fresh, testPage: this.testPage, slot, newSlot: choice.newSlot, backupMs, game: choice.game, pending: choice.pending, patch: this.patchMode, guide: !guideFinished.peek(), bandMode: bandTry(), readFails, heapStep: heapStep() } satisfies ToClock, choice.game?.real ? [choice.game.real] : []]);
+    if (!this.testPage) startHostSession();
+    this.waiting.unshift([{ kind: "init", pack: dataUrl(this.cityId), terrain: TERRAIN_BASE, fresh, nativeArchive: choice.nativeArchive, testPage: this.testPage, slot, newSlot: choice.newSlot, backupMs, game: choice.game, pending: choice.pending, patch: this.patchMode, guide: !guideFinished.peek(), bandMode: bandTry(), readFails, heapStep: heapStep() } satisfies ToClock, choice.nativeArchive ? [choice.nativeArchive] : choice.game?.real ? [choice.game.real] : []]);
     // T-2802: the page's parse of the outlines, copied, in place of the worker's own fetch and parse
     void packedOutlines().then((packed) => this.post({ kind: "outlines", packed }));
   }
@@ -1191,6 +1204,7 @@ export class ClockClient {
         for (const f of roadsListeners) f();
         break;
       case "loaded":
+        if (msg.from === "autosave" && msg.slot && !msg.error && !this.testPage) queueHostSave(msg.slot);
         // the game now in the worker may be in the other frame (T-125); first, before anything reads positions
         setWorldFrame(msg.frame);
         this.lastLoad = { from: msg.from, converted: !!msg.converted };
@@ -1251,6 +1265,7 @@ export class ClockClient {
         break;
       }
       case "saved":
+        queueHostSave(msg.slot, msg.force);
         lastSaved.value = msg.at;
         break;
       case "accountGone":

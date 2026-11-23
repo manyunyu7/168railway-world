@@ -1,0 +1,246 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+package world.nativegame
+
+import android.app.Activity
+import android.content.Intent
+import android.os.Bundle
+import android.os.Build
+import android.view.Gravity
+import android.view.View
+import android.view.WindowInsets
+import android.widget.*
+import org.json.JSONObject
+import java.util.UUID
+import java.util.concurrent.Executors
+
+class StudioLibraryActivity : Activity() {
+    private val worker = Executors.newSingleThreadExecutor()
+    private val links by lazy { getSharedPreferences("studio-host-worlds", MODE_PRIVATE) }
+    private val cities by lazy { StudioCatalog.get(this).cities().toList() }
+    private lateinit var body: LinearLayout
+    private lateinit var status: TextView
+    private lateinit var owner: String
+    private var operation = 0
+    private var locked = false
+    private var allLocal = false
+    private var requestedAction: String? = null
+    private val source get() = intent.getStringExtra("archiveSource")
+    private fun user() = StudioPendingSaves.user(this)
+    private fun session() = StudioPendingSaves.session(this,owner)
+    private fun dp(n: Int) = (resources.displayMetrics.density * n).toInt()
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        owner = state?.getString("owner") ?: user().orEmpty()
+        body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(12), dp(18), dp(24))
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            body.setOnApplyWindowInsetsListener { view, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                view.setPadding(dp(18) + bars.left, dp(12) + bars.top, dp(18) + bars.right, dp(24) + bars.bottom)
+                insets
+            }
+        }
+        window.statusBarColor = StudioDepot.PAPER
+        window.navigationBarColor = StudioDepot.PAPER
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+            (if (Build.VERSION.SDK_INT >= 26) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0)
+        setContentView(ScrollView(this).apply { setBackgroundColor(StudioDepot.PAPER); isVerticalScrollBarEnabled = false; addView(body) })
+        requestedAction = if (state == null) intent.getStringExtra("studioAction") else null
+        if (owner.isBlank() || owner != user()) {
+            setResult(RESULT_CANCELED, Intent().putExtra("studioError","Masuk kembali ke akun 168Railway untuk membuka koleksi dunia."))
+            finish()
+            return
+        }
+        StudioPendingSaves.schedule(this)
+        refresh()
+    }
+    override fun onRestart() {
+        super.onRestart()
+        if (user() == owner) refresh() else finish()
+    }
+    override fun onSaveInstanceState(state: Bundle) { super.onSaveInstanceState(state); state.putString("owner", owner) }
+    private fun action(
+        label: String,
+        icon: StudioUi.Icon? = null,
+        tone: StudioUi.Tone = StudioUi.Tone.SURFACE,
+        click: () -> Unit
+    ): Button {
+        val button = StudioUi.button(this,label,tone,icon) { if (!locked) click() }
+        if (tone == StudioUi.Tone.PRIMARY) {
+            button.background = StudioDepot.touch(this,StudioDepot.CORAL,16)
+            button.setTextColor(StudioDepot.TEAL)
+            button.setPadding(dp(16),dp(8),dp(16),dp(8))
+            button.minHeight = dp(52)
+        }
+        button.gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+        body.addView(button,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(8) })
+        return button
+    }
+    private fun <T> runJob(message: String, task: () -> T, allowNavigation: Boolean = false, done: (T) -> Unit) {
+        val sequence = ++operation
+        locked = !allowNavigation
+        if (!allowNavigation) for (i in 0 until body.childCount) body.getChildAt(i).isEnabled = false
+        status.text = message
+        worker.execute {
+            val result = runCatching(task)
+            runOnUiThread {
+                if (isDestroyed || isFinishing || operation != sequence) return@runOnUiThread
+                locked = false
+                for (i in 0 until body.childCount) body.getChildAt(i).isEnabled = true
+                if (owner != user()) { finish(); return@runOnUiThread }
+                result.onSuccess(done).onFailure { status.text = it.localizedMessage ?: "Coba lagi." }
+            }
+        }
+    }
+    private fun refresh() {
+        body.removeAllViews()
+        fun append(view: View, gap: Int = 0, height: Int = -2) =
+            body.addView(view,LinearLayout.LayoutParams(-1,if (height < 0) height else dp(height)).apply { topMargin = dp(gap) })
+        val toolbar = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(StudioDepot.tools(context,StudioUi.Icon.BACK,"Kembali") { if (!locked) finish() },
+                LinearLayout.LayoutParams(dp(48),dp(48)))
+            addView(StudioUi.text(context,"168Railway Studio",18f,true,StudioDepot.TEAL),
+                LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
+            addView(StudioDepot.tools(context,StudioUi.Icon.CLOUD,"Muat ulang daftar akun") { if (!locked) refresh() },
+                LinearLayout.LayoutParams(dp(48),dp(48)))
+        }
+        append(toolbar)
+        append(StudioDepot.scene(this,"Duniaku","Pustaka jaringan"),12,146)
+        status = StudioUi.text(this,"",14f,color = StudioDepot.SECONDARY).apply {
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        val mine = WorldDocuments.list(this).mapNotNull { slot ->
+            val link = links.getString(slot.id,null)?.let(::JSONObject)
+            if (link?.optString("owner") == owner) slot to link else null
+        }
+        val active = mine.firstOrNull { it.first.id == source }
+        if (active != null) {
+            append(StudioDepot.shelf(this,active.first.title),16)
+            action("Simpan perubahan ke Studio",StudioUi.Icon.SAVE,StudioUi.Tone.PRIMARY) { upload(active.first, false) }
+            action("Simpan sebagai dunia baru",StudioUi.Icon.FOLDER) { upload(active.first, true) }
+        }
+        fun createWorld() {
+            StudioCityStart.begin(this) { slot ->
+                remember(slot.id,JSONObject().put("id",UUID.randomUUID().toString()).put("version",0).put("name",slot.title))
+                StudioPendingSaves.markDirty(this,slot.id)
+                open(slot)
+            }
+        }
+        action("Bangun dunia baru",StudioUi.Icon.PLUS,StudioUi.Tone.PRIMARY) { createWorld() }
+        if (mine.isNotEmpty()) {
+            append(StudioDepot.shelf(this,"Di perangkat · ${mine.size}"),20)
+            val pending = StudioPendingSaves.pendingIds(this)
+            val shown = if (allLocal) mine else mine.take(2)
+            for ((slot,link) in shown) {
+                val revision = link.getInt("version")
+                val local = when {
+                    StudioPendingSaves.conflicted(this,slot.id) -> "Ada perubahan di HP dan web"
+                    StudioPendingSaves.failure(this,slot.id) != null -> "Belum tersinkron"
+                    slot.id in pending -> "Menunggu sinkronisasi"
+                    revision == 0 -> "Belum diunggah"
+                    else -> "Tersinkron · versi $revision"
+                }
+                val cityName = cities.firstOrNull { it.id == slot.city }?.name
+                val details = listOfNotNull(cityName,local).joinToString(" · ")
+                append(StudioDepot.ticket(this,slot.title,details,StudioUi.Icon.TRAIN) { if (!locked) confirmPlay(slot.title,slot.city,details) { open(slot) } },7)
+            }
+            if (mine.size > 2) action(if (allLocal) "Tampilkan lebih sedikit" else "Lihat semua dunia di perangkat") {
+                allLocal = !allLocal
+                refresh()
+            }
+        } else {
+            append(StudioDepot.shelf(this,"Di perangkat"),20)
+            append(StudioUi.text(this,"Belum ada dunia tersimpan di HP ini. Mulai dunia baru atau pilih simpanan akun di bawah.",15f,color=StudioDepot.SECONDARY),4)
+        }
+        append(StudioDepot.shelf(this,"Dunia di akun"),20)
+        append(status,3)
+        if (requestedAction == "save" && active != null) {
+            requestedAction = null
+            upload(active.first,false)
+            return
+        }
+        runJob("Mengambil dunia dari Studio…", { WorldCloud.list(session()) }, allowNavigation = true) { rows ->
+            status.text = if (rows.length() == 0) "Belum ada dunia di akun Studio." else ""
+            for (i in 0 until rows.length()) {
+                val row = rows.getJSONObject(i)
+                val card = StudioDepot.ticket(this,row.getString("name"),"Simpanan akun · ${saveDetails(row)}",StudioUi.Icon.CLOUD,0xffdceaf1.toInt()) {
+                    if (locked) return@ticket
+                    val local = mine.firstOrNull { (_, link) ->
+                        link.getString("id") == row.getString("id") && link.getInt("version") == row.getInt("version")
+                    }
+                    confirmPlay(row.getString("name"),local?.first?.city,"Simpanan akun · ${saveDetails(row)}") { if (local == null) download(row) else open(local.first) }
+                }
+                append(card,7)
+            }
+        }
+    }
+    private fun confirmPlay(title: String, cityId: String?, detail: String, play: () -> Unit) {
+        val city = cities.firstOrNull { it.id == cityId }
+        lateinit var go: Button
+        StudioUi.sheet(this,"Lanjutkan permainan?",pinnedAction={ go }) { content, dialog ->
+            val map = city?.let { StudioMapPreview.image(this,StudioMapPreview.cityPath(it.id),"Peta wilayah "+it.name) }
+            if (map != null) {
+                content.addView(map,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
+                content.addView(StudioUi.text(this,title,22f,true,StudioDepot.TEAL))
+            } else {
+                content.addView(StudioDepot.scene(this,title,"Dunia Studio",true),
+                    LinearLayout.LayoutParams(-1,dp(130)).apply { topMargin=dp(8) })
+            }
+            content.addView(StudioUi.text(this,detail,15f,color=StudioDepot.SECONDARY))
+            content.addView(StudioUi.button(this,"Kembali") { dialog.dismiss() },
+                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
+            go = StudioUi.button(this,"Mainkan",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
+                dialog.dismiss()
+                if (!locked && user() == owner) play()
+            }
+        }
+    }
+    private fun download(row: JSONObject) {
+        runJob("Mengunduh dunia…", {
+            val account = session()
+            val id = row.getString("id")
+            val bytes = WorldCloud.read(account,id,row.getInt("version"))
+            val header = WorldDocuments.header(bytes)
+            Triple(bytes,header,cities)
+        }) { (bytes,header,catalog) ->
+            fun install(city: String) {
+                runJob("Membuka jaringan…", {
+                    session()
+                    val slot = WorldDocuments.import(this,bytes,row.getString("name"),city,owner)
+                    remember(slot.id,row,StudioPendingSaves.hash(bytes))
+                    slot
+                }, done = ::open)
+            }
+            val city = WorldDocuments.startingCity(header,catalog)
+            if (city != null) install(city)
+            else StudioZonePicker.show(this,StudioCatalog.get(this),"","Pilih peta dunia ini",select=::install)
+        }
+    }
+    private fun remember(slot: String, row: JSONObject, hash: String? = null) {
+        val link = JSONObject().put("owner",owner).put("id",row.getString("id")).put("version",row.getInt("version")).put("name",row.optString("name"))
+        if (hash != null) link.put("hash",hash)
+        check(links.edit().putString(slot,link.toString()).commit())
+    }
+    private fun open(slot: WorldDocuments.Slot) {
+        startActivityForResult(Intent(this,NativeWorldActivity::class.java).putExtra("archiveSlot",slot.id).putExtra("hostLibrary",true),168)
+    }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if (requestCode == 168 && resultCode == RESULT_OK) {
+            setResult(RESULT_OK,data)
+            finish()
+        }
+    }
+    private fun upload(slot: WorldDocuments.Slot, copy: Boolean) {
+        runJob("Menyimpan jaringan…", {
+            StudioPendingSaves.upload(this,slot.id,owner,slot.title,copy)
+        }) {
+            Toast.makeText(this,"Dunia tersimpan di Studio",Toast.LENGTH_SHORT).show()
+            if (intent.getStringExtra("studioAction") == "save") finish() else refresh()
+        }
+    }
+    override fun onDestroy() { worker.shutdownNow(); super.onDestroy() }
+}

@@ -146,6 +146,13 @@ impl TrackApi {
         d.cars = cars;
         self.run(Op::Line { id, data: Some(d) })
     }
+    /// Change station and terminal waiting times without replacing the line or its stop order.
+    pub fn set_line_stop_times(&mut self, id: u32, dwell: u32, turn: u32) -> u32 {
+        let Some(mut data) = self.w.net.line_data(id) else { return self.refuse(Issue::NoSuchLine { line: id }); };
+        data.dwell_s = dwell.clamp(5, 600) as f32;
+        data.turnaround_s = turn.clamp(15, 1800) as f32;
+        self.run(Op::Line { id, data: Some(data) })
+    }
     /// A copy has the source's stops and settings but no trains until the player sets them
     /// (T-1161): headways stay headways, at none.
     pub fn copy_line(&mut self, source: u32, id: u32, name: String) -> u32 {

@@ -1,0 +1,5 @@
+Nama halte koridor TransJakarta dalam skenario Jakarta bersumber dari GTFS TransJakarta.
+https://gtfs.transjakarta.co.id/files/file_gtfs.zip
+Posisi halte berasal dari relasi rute OpenStreetMap yang dipakai skenario, © OpenStreetMap contributors, ODbL 1.0.
+https://www.openstreetmap.org/copyright
+Katalog nama tersedia dalam reference/transjakarta-stops.tsv bersama kode sumber aplikasi.

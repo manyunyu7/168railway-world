@@ -42,7 +42,7 @@ import { buildingMembers, buildingsFrom, withBuildingLinks } from "../game/build
 import { IN_BUILDING, UPGRADE, UPGRADE_BITS } from "../game/upgrades";
 import { saveNetKey } from "./demandCache";
 import { fetchRange } from "./rangeFetch";
-import { newDay, newHour, addEntry, currentZones, decodeSave, encodeSave, isThisWorld, isRetiredTrackFormat, trackFrameKind, readStored, failReads, StorageReadError, SAVE_FORMAT, START_CASH, NEW_LINE_CARS, START_CLOCK, writeStored, listSlots, writeSlot, renameSlot, leaseSlot, ORIGINAL_SLOT, SAVE_DAMAGED, isDamagedError, unreadableKey, setNetworkCheck, markDamaged, rescueGood, listBackups, writeBackup, backupSlot, BACKUP_STEPS, headerUnread, nextGameName, newGameName, slotName, takePending, writePending, readSync, writeSync, sweepDeleted, makeRoom, lastSync, WHOLE_PANEL, type PendingLoad, type GameMode, type NewGameSpec, type SlotBackup, type SlotLease, type SlotSummary, type StoredSave, type DayLedger, type HourLedger, type SaveHeader, type NewHeadways, cleanNewHeadways, type GuideSave, type Achieved } from "./saveFile";
+import { newDay, newHour, addEntry, currentZones, decodeSave, encodeSave, isThisWorld, isRetiredTrackFormat, trackFrameKind, readStored, failReads, StorageReadError, SAVE_FORMAT, START_CASH, NEW_LINE_CARS, START_CLOCK, writeStored, listSlots, writeSlot, renameSlot, leaseSlot, ORIGINAL_SLOT, SAVE_DAMAGED, isDamagedError, unreadableKey, setNetworkCheck, markDamaged, rescueGood, listBackups, writeBackup, backupSlot, BACKUP_STEPS, headerUnread, nextGameName, newGameName, slotName, takePending, writePending, readSync, writeSync, sweepDeleted, makeRoom, lastSync, WHOLE_PANEL, type PendingLoad, type GameMode, type NewGameSpec, type SlotBackup, type SlotLease, type SlotSummary, type StoredSave, type HostWorldSource, type DayLedger, type HourLedger, type SaveHeader, type NewHeadways, cleanNewHeadways, type GuideSave, type Achieved } from "./saveFile";
 import { StateRows, upgradesOf, type RowEnv } from "./stateRows";
 import { PlatformLines } from "./platformLines";
 import { lineProfile } from "./lineProfile";
@@ -352,6 +352,7 @@ const TRAM_NEW_CARS = 2, TRAM_MAX_CARS = 4;
  * says a new normal game starts with it. */
 let guide: GuideSave | undefined;
 let guideWanted = false;
+let nativeArchiveSession = false;
 /** T-2395: where the game opens (`SaveHeader.home`); undefined: none */
 let home: string | undefined;
 /** T-3115: the Community share this game is a copy of (`SaveHeader.copy`); undefined: the player's own */
@@ -402,7 +403,7 @@ function hold(lease: SlotLease | null) {
   });
 }
 /** the start menu's new game (T-677): its slot's name, given at its first write */
-let newSlotName: { key: string; name: string; keepEmpty?: boolean } | null = null;
+let newSlotName: { key: string; name: string; keepEmpty?: boolean; host?: HostWorldSource } | null = null;
 /** the active slot while nothing is stored under it (a new game's, T-677) */
 let unwritten: string | null = null;
 let storageReady = true;
@@ -548,7 +549,7 @@ async function flushBeforeSwitch() {
  * named `name`; the game being played is saved first and keeps its slot. `load` replaces the game
  * (throwing changes nothing). A new game's slot is written once something changes, a loaded one's
  * at once. A test page has no slot to keep: the game is replaced in the page and owns none. */
-async function intoNewSlot(name: string, load: () => Promise<unknown> | void, writeNow: boolean, version?: { origin?: string; edit: number; at: number }) {
+async function intoNewSlot(name: string, load: () => Promise<unknown> | void, writeNow: boolean, version?: { origin?: string; edit: number; at: number }, host?: HostWorldSource) {
   // T-2037: a backup opened is a version of its game (`version`); a file or a new game starts one
   const held = () => { if (version) { heldFrom(version); gameOrigin ??= newGameId(); seenEdit = 0; } else heldNew(); };
   if (testPage) {
@@ -575,7 +576,7 @@ async function intoNewSlot(name: string, load: () => Promise<unknown> | void, wr
   hold(lease);
   viewing = viewCard = null;
   unwritten = key;
-  newSlotName = { key, name, keepEmpty: writeNow };
+  newSlotName = { key, name, keepEmpty: writeNow, host };
   saveFailure = undefined;
   dirty = writeNow;
   savedAt = Date.now();
@@ -616,7 +617,7 @@ async function saveView() {
 async function keepAsLoaded(key: string) {
   const name = newSlotName?.key === key ? newSlotName.name : undefined;
   try {
-    await writeSlot(key, { bytes: newerFile!, at: Date.now(), day: Math.floor(gameNow() / 86400), city, ...await slotSummary(), name });
+    await writeSlot(key, { bytes: newerFile!, at: Date.now(), day: Math.floor(gameNow() / 86400), city, ...await slotSummary(), name }, undefined, newSlotName?.key === key ? newSlotName.host : undefined);
     if (name) newSlotName = null;
     if (unwritten === key) unwritten = null;
     dirty = false;
@@ -2738,7 +2739,8 @@ function autosave(): Promise<boolean> {
       const lastName = activeName?.key === key ? activeName.name : undefined;
       // T-1829: a failed write tries once more, on a connection opened again and, when the browser
       // is out of room, with the demand caches dropped
-      const fresh = await writeSlot(key, record, lastName).catch(async (err) => { if (!await makeRoom(err)) throw err; return writeSlot(key, record, lastName); });
+      const source = newSlotName?.key === key ? newSlotName.host : undefined;
+      const fresh = await writeSlot(key, record, lastName, source).catch(async (err) => { if (!await makeRoom(err)) throw err; return writeSlot(key, record, lastName, source); });
       // T-1829: a slot this game had written found gone (the browser's storage cleared under it):
       // the game is written again above, and its tie to the account put back
       const first = fresh && unwritten === key;
@@ -2751,7 +2753,7 @@ function autosave(): Promise<boolean> {
       savedAt = at;
       seenEdit = editAt;
       saveFailure = undefined;
-      send({ kind: "saved", at });
+      send({ kind: "saved", at, slot: key, force });
       await publishSlots();
       slotChanges?.postMessage({ key });
       return true;
@@ -2833,6 +2835,7 @@ async function manageSlot(msg: Extract<ToClock, { kind: "saveSlot" }>) {
         await writeSlot(key, { bytes, at: Date.now(), day: Math.floor(gameNow() / 86400), city, name: msg.name?.trim() || "Saved game", ...await summaryP, origin: gameOrigin, edit: editAt || undefined });
         seenEdit = editAt;
         void cloudAfterWrite(key, false, true); // T-988: a new game on the account
+        send({ kind: "saved", at: Date.now(), slot: key, force: true });
         // Finish earlier writes before releasing the old slot's guard. The new copy is already safe.
         if (activeLease) await autosave();
         activeLease?.release();
@@ -2907,7 +2910,7 @@ let loadingInto: string | null = null;
  * format. Money, fares and the ledger load as saved, but for anything settled after the clock
  * (`unsettleAfter`). With `fresh`, the save is a real network a new game starts from (T-731): only
  * its network and fleet are kept, the rest is a new game's (fares too, T-1906). */
-async function loadGame(bytes: Uint8Array, from: "autosave" | "file" | "new", fresh?: NewGameSpec): Promise<boolean> {
+async function loadGame(bytes: Uint8Array, from: "autosave" | "file" | "new", fresh?: NewGameSpec, requireWritable = false): Promise<boolean> {
   todayGen++;
   todayLast = null;
   rowsSent = ""; // a load's service starts with no line calendars (`TrackApi.set_line_rows`)
@@ -2920,6 +2923,7 @@ async function loadGame(bytes: Uint8Array, from: "autosave" | "file" | "new", fr
   if (isRetiredTrackFormat(track)) throw new Error("This save is from an older version of the game and no longer opens.");
   // T-1826: before any conversion, which would write only what this build read
   const unread = !fresh && (headerUnread(decoded.header, TrackApi.save_level()) || TrackApi.save_unread(track) > 0);
+  if (requireWritable && unread) throw new Error("A newer Studio version is needed to play this world.");
   let net = track, converted = false;
   if (trackFrameKind(track) !== NEW_GAME_FRAME.kind) {
     const c = TrackApi.convert_save_frame(track, frameKindNumber(NEW_GAME_FRAME.kind));
@@ -2958,7 +2962,7 @@ async function loadGame(bytes: Uint8Array, from: "autosave" | "file" | "new", fr
   newLineCars = h.newCars ?? NEW_LINE_CARS;
   newLineWeekendShare = typeof h.newWeekendShare === "number" && Number.isFinite(h.newWeekendShare) ? h.newWeekendShare : null;
   newLineHeadway = cleanNewHeadways(h.newHeadway);
-  guide = h.mode === "sandbox" ? undefined : h.guide;
+  guide = h.guide; // An explicit Android sandbox tutorial can carry progress in the same archive.
   // 168Railway: a normal game started from a real network (Jabodetabek's presets) gets the guide too, on its second
   // card (running the lines: play, crowding, the levels, traffic, the share): the first card's building is done
   if (fresh?.real && h.mode === "normal" && guideWanted && !testPage) guide = { done: 0, card: 2 };
@@ -4418,6 +4422,13 @@ async function processMessage(msg: ToClock) {
       send({ kind: "ready", initMs: performance.now() - t0, frame: frameSpec() });
       // The last game, unless the page asked for a new one (T-029).
       testPage = !!(msg.fresh || msg.testPage);
+      if (msg.nativeArchive) {
+        nativeArchiveSession = true;
+        activeSlot = "";
+        hold(null);
+        await loadGame(new Uint8Array(msg.nativeArchive), "file", undefined, true);
+        return;
+      }
       guideWanted = msg.guide === true;
       if (msg.backupMs && msg.backupMs > 0) backupSteps = BACKUP_STEPS.map((s) => s / BACKUP_STEPS[0] * msg.backupMs!);
       if (msg.readFails) failReads(msg.readFails);
@@ -4456,7 +4467,7 @@ async function processMessage(msg: ToClock) {
         try {
           const g = incoming;
           if (g.view) await intoView(g.name, () => loadGame(g.bytes, "file"));
-          else await intoNewSlot(g.name, () => loadGame(g.bytes, "file"), true, g.version);
+          else await intoNewSlot(g.name, () => loadGame(g.bytes, "file"), true, g.version, pending?.kind === "import" ? pending.host : undefined);
           return;
         } catch (err) {
           if (isPanic(err)) send({ kind: "loaded", from: "file", clock: START_CLOCK, frame: frameSpec(), error: SAVE_PANIC, why: afterLoadPanic(err), game });
@@ -4868,7 +4879,7 @@ async function handleMessage(msg: ToClock) {
       }
     }
   } else if (msg.kind === "guide") {
-    if (mode !== "sandbox") { // T-1835: Settings can start the guide in a game saved without one
+    if (mode !== "sandbox" || nativeArchiveSession) { // T-1835: Settings can start the guide in a game saved without one
       guide = msg.guide;
       dirty = true;
       sendMoney();

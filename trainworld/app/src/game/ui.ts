@@ -532,7 +532,7 @@ if (typeof window !== "undefined") {
 }
 // Text measured before Nunito has loaded (station names, capacity tags) is measured again by the
 // "tw-fontchange" event.
-void loadNunito().then(() => document.dispatchEvent?.(new Event("tw-fontchange")));
+if (!import.meta.env?.TW_NATIVE_CLOCK || location.pathname === "/clock/editor.html") void loadNunito().then(() => document.dispatchEvent?.(new Event("tw-fontchange")));
 effect(() => {
   if (VIDEO) return; // T-2774
   const s = { tab: tab.value, theme:theme.value, shade: shade.value, display: display.value, dock: dockLayout.value, build: { level: buildLevel.value, ramp: autoRamp.value, hsr: highSpeed.value, tram: tramTrack.value, tracks: countPicked.value, keep: keepPlacing.value, snap: snapReal.value, tramSnap: snapRealTram.value, streets: snapStreets.value, roads: snapRoads.value, beside: snapBeside.value, design: designSpeed.value, fly: flyoverSpeed.value, advanced: buildAdvanced.value, platform: buildPlatform.value, tramPlatform: buildTramPlatform.value, oneTrack: stationOneTrack.value }, guide: guideFinished.value, v: VERSION };

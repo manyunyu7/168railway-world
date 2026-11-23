@@ -205,6 +205,7 @@ export function marketsOfWorkers(n: number): number[][] {
  * to running out of memory stays that size for the tab's session (`rememberedPoolCap`).
  */
 export function poolSize(): number {
+  if (nativeClockPool) return 1; // one complete reference solver shares memory with the native editor
   const q = workersAsked();
   if (q !== null) return q;
   if (addressLimited()) return 1;
@@ -5287,8 +5288,10 @@ let NEW_GAME = false;
 let SAVED_GAME = false;
 
 /** Start the pool for a city. With `?demandTest=1` it solves T-005's hand-made network. */
-export function startDemand(city = HOME_CITY, newGame = false) {
+let nativeClockPool = false;
+export function startDemand(city = HOME_CITY, newGame = false, nativeClock = false) {
   if (client) return client;
+  nativeClockPool = nativeClock;
   NEW_GAME = newGame && !TEST;
   SAVED_GAME = !newGame && !TEST;
   const c = (client = new DemandClient(city));

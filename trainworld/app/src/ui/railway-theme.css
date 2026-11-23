@@ -277,7 +277,7 @@
 
 /* the map's own furniture under the card */
 .map-top-left { top: calc(var(--studio-card-h, 0px) + 20px); }
-:root[data-layers="closed"] .map-top-left > :not(.map-find):not(.edit-note) { display: none; }
+:root[data-layers="closed"] .map-top-left > :not(.map-find):not(.edit-note):not(.diagram-controls) { display: none; }
 
 .studio-actions {
   position: absolute; z-index: 5; left: 10px; bottom: 10px; display: flex; align-items: stretch; gap: 8px; padding: 8px;
@@ -307,6 +307,9 @@ html.ui-hidden .studio-actions { display: none; }
   #topbar.studio-card .clock-text .time, #topbar.studio-card .cash, #topbar.studio-card .pct { font-size: 17px; }
   .map-sky { top: calc(var(--studio-card-h, 0px) + 18px); }
   #game #map .guide { top: calc(var(--studio-card-h, 0px) + 18px); z-index: 7; }
+  html.building #tools { z-index: 6; }
+  #game #map .guide.open { width: min(250px, calc(100% - 20px));
+    max-height: calc(100% - var(--studio-card-h, 0px) - 98px); overflow-y: auto; overscroll-behavior: contain; }
   .studio-actions { left: 8px; bottom: 8px; padding: 6px; gap: 6px; max-width: calc(100% - 72px); }
   .studio-actions .studio-run { min-width: 0; flex: 1; }
   .studio-actions .btn { min-height: 44px; }

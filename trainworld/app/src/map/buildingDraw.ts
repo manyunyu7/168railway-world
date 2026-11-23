@@ -67,6 +67,7 @@ export class BuildingDraw {
   private press: { i: number; mid: boolean; x: number; y: number } | null = null;
   private drag: { i: number; was: Pt[] } | null = null;
   private dragEnded = false;
+  private touchHandle: number | null = null;
   private busy = false;
   private quote: Quote | null = null;
   private asking = false;
@@ -87,8 +88,12 @@ export class BuildingDraw {
     });
     // capture: before MapLibre's own handlers, so a press on a handle does not pan the map
     map.getContainer().addEventListener("mousedown", (e) => this.onDown(e), true);
-    addEventListener("mousemove", (e) => this.onDrag(e));
+    addEventListener("mousemove", (e) => this.onDrag(e.clientX, e.clientY, e.ctrlKey || e.metaKey));
     addEventListener("mouseup", () => this.onUp());
+    const container = map.getContainer();
+    for (const name of ["touchstart", "touchmove", "touchend", "touchcancel"] as const) {
+      container.addEventListener(name, e => this.touchHandleEvent(e), { capture: true, passive: false });
+    }
   }
 
   get active() {
@@ -155,8 +160,8 @@ export class BuildingDraw {
 
   // ---------------------------------------------------------------- what is under the pointer
 
-  private underAt(px: number, py: number): Under {
-    let best = HANDLE_PX * HANDLE_PX, hit = { kind: "free" } as Under;
+  private underAt(px: number, py: number, touch = false): Under {
+    let best = (touch ? HANDLE_PX + 5 : HANDLE_PX) ** 2, hit = { kind: "free" } as Under;
     this.pts.forEach((p, i) => {
       const [x, y] = this.toPx(p);
       const d = (x - px) ** 2 + (y - py) ** 2;
@@ -172,7 +177,7 @@ export class BuildingDraw {
       }
       return hit;
     }
-    best = MID_PX * MID_PX;
+    best = (touch ? MID_PX + 4 : MID_PX) ** 2;
     for (let i = 0; i < this.pts.length; i++) {
       const [x, y] = this.mid(i);
       const d = (x - px) ** 2 + (y - py) ** 2;
@@ -334,20 +339,42 @@ export class BuildingDraw {
 
   private onDown(e: MouseEvent) {
     if (!this.active || !this.closed || this.busy || e.button !== 0 || e.target !== this.map.getCanvas() || touchInput.peek()) return;
-    const r = this.map.getContainer().getBoundingClientRect();
-    const px = e.clientX - r.left, py = e.clientY - r.top;
-    const u = this.underAt(px, py);
-    if (u.kind !== "corner" && u.kind !== "mid") return;
-    this.map.dragPan.disable();
-    this.press = { i: u.i, mid: u.kind === "mid", x: px, y: py };
+    this.startHandle(e.clientX, e.clientY, false);
   }
 
-  private onDrag(e: MouseEvent) {
+  private startHandle(x: number, y: number, touch: boolean): boolean {
+    const r = this.map.getContainer().getBoundingClientRect();
+    const px = x - r.left, py = y - r.top;
+    const u = this.underAt(px, py, touch);
+    if (u.kind !== "corner" && u.kind !== "mid") return false;
+    this.map.dragPan.disable();
+    this.press = { i: u.i, mid: u.kind === "mid", x: px, y: py };
+    return true;
+  }
+
+  private touchHandleEvent(e: TouchEvent) {
+    if (this.touchHandle === null) {
+      if (e.type !== "touchstart" || e.touches.length !== 1 || !this.active || !this.closed || this.busy || e.target !== this.map.getCanvas()) return;
+      const t = e.touches[0];
+      if (!this.startHandle(t.clientX, t.clientY, true)) return;
+      this.touchHandle = t.identifier;
+    }
+    // Keep the map camera still while the finger moves an outline handle.
+    e.preventDefault();
+    e.stopPropagation();
+    const t = Array.from(e.changedTouches).find(t => t.identifier === this.touchHandle);
+    if (!t) return;
+    if (e.type === "touchmove") this.onDrag(t.clientX, t.clientY, false);
+    if (e.type === "touchend") this.onUp();
+    if (e.type === "touchcancel" && this.cancelDrag()) this.changed();
+  }
+
+  private onDrag(x: number, y: number, noSnap: boolean) {
     const p = this.press;
     if (!p) return;
     const r = this.map.getContainer().getBoundingClientRect();
-    const px = e.clientX - r.left, py = e.clientY - r.top;
-    this.noSnap = e.ctrlKey || e.metaKey;
+    const px = x - r.left, py = y - r.top;
+    this.noSnap = noSnap;
     if (!this.drag) {
       if (Math.hypot(px - p.x, py - p.y) < DRAG_PX) return;
       const was = this.pts.map((q) => ({ ...q }));
@@ -387,6 +414,7 @@ export class BuildingDraw {
   }
 
   private endDrag() {
+    this.touchHandle = null;
     if (this.drag) setGrabbing(false);
     if (this.press || this.drag) this.map.dragPan.enable();
     this.press = null;

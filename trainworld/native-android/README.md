@@ -1,0 +1,35 @@
+# New York di Android native
+
+Prototipe ini membuka berkas asli `T-007-real-nyc.save` di Activity Android. Rust `trainworld-sim` di direktori sebelah berjalan melalui JNI pada ARMv7, ARM64, dan x86-64. Kotlin menggambar stasiun, geometri jalur dan posisi perjalanan dari Rust. Tombol Putar ×8 memajukan waktu permainan delapan kali kecepatan nyata. Jeda dan perpindahan aplikasi menghentikan jam. Cubit untuk memperbesar, seret untuk menggeser, dan ketuk dua kali untuk memperbesar. Tombol bidik mengembalikan tampilan awal.
+
+Tombol Simpan menulis `TWG1` gzip menggunakan `TrackApi.save()` dan format header asli. Membuka kembali Activity melanjutkan berkas lokal terakhir. Untuk slot akun 168Railway, Simpan juga mengirim revisi ke Studio. Peta memuat rel, nama stasiun dan perairan NYC secara offline. Pilih Bangun, ketuk sedikitnya dua lokasi untuk stasiun, lalu pilih Bangun jalur untuk memberi nama layanan. Engine membuat ruas ganda, peron dan perjalanan terjadwal. Simpanan dunia bangun memakai slot tersendiri. Di panel Layanan, cek keberangkatan atau atur jumlah kereta, selang keberangkatan, susunan rangkaian, waktu berhenti, balik arah, dan persentase akhir pekan.
+
+## Build modul
+
+Gunakan Rust stable, Android SDK 36, dan NDK r28c di Linux atau macOS. Instal target dengan `rustup target add armv7-linux-androideabi aarch64-linux-android x86_64-linux-android`, atur `ANDROID_NDK_HOME`, lalu jalankan `./build-android.sh`. Skrip menyiapkan ketiga pustaka JNI untuk API 24, memeriksa SONAME dan alignment ELF minimal 16 KiB, lalu menyalin fixture dan atribusi ke `build/`. Untuk satu ABI, jalankan misalnya `./build-android.sh x86_64`. Perintah lama `./build-arm64.sh` tetap membangun ARM64. Sertakan `android-lib` sebagai modul Android Library Gradle dengan AGP 8.12 dan Kotlin Android 2.2. Activity yang didaftarkan oleh manifest library bernama `world.nativegame.NativeWorldActivity`. Buka dengan intent eksplisit dari dalam aplikasi yang menyertakan library. Activity tidak diekspor.
+
+Untuk memeriksa mesin di komputer, jalankan `cargo test --locked --release -- --nocapture`. Untuk mengulang pemeriksaan pada perangkat ARM64, tetapkan `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` ke clang NDK untuk API 24, jalankan `cargo test --locked --release --target aarch64-linux-android --no-run`, kemudian salin executable tes ke `/data/local/tmp` menggunakan adb dan jalankan dengan `--nocapture`. Dengan fixture asli, pada waktu 111600 tes menemukan 109 layanan, 1.756 stasiun dan 661 kereta. Tes juga memeriksa dua koordinat kereta terhadap hasil desktop serta posisi seluruh armada setelah simpan dan buka kembali.
+
+## Data dan atribusi
+
+Skenario New York disertakan di repo upstream. Peta perairan dibuat dari mask New York 25 m dalam paket upstream 18 November 2026, yang bersumber dari U.S. Census Bureau, TIGER/Line 2020 AREAWATER dan batas negara bagian. Gambar ringkas memiliki resolusi 125 m per piksel. Skrip `make-water.py` menghasilkan gambar dan metadata yang menyimpan URL sumber, rentang byte dan SHA-256. Untuk mereproduksi dari berkas lokal, berikan JSON header pack NYC dan berkas byte range sebagai argumen. [Sumber perairan Census](https://www2.census.gov/geo/tiger/TIGER2020/AREAWATER/)
+
+Kode Rust upstream dan modifikasi dicakup oleh lisensi proyek, GNU AGPL v3. Lihat LICENSE dan NOTICE.md pada akar repo.
+
+### Jaringan kota pada Android
+
+Menu **Kelola → Pilih kota** menawarkan 37 kota yang memiliki simpanan jaringan asli pada rilis 2026-11-18. Pada pembukaan pertama, perangkat mengambil jaringan, sel permintaan, pasar, air, dan kelas medan dari mirror 168Railway. Katalog SHA-256 yang tertanam menentukan ukuran dan isi tiap berkas. Cache dan simpanan tiap kota berada di penyimpanan internal aplikasi. Setelah unduhan selesai, dunia itu dapat dibuka tanpa internet. Bengkel menggunakan slot tersendiri. Starter New York yang disertakan tetap dapat dibuka sejak pemasangan tanpa internet.
+
+Untuk membuat ulang katalog, unduh manifest dari `https://168railway.com/studio-data/2026-11-18/manifest.json` lalu jalankan `python3 scripts/city-catalog.py /path/to/manifest.json`. Skrip memeriksa hash manifest publik sebelum menulis katalog aplikasi. Batas wilayah dan kualitas data mengikuti rilis yang dijelaskan dalam DATA-CREDITS.txt dan CHANGES.txt pada mirror.
+
+Tes JVM menggunakan direktori berisi struktur unduhan Tokyo dan London. Jalankan `javac -d /tmp/world-tests android-lib/src/main/java/world/nativegame/CityPackStore.java tests/CityPackStoreTest.java` lalu `java -cp /tmp/world-tests world.nativegame.CityPackStoreTest /path/to/city-release`. Jalankan `NATIVE_CITY_RELEASE=/path/to/city-release cargo test --locked --release` untuk membandingkan lokasi, perjalanan, air, medan, dan pemuatan ulang kedua jaringan asli dengan kernel Rust.
+
+
+### Arsip TWG1 dan akun Android
+
+Buka **Kelola → Arsip dan akun**. Ekspor menyalin berkas TWG1 ke lokasi pilihan Android. Impor meminta peta asal karena beberapa simpanan hulu memakai ID bingkai bersama untuk berbagai kota. Setelah engine berhasil membuka berkas, aplikasi membuat slot privat baru. **Pulihkan dari akun** juga membuat slot baru. Saat memperbarui arsip di akun, versi yang ditampilkan dikirim bersama simpanan. Jika versi berubah, aplikasi meminta pemain mengambil versi terbaru atau membuat salinan.
+
+Login menggunakan browser sistem. Callback skema `com.railway168.studio://login/complete` membawa kode sekali pakai dan state. Aplikasi menukar kode melalui HTTPS dengan verifier S256. Token arsip berlaku satu jam dan disimpan terenkripsi dengan Android Keystore. Backend 168Railway yang mengimplementasikan kontrak ini diperlukan untuk fitur akun. Pemilih dokumen dan slot lokal tetap berfungsi tanpa backend.
+
+
+Jakarta tertera sebagai **Bangun sendiri**. Lima berkas Jakarta memuat medan, air, pasar, sel permintaan, dan nama kawasan OpenStreetMap. Rilis hulu tidak menyediakan jaringan rel awal untuk Jakarta. Saat dibuka, peta berpusat pada 106,8022° BT dan 6,1876° LS dengan nol stasiun. Jalur yang dibuat pemain tersimpan pada slot Jakarta.

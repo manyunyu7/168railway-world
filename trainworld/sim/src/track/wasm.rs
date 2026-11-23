@@ -201,6 +201,7 @@ fn split_eras(bytes: &[u8]) -> (&[u8], Option<(&[u8], bool)>) {
 }
 
 /// A pack's water raster and the origin of the pack's own frame.
+#[derive(Clone)]
 struct PackWater {
     mask: Arc<RunMask>,
     lon: f64,
@@ -627,6 +628,14 @@ impl TrackApi {
         }
         let b = self.terrain_box([w, s, e, n]);
         self.w.net.add_terrain(Arc::new(g), b);
+        true
+    }
+
+    /// Install a full city terrain raster supplied by a native, offline city pack.
+    pub fn add_zone_classes(&mut self, bytes: &[u8]) -> bool {
+        let Some(grid) = ClassGrid::decode(bytes) else {return false};
+        let bounds = self.terrain_box(grid.bounds());
+        self.w.net.add_zone_terrain(Arc::new(grid), bounds);
         true
     }
 
@@ -2058,6 +2067,26 @@ impl RouteTrace {
 }
 
 impl TrackApi {
+    /// City pack coverage and wetness at a point in the active network frame.
+    pub fn native_pack_water_at(&self, x: f64, y: f64) -> Option<bool> {
+        self.rasters.iter().find_map(|r| r.seen.0.covers(x,y).then(|| r.seen.0.is_water(x,y)))
+    }
+
+    /// Purchase value of the entire fleet in US$M, for booking a batch of native edits.
+    pub fn fleet_value(&self) -> f64 {
+        self.fleet.iter().zip(CAR_PRICES).map(|(&count, price)| f64::from(count) * price).sum()
+    }
+
+    /// Install the same immutable zone data on a native transactional edit candidate.
+    pub fn copy_city_surface_from(&mut self, source: &Self) {
+        self.w.net.terrain = source.w.net.terrain.clone();
+        self.rasters.clone_from(&source.rasters);
+        self.world_water.clone_from(&source.world_water);
+        if !self.rasters.is_empty() || self.world_water.is_some() {
+            self.rebuild_water();
+        }
+    }
+
     /// T-2707: the boarding account's heap bytes by structure (benches; not exported).
     pub fn boarding_mem(&self) -> Vec<(&'static str, usize)> {
         self.boarding.mem_bytes()

@@ -7,6 +7,7 @@
 // T-950: so does a load that can never finish (the game itself not starting, or nothing moving).
 
 import { h, render } from "preact";
+import { editingWithoutDemand } from "../game/nativeEditor";
 import { clock } from "../game/clock";
 import { world } from "../game/world";
 import { cardEnding, choosing, continueWithoutDemand, demandIdle, gameFailed, graphicsGone, lastAlive, loadCannotFinish, loadFailure, loadProgress, noSimd, noWebgl2, startup } from "../game/loading";
@@ -55,7 +56,7 @@ function LoadingScreen() {
 
 /** True while the loading card is up: a loaded game's clock waits for its demand (T-180). */
 export function loadingCardShown(): boolean {
-  return clock.held.value && !loadFailure.value && !demandIdle.value && !choosing.value; // T-318: nothing to load over dead space
+  return !editingWithoutDemand.value && clock.held.value && !loadFailure.value && !demandIdle.value && !choosing.value; // T-318: nothing to load over dead space
 }
 
 /** T-243: a bar filling as the load goes, in place of a percentage; the percentage is its hover.

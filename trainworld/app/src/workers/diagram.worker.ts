@@ -10,6 +10,7 @@
 // JavaScript). The page sends one graph per region (diagram/regions.ts, T-3448); the layouts it still draws are kept here
 // by seq, each given its borders and city names as outlines arrive.
 
+import { fetchRange } from "./rangeFetch";
 import type { DiagramGraph } from "../diagram/graph";
 import type { DiagramLayout } from "../diagram/layout";
 import { drawing, type Drawing } from "../diagram/draw";
@@ -175,9 +176,8 @@ function maskOf(packs: string, id: string): Promise<WaterMask | null> {
       const row = head.arrays.find((a: { name: string }) => a.name === "water_row"), xs = head.arrays.find((a: { name: string }) => a.name === "water_x");
       if (!head.water || !row || !xs) return null;
       const start = row.offset, end = xs.offset + xs.count * 2;
-      const res = await fetch(url + ".bin", { headers: { Range: `bytes=${start}-${end - 1}` }, cache: "no-store" });
-      if (!res.ok) throw new Error(`${res.status} ${url}.bin`);
-      const buf = await res.arrayBuffer(), base = res.status === 206 ? start : 0, w = head.water;
+      const buf = await fetchRange(url + ".bin",start,end);
+      const base = start, w = head.water;
       return {
         cell: w.cell_m, x0: w.origin_m[0], y0: w.origin_m[1], w: w.size[0], h: w.size[1],
         rows: new Uint32Array(buf.slice(row.offset - base, row.offset - base + row.count * 4)), runs: new Uint16Array(buf.slice(xs.offset - base, xs.offset - base + xs.count * 2)),

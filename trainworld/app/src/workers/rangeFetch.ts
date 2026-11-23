@@ -9,7 +9,13 @@
 // T-3196: given up after `timeoutMs`, so a stalled connection never holds the clock worker's queue for ever.
 
 export async function fetchRange(url: string, start: number, end: number, timeoutMs = 60_000): Promise<ArrayBuffer> {
-  const res = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` }, cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
+  const range = `${start}-${end - 1}`;
+  const native = url.startsWith("https://studio-clock.invalid/clock/packs/");
+  // Android WebView applies the HTTP Range a second time to an intercepted response.
+  // Ask its APK resource provider for the slice explicitly and receive an ordinary 200.
+  const requestUrl = native ? new URL(url) : null;
+  requestUrl?.searchParams.set("studioRange", range);
+  const res = await fetch(requestUrl?.href ?? url, { headers: native ? undefined : { Range: `bytes=${range}` }, cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`${res.status} ${url}`);
   const buf = await res.arrayBuffer();
   const want = end - start;

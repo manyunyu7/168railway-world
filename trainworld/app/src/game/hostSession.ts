@@ -6,7 +6,9 @@ import { PUBLISHED } from "./dataBase";
 export type HostAuth = "in" | "out" | "unknown";
 
 /** Sign in, then back to the game: the web keeps /studio/ as where to return (StudioWorldController@login). */
-export const HOST_LOGIN = "/api/web/studio/login";
+const requested = typeof location !== "undefined" ? new URLSearchParams(location.search).get("world") : null;
+const worldQuery = requested && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(requested) ? "world=" + requested : "";
+export const HOST_LOGIN = "/api/web/studio/login" + (worldQuery ? "?" + worldQuery : "");
 
 export async function checkHostAuth(waitMs = 4000): Promise<HostAuth> {
   if (!PUBLISHED || typeof fetch === "undefined") return "in";
@@ -25,7 +27,7 @@ export async function checkHostAuth(waitMs = 4000): Promise<HostAuth> {
 }
 
 /** Register on the site, then back to the game (the web keeps /studio/ as where to return). */
-export const HOST_REGISTER = "/api/web/studio/login?to=register";
+export const HOST_REGISTER = "/api/web/studio/login?to=register" + (worldQuery ? "&" + worldQuery : "");
 
 /** Sign in from inside the game, with the site's own JSON sign-in (POST /api/login) and the session's CSRF token. */
 export async function signInHere(login: string, password: string): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -74,7 +76,7 @@ export function signInWithGoogle(): Promise<void> {
   const url = `/auth/google?next=${encodeURIComponent(`/studio/?${POPUP_DONE}`)}`;
   const w = window.open(url, "168railway-login", "popup,width=480,height=640");
   if (!w) {
-    location.href = `/auth/google?next=${encodeURIComponent("/studio/")}`;
+    location.href = `/auth/google?next=${encodeURIComponent("/studio/" + (worldQuery ? "?" + worldQuery : ""))}`;
     return new Promise(() => {});
   }
   return new Promise((done) => {

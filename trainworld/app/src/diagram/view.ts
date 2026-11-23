@@ -51,6 +51,7 @@ import { complexTip, type TipLine } from "../map/networkTips";
 import { dailyRiders } from "../map/trackHover";
 import { factRow, lineBullet } from "../map/trackTagRows";
 import { TAG_OFFSET_PX, tagLines } from "../map/labelLayout";
+import { inNativeEditor } from "../game/nativeEditor";
 import { ACTION_KEYS, BUS_KEY, FERRY_KEY, TOOL_KEYS, TRIP_KEY } from "../ui/toolKeys";
 
 /** station names are this many CSS px, as the map's, times the interface scale */
@@ -81,7 +82,7 @@ const PICK_SLOP_PX = 3;
 /** a press that moves less than this many CSS px is a click */
 const CLICK_PX = 4;
 /** the saved picture: a pitch of at most this many px, smaller where the picture would pass these */
-const PICTURE_PITCH_PX = 10, PICTURE_MAX_SIDE = 16000, PICTURE_MAX_AREA = 120e6, PICTURE_MARGIN_PX = 24;
+const PICTURE_PITCH_PX = 10, PICTURE_MAX_SIDE = inNativeEditor ? 4096 : 16000, PICTURE_MAX_AREA = inNativeEditor ? 12e6 : 120e6, PICTURE_MARGIN_PX = 24;
 
 /** keys that build, so go back to the map first (TOOL_KEYS, ACTION_KEYS and the bus, ferry and trip keys) */
 const BUILD_KEYS = new Set([...Object.keys(TOOL_KEYS), ...Object.keys(ACTION_KEYS), BUS_KEY, FERRY_KEY, TRIP_KEY]);
@@ -789,6 +790,10 @@ export function startDiagramView(client: ClockClient, mapEl: HTMLElement): void 
         out.canvas.toBlob((blob) => {
           hideBusy(token);
           if (!blob) return;
+          if (inNativeEditor) {
+            window.dispatchEvent(new CustomEvent("studio-editor-picture", { detail: blob }));
+            return;
+          }
           const a = document.createElement("a");
           a.href = URL.createObjectURL(blob);
           const { slots, active } = saveSlotsState.peek();

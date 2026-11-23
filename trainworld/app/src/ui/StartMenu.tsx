@@ -1,3 +1,5 @@
+import { newerHostWorld, resolveHostWorld, retryLinkedSaves } from "../game/hostWorldSync";
+import type { HostWorldSource } from "../workers/saveFile";
 import {HostWorlds} from "./HostWorlds";
 // T-677: the start menu. Every page load opens on it, unless a URL switch already says which game
 // (`choiceFromUrl`): New game (the new game sheet, T-728), then the saved games in this browser, the
@@ -182,6 +184,7 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
 function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest: guest0 = false }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void>; guest?: boolean }) {
   // 168Railway: a guest signs in on the card, and the menu opens in place
   const [guest, setGuest] = useState(guest0);
+  useEffect(() => { if (!guest && !new URLSearchParams(location.search).has("world")) void retryLinkedSaves(first0).catch(() => {}); }, [guest]);
   // T-3073: every game opened here has inter-city trips unless the warning's lite button asked otherwise
   const pick = (c: GameChoice, lite = false) => { if (lite) dropMarket(); else keepMarket(); pickGame(c); };
   const first = useRef<HTMLButtonElement>(null);
@@ -207,6 +210,36 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
   const [warned, setWarned] = useState<{ text: string; go: (lite?: boolean) => void } | null>(null);
   // T-3329: a game bigger than the device can give asks before it opens
   const [memWarn, setMemWarn] = useState<{ key: string; stations: number } | null>(null);
+  const openHostFile = async (file: File, host: HostWorldSource) => {
+    await Promise.race([settling, new Promise(r => setTimeout(r, SETTLE_WAIT_MS))]);
+    const result = await fileChoice(file, { host }, true);
+    if (typeof result === "string") { setRefused(result); return; }
+    if ("warn" in result) {
+      setWarned({ text: result.warn, go: async lite => {
+        const choice = await fileChoice(file, { host });
+        if (typeof choice === "string") setRefused(choice); else if (!("warn" in choice)) pick(choice, lite);
+      } });
+    } else pick(result);
+  };
+  useEffect(() => {
+    const url = new URL(location.href);
+    const world = url.searchParams.get("world");
+    if (guest || world === null) return;
+    let cancelled = false;
+    void resolveHostWorld(world).then(async result => {
+      if (cancelled) return;
+      url.searchParams.delete("world");
+      history.replaceState(history.state, "", url.href);
+      if ("slot" in result) {
+        const why = await saveRefusal({ key: result.slot }, true);
+        if (cancelled) return;
+        if (why?.soft) setWarned({ text: why.text, go: lite => pick({ slot: result.slot }, lite) });
+        else if (why) setRefused(why.text);
+        else pick({ slot: result.slot });
+      } else await openHostFile(result.file, result.source);
+    }).catch(() => { if (!cancelled) setRefused("Dunia pada tautan belum bisa dibuka. Periksa koneksi dan akun yang aktif."); });
+    return () => { cancelled = true; };
+  }, [guest]);
   const open = async (key: string) => {
     await Promise.race([settling, new Promise((r) => setTimeout(r, SETTLE_WAIT_MS))]);
     // T-988: an account game is downloaded into a new slot first
@@ -216,6 +249,8 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
       if (!k) { setRefused(downloadFailure(g.id, t("startMenu.downloadFailed"))); return; }
       key = k;
     }
+    const remote = await newerHostWorld(key);
+    if (remote) return openHostFile(remote.file, remote.source);
     const why = await saveRefusal({ key }, true);
     setRefused(why && !why.soft ? why.text : null);
     setWarned(why?.soft ? { text: why.text, go: (lite) => pick({ slot: key }, lite) } : null);
@@ -289,15 +324,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
         <button ref={resumeCard ? undefined : first} class={resumeCard ? "btn railway-new" : "btn start-new"} onClick={() => setSheet(true)}><Icon.train/>{t("startMenu.newGame")}</button>
         <button class="btn start-file" onClick={load}>{t("startMenu.loadFile")}</button>
       </div>
-      <HostWorlds openFile={async file=>{
-        await Promise.race([settling,new Promise(r=>setTimeout(r,SETTLE_WAIT_MS))]);
-        const result=await fileChoice(file,undefined,true);
-        if(typeof result==="string")throw Error(result);
-        if("warn" in result){setWarned({text:result.warn,go:async lite=>{
-          const choice=await fileChoice(file);
-          if(typeof choice==="string")setRefused(choice);else if(!("warn" in choice))pick(choice,lite);
-        }});}else pick(result);
-      }} />
+      <HostWorlds openFile={openHostFile} />
       <div class="railway-start-footer">
         <a href="./about.html" target="_blank" rel="noopener">{t("railway.credits")}</a>
         <div class="start-top"><LanguageSelect /><AccountButton kind="start" /><CommunityButton start /></div>

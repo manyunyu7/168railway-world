@@ -1,0 +1,6 @@
+Nunito Regular and ExtraBold are distributed unchanged from the host application's bundled fonts.
+Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito). See nunito-ofl.txt.
+
+StudioMaterialIcons.otf is a subset of Google's Material Icons font distributed with the Flutter SDK,
+containing the rounded symbols used by Studio. Glyph outlines are unchanged.
+Source: https://github.com/google/material-design-icons ; license: see material-icons.txt.

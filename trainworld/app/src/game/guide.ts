@@ -18,8 +18,10 @@ import { zoomedOut } from "../map/intercityView";
 import type { WorldView } from "./types";
 import { saveGuide } from "../workers/clockClient";
 import { firstTrainFacts } from "./firstTrain";
+import { editorHome, inNativeEditor } from "./nativeEditor";
 import { gameStartZone } from "./realms";
 import { live } from "../map/live";
+import { touchInput } from "../map/touch";
 import { tripAt } from "../map/network";
 import { t } from "../i18n";
 import { tPlace } from "../i18n/places";
@@ -49,10 +51,13 @@ export interface GuideStep {
 export const GUIDE_TRACK_M = 5000, GUIDE_STATIONS = 3, GUIDE_APART_M = 500;
 /** the last step's train share, % (Anita, T-2263: the region star's 10% was too far for a tutorial) */
 export const GUIDE_SHARE = 1;
+function guideUsesTouch(): boolean {
+  return touchInput.value || (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
+}
 const WORDS: Record<Exclude<GuideId, "star">, string> = {
   get departure() { return t("railway.guide.departure"); },
   get zoom() { return t("guide.zoom"); },
-  get split() { return t("guide.split"); },
+  get split() { return t(guideUsesTouch() ? "guide.splitTouch" : "guide.split"); },
   get destinations() { return t("guide.destinations"); },
   get bubble() { return t("guide.bubble"); },
   get trip() { return t("guide.trip"); },
@@ -63,7 +68,7 @@ const WORDS: Record<Exclude<GuideId, "star">, string> = {
   get stops() { return t("guide.stops"); },
   get trains() { return t("guide.trains"); },
   get play() { return t("guide.play"); },
-  get crowd() { return t("guide.crowd"); },
+  get crowd() { return t(guideUsesTouch() ? "guide.crowdTouch" : "guide.crowd"); },
   get levels() { return t("guide.levels"); },
   get traffic() { return t("guide.traffic"); },
 };
@@ -142,7 +147,7 @@ function secondSteps(w: WorldView, trains: (line: string) => readonly number[] |
   ];
 }
 
-export const isJakartaGuide = () => gameStartZone() === "jak";
+export const isJakartaGuide = () => (gameStartZone() ?? (inNativeEditor ? editorHome : undefined)) === "jak";
 const departedLine = signal<string | null>(null);
 
 function jakartaSteps(w: WorldView, g: GuideSave): GuideStep[] {
@@ -166,6 +171,23 @@ function jakartaSteps(w: WorldView, g: GuideSave): GuideStep[] {
 
 /** The steps of the card in hand. */
 export function guideSteps(w: WorldView, g: GuideSave, trains: (line: string) => readonly number[] | null = trainsShown): GuideStep[] {
+  if (g.extension) {
+    const before = g.extension;
+    const oldStations = new Set(before.stations), oldLines = new Set(before.lines);
+    const stations = w.save.stations.filter(s => !s.off && !s.port && !oldStations.has(s.id));
+    const built = new Set(stations.filter(s => s.built).map(s => s.id));
+    const lines = w.save.lines.filter(l => !l.twinOf && !oldLines.has(l.id) && !w.lineStats[l.id]?.bus);
+    const serving = lines.filter(l => l.stops.some(id => built.has(id)) && new Set(l.stops).size >= 2);
+    const laid = w.edges.reduce((n,e) => n + (e.off || e.crossover ? 0 : e.lengthM), 0);
+    return [
+      { id:"track", words:"Gambar rel untuk lintas baru", note:"Pilih alat Rel di Bangun, lalu tarik lintasan di peta.", met:laid > before.length + 1 },
+      { id:"stations", words:"Tambahkan stasiun pada lintas baru", note:"Pilih Stasiun dan tempatkan di rel. Kamu juga bisa menyambung ke stasiun lama.", met:stations.length > 0 },
+      { id:"construct", words:"Bangun stasiun baru", note:"Tinjau biaya lalu bangun rancanganmu.", met:built.size > 0 },
+      { id:"line", words:"Buat layanan untuk lintas ini", note:"Buka Jalur dan tambahkan layanan.", met:lines.length > 0 },
+      { id:"stops", words:"Atur minimal dua pemberhentian", note:"Masukkan stasiun baru dan satu stasiun lain ke urutan layanan.", met:serving.length > 0 },
+      { id:"trains", words:"Operasikan layanan baru", note:"Atur armada dan cek jadwal keberangkatannya.", met:serving.some(l => w.lineStats[l.id]?.status === "running" && (trains(l.id) ?? []).some(n => n > 0)) },
+    ];
+  }
   return g.card === 2 ? secondSteps(w, trains) : isJakartaGuide() ? jakartaSteps(w, g) : firstSteps(w, g);
 }
 
@@ -179,8 +201,9 @@ export function guideTicks(steps: readonly GuideStep[], g: GuideSave): { done: b
 
 /** Whether the card is on show for the game in hand: it has progress, is not a sandbox, and was not
  * closed with the x or finished with Done. */
+export const editorSandboxGuide = signal(false);
 export function guideShown(g: GuideSave | undefined, sandbox: boolean): boolean {
-  return !!g && !sandbox && !g.hidden && !g.closed;
+  return !!g && (!sandbox || editorSandboxGuide.value) && !g.hidden && !g.closed;
 }
 
 /** T-2123: while the first card is up, the map's station ridership and track colour rows are folded,
@@ -209,7 +232,7 @@ export function startGuide() {
   setInterval(() => {
     const w = world.peek(), g = moneyState.peek()?.guide;
     const r = live.overlay?.renderer, n = r?.net;
-    if (!w || !g || !isJakartaGuide() || g.card === 2 || g.closed || !clock.ticking || !r || !n) {
+    if (!w || !g || g.extension || !isJakartaGuide() || g.card === 2 || g.closed || !clock.ticking || !r || !n) {
       positions.clear(); return;
     }
     if (g.done & (1 << GUIDE_BITS.departure)) return;
@@ -228,11 +251,13 @@ export function startGuide() {
     }
     positions = next;
   }, 500);
-  addEventListener("pointerover", (e) => {
+  const markInspected = (e: PointerEvent) => {
     const t = e.target as Element | null;
     if (!crowdSeen.peek() && t?.closest?.(".crowd-dot")) crowdSeen.value = true;
     if (!splitSeen.peek() && t?.closest?.(GUIDE_SPLIT)) splitSeen.value = true;
-  }, { capture: true, passive: true });
+  };
+  addEventListener("pointerover", markInspected, { capture: true, passive: true });
+  addEventListener("pointerdown", markInspected, { capture: true, passive: true });
   let sent = -1;
   effect(() => {
     const m = moneyState.value, w = world.value;
@@ -242,12 +267,13 @@ export function startGuide() {
       newGameOpening = false;
       if (g && guideShown(g, m.mode === "sandbox")) tab.value = "build";
     }
-    if (!g || !w || m.mode === "sandbox") return;
+    if (!g || !w || (m.mode === "sandbox" && !editorSandboxGuide.value)) return;
     const steps = guideSteps(w, g);
     let mask = g.done;
     steps.forEach((s) => { if (s.met) mask |= 1 << GUIDE_BITS[s.id]; });
     const all = steps.every((s) => (mask & (1 << GUIDE_BITS[s.id])) !== 0);
-    if (g.card !== 2 && all && !guideFinished.peek()) guideFinished.value = true;
+    if (!g.extension && g.card !== 2 && all && !guideFinished.peek()) guideFinished.value = true;
+    if (mask === g.done) sent = -1;
     if (mask !== g.done && mask !== sent) {
       sent = mask;
       saveGuide({ ...g, done: mask });

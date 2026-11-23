@@ -1,0 +1,8 @@
+Basemap data © OpenStreetMap contributors, available under the Open Database License (ODbL) 1.0.
+https://www.openstreetmap.org/copyright
+https://opendatacommons.org/licenses/odbl/1-0/
+Tiles supplied by OpenFreeMap, using the OpenMapTiles schema.
+https://openfreemap.org/   https://openmaptiles.org/
+The bundled Jabodetabek tiles were extracted without modification from:
+https://tiles.openfreemap.org/planet/20261115_080022_pt/{z}/{x}/{y}.pbf
+The APK gzip-compresses the original vector tiles. Their coordinates are encoded in their filenames.

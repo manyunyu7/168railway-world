@@ -1,0 +1,22 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <application>
+        <service android:name="world.nativegame.StudioSaveJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
+        <activity android:name="world.nativegame.StudioLibraryActivity" android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="world.nativegame.WorldArchiveActivity" android:exported="false" android:label="Arsip dunia"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name="world.nativegame.WorldLoginCallbackActivity" android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="com.railway168.studio" android:host="login" android:path="/complete"/>
+            </intent-filter>
+        </activity>
+        <activity android:name="world.nativegame.NativeWorldActivity"
+            android:exported="false" android:label="168Railway World · Native"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    </application>
+</manifest>

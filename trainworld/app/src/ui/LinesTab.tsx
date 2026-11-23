@@ -4,6 +4,8 @@ import { demandAt, lineSeconds } from "../game/clock";
 import { PERIODS, periodAt } from "../game/periods";
 import { t } from "../i18n";
 import { tPlace } from "../i18n/places";
+import { NativeLineGroups } from "./NativeLineGroups";
+import { inNativeEditor } from "../game/nativeEditor";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { COUNT_MS, countingRiders, openings } from "../game/openingDay";
 import { createLine } from "../game/lineActions";
@@ -429,6 +431,7 @@ export function LinesTab() {
           <ScopeToggle />
         </span>
       </div>
+      {inNativeEditor && <NativeLineGroups lines={listedLines(w)} />}
       {items.length === 0 && <p class="muted">{listedLines(w).length === 0 ? t("linesTab.none") : t("linesTab.noneHere")}</p>}
       <div class={"lines-box" + (showCity ? " with-city" : "") + (key === "near" ? " near-on" : "") + (eyes ? " vis-on" : "")}>
       {listedLines(w).length > 0 && <SortHead sort={lineSort} hand={hand.length ? () => setHandOrder("lines", []) : undefined} cols={[

@@ -17,6 +17,7 @@
 // T-988: the games themselves go on the account too (workers/cloud.ts, game/accountGames.ts); this
 // file gives the clock worker the account (`cloudContext`) on every change.
 
+import { inNativeEditor } from "./nativeEditor";
 import { effect, signal } from "@preact/signals";
 import { moneyState } from "./money";
 import { pointsScore } from "./points";
@@ -463,6 +464,7 @@ async function dropDeleted() {
 let started = false;
 /** Ask the server once whether accounts are on; refresh the session; start sending. Idempotent. */
 export function startAccount() {
+  if (inNativeEditor) return;
   startGameTime();
   if (started || !BASE) return;
   started = true;

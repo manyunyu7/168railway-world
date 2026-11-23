@@ -7,6 +7,7 @@
     "wasm:track": "wasm-pack build ../sim --target web --profile wasm --out-dir ../app/src/wasm/track --out-name sim",
     "wasm:demand": "wasm-pack build ../sim --target web --profile wasm --out-dir ../app/src/wasm/demand --out-name sim -- --no-default-features --features demand",
     "dev": "vite",
+    "build:native-clock": "vite build --config vite.native-clock.config.ts",
     "build": "npm run wasm && tsc --noEmit && vite build",
     "check": "tsc --noEmit"
   },
