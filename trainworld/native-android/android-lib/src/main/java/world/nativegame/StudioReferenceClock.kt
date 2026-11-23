@@ -50,6 +50,7 @@ internal class StudioReferenceClock(
     private var lastClock = Double.NEGATIVE_INFINITY
 
     private enum class Phase { NEW, LOADING, OPENING, READY, SAVING, CLOSED }
+    val isReady get() = phase == Phase.READY
 
     fun open(snapshot: ByteArray, ready: () -> Unit) {
         check(Looper.myLooper() == Looper.getMainLooper())

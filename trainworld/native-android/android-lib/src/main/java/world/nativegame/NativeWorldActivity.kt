@@ -1091,7 +1091,7 @@ class NativeWorldActivity : Activity() {
     /** Compute the paused gauge on the reference workers too. Discard the read-only worker as
      * soon as its complete first batch arrives. Its clock, money and archive never replace the slot. */
     private fun previewTrainLoads() {
-        if (reference != null || trainPreview != null || closed || !foreground || drawing || handle == 0L) return
+        if (reference != null || parked != null || trainPreview != null || closed || !foreground || drawing || handle == 0L) return
         val version = map.trainNetworkVersion
         val source = handle
         val bytes = Engine.previewArchive(source,clock) ?: return
@@ -1120,6 +1120,20 @@ class NativeWorldActivity : Activity() {
         stopTrainPreview()
         if (worldChanged && !writeSave()) return
         val bytes = Engine.save(handle, clock)
+        // A paused simulation whose world is unchanged resumes at once instead of rebuilding demand.
+        parked?.let { idle ->
+            val same = idle.isReady && parkedBytes?.contentEquals(bytes) == true
+            parked = null
+            parkedBytes = null
+            if (same) {
+                reference = idle
+                referenceState = ReferenceState.PLAYING
+                updateControls()
+                idle.play(8.0)
+                return
+            }
+            idle.close()
+        }
         lateinit var runtime: StudioReferenceClock
         runtime = StudioReferenceClock(this, { time ->
             if (reference === runtime && referenceState == ReferenceState.PLAYING && !closed) {
@@ -1166,7 +1180,7 @@ class NativeWorldActivity : Activity() {
         fun done(error: String? = null) {
             val next = afterCheckpoint
             afterCheckpoint = null
-            finishReference(runtime)
+            if (error == null && !closed && foreground && !isFinishing) parkReference(runtime) else finishReference(runtime)
             completed.countDown()
             pendingWrites.remove(key, completed)
             if (closed) executor.shutdown()
@@ -1206,6 +1220,29 @@ class NativeWorldActivity : Activity() {
                     }
                 }
         }
+    }
+
+    private var parked: StudioReferenceClock? = null
+    private var parkedBytes: ByteArray? = null
+
+    private fun parkReference(runtime: StudioReferenceClock) {
+        reference = null
+        referenceState = null
+        referenceTime = null
+        parked = runtime
+        parkedBytes = if (handle != 0L) Engine.save(handle, clock) else null
+        if (!closed && handle != 0L) {
+            lastStatus = -1
+            updateControls()
+            refresh()
+        }
+    }
+
+    private fun dropParked() {
+        val idle = parked
+        parked = null
+        parkedBytes = null
+        idle?.close()
     }
 
     private fun finishReference(runtime: StudioReferenceClock) {
@@ -1343,6 +1380,7 @@ class NativeWorldActivity : Activity() {
         foreground = false
         if (::map.isInitialized) map.overlay.stop()
         stopTrainPreview()
+        dropParked()
         if (reference != null) withCommittedWorld()
         if (::play.isInitialized) {
             stopClock()
@@ -1354,6 +1392,7 @@ class NativeWorldActivity : Activity() {
         if (::map.isInitialized) map.overlay.stop()
         reviewDialog?.dismiss()
         stopTrainPreview()
+        dropParked()
         if (::map.isInitialized) map.removeCallbacks(tick)
         if (referenceState != ReferenceState.SAVING) {
             reference?.close()
@@ -1363,6 +1402,8 @@ class NativeWorldActivity : Activity() {
         super.onDestroy()
     }
 }
+
+private const val STATIC_MARGIN = .2f
 
 internal class NetworkView(context: Context):View(context) {
     var displaySettings = StudioGameSettings.read(context)
@@ -1444,7 +1485,36 @@ internal class NetworkView(context: Context):View(context) {
     var trainEngine: () -> Long
         get() = trainPainter.engine
         set(value) { trainPainter.engine = value }
-    fun trainLoads(epoch:Long,rows:org.json.JSONArray) { trainPainter.setLoads(epoch,rows); invalidate() }
+    fun trainLoads(epoch:Long,rows:org.json.JSONArray) { trainPainter.setLoads(epoch,rows); redraw() }
+    /** Content changed: the cached static layer is stale. Trains and the camera redraw through [redraw]. */
+    private var contentVersion = 0
+    override fun invalidate() { contentVersion++; super.invalidate() }
+    private fun redraw() = super.invalidate()
+    private val redrawTask = Runnable { redraw() }
+    private var staticBitmap: android.graphics.Bitmap? = null
+    private var staticVersion = -1
+    private var staticCx = 0f; private var staticCy = 0f; private var staticScale = 0f
+    private var staleSince = 0L
+    private val staticMatrix = android.graphics.Matrix()
+    private val staticPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val renderStaticTask = Runnable { renderStaticLayer(); redraw() }
+    private fun staticSize() = Pair(width + 2*(width*STATIC_MARGIN).toInt(), height + 2*(height*STATIC_MARGIN).toInt())
+    private fun renderStaticLayer() {
+        if (width <= 0 || height <= 0) return
+        val (bw,bh) = staticSize()
+        var bmp = staticBitmap
+        if (bmp == null || bmp.width != bw || bmp.height != bh) {
+            bmp?.recycle()
+            bmp = android.graphics.Bitmap.createBitmap(bw,bh,android.graphics.Bitmap.Config.ARGB_8888)
+            staticBitmap = bmp
+        }
+        val version = contentVersion
+        vw = bw; vh = bh
+        try { drawStatic(Canvas(bmp)) } finally { vw = width; vh = height }
+        staticVersion = version
+        staticCx = centerX; staticCy = centerY; staticScale = scale
+        staleSince = 0L
+    }
     val trainCount get() = trainPainter.count
     private var trainFrom = Double.NaN
     private var trainTo = Double.NaN
@@ -1464,7 +1534,7 @@ internal class NetworkView(context: Context):View(context) {
         }
         trainPainter.time = trainTime(now)
         trainPainter.update(centerX,centerY,scale,width,height)
-        invalidate()
+        redraw()
         return trainCount
     }
     val stationCount get()=stops.size
@@ -1477,8 +1547,10 @@ internal class NetworkView(context: Context):View(context) {
 
     private var centerX=0f; private var centerY=0f
     private var scale=0.01f; private var homeScale=0.01f
-    private fun sx(x:Float)=(x-centerX)*scale+width/2f
-    private fun sy(y:Float)=(centerY-y)*scale+height/2f
+    // Static map content renders into [staticBitmap] at a virtual viewport of vw×vh pixels.
+    private var vw=0; private var vh=0
+    private fun sx(x:Float)=(x-centerX)*scale+vw/2f
+    private fun sy(y:Float)=(centerY-y)*scale+vh/2f
     var balance = Double.NaN
         private set
 
@@ -1618,19 +1690,44 @@ internal class NetworkView(context: Context):View(context) {
         if (oldw == 0 || oldh == 0) fit()
     }
     override fun onDraw(c:Canvas){
-        super.onDraw(c);c.drawColor(0xffeaf2ee.toInt())
+        super.onDraw(c)
+        vw = width; vh = height
+        val (bw,bh) = staticSize()
+        val cached = staticBitmap
+        if (cached == null || cached.width != bw || cached.height != bh) renderStaticLayer()
+        else if (staticVersion != contentVersion || staticCx != centerX || staticCy != centerY || staticScale != scale) {
+            // Panning and zooming reuse the last picture; it is redrawn once the camera rests.
+            val now = SystemClock.uptimeMillis()
+            if (staleSince == 0L) staleSince = now
+            removeCallbacks(renderStaticTask)
+            if (now - staleSince > 450L) renderStaticLayer() else postDelayed(renderStaticTask, 90L)
+        }
+        val bmp = staticBitmap
+        if (bmp != null && staticScale > 0f) {
+            if (staticScale != scale || staticCx != centerX || staticCy != centerY) c.drawColor(0xffeaf2ee.toInt())
+            val k = scale / staticScale
+            staticMatrix.setTranslate(-bmp.width/2f, -bmp.height/2f)
+            staticMatrix.postScale(k, k)
+            staticMatrix.postTranslate((staticCx-centerX)*scale + width/2f, (centerY-staticCy)*scale + height/2f)
+            c.drawBitmap(bmp, staticMatrix, staticPaint)
+        }
+        drawDynamic(c)
+    }
+
+    private fun drawStatic(c:Canvas){
+        c.drawColor(0xffeaf2ee.toInt())
         if(waterBox[0]!=waterBox[2]) {
             paint.style=Paint.Style.FILL; paint.color=Color.WHITE;paint.isFilterBitmap=true
             c.drawBitmap(cityLayer?.bitmap ?: water,null,RectF(sx(waterBox[0]),sy(waterBox[3]),sx(waterBox[2]),sy(waterBox[1])),paint)
         }
-        baseLayer?.draw(c,trainEngine(),centerX,centerY,scale,width,height,trainPainter.mercatorPerFrame,displaySettings.mapNames)
+        baseLayer?.draw(c,trainEngine(),centerX,centerY,scale,vw,vh,trainPainter.mercatorPerFrame,displaySettings.mapNames)
         if (displaySettings.contrast < 1f) c.drawColor(Color.argb(((1-displaySettings.contrast)*255).toInt(),245,246,239))
         if (displaySettings.mapNames) cityLayer?.let { layer ->
             val cells = mutableSetOf<Long>()
             paint.style=Paint.Style.FILL
             for (place in layer.places) {
                 val x=sx(place.x); val y=sy(place.y)
-                if (x<0 || x>=width || y<14*density || y>=height) continue
+                if (x<0 || x>=vw || y<14*density || y>=vh) continue
                 val cell=((x/(95*density)).toLong() shl 32) or (y/(30*density)).toLong()
                 if(!cells.add(cell)) continue
                 paint.textSize=(if(place.kind <= 1) 12f else 10f)*density
@@ -1638,7 +1735,7 @@ internal class NetworkView(context: Context):View(context) {
                 c.drawText(place.name,x,y,paint)
             }
         }
-        c.save();c.translate(width/2f,height/2f);c.scale(scale,-scale);c.translate(-centerX,-centerY)
+        c.save();c.translate(vw/2f,vh/2f);c.scale(scale,-scale);c.translate(-centerX,-centerY)
         val overview = stops.size > 180 && scale < homeScale * 2.2f
         val routeWidth = (if (overview) 2.1f else 3.6f) * density * displaySettings.lineWidth / scale
         paint.style = Paint.Style.STROKE
@@ -1692,7 +1789,7 @@ internal class NetworkView(context: Context):View(context) {
             val platform=s.platform
             val box=stationZoom >= 14f && platform != null
             val margin=if (box) platform!!.reach*scale+12*density else 6*density
-            if (originX < -margin || originX > width+margin || originY < -margin || originY > height+margin) continue
+            if (originX < -margin || originX > vw+margin || originY < -margin || originY > vh+margin) continue
             val x=originX+(platform?.midX ?: 0f)*scale
             val y=originY-(platform?.midY ?: 0f)*scale
             if (stationCells != null) {
@@ -1721,10 +1818,14 @@ internal class NetworkView(context: Context):View(context) {
                 labelX=x;labelY=y
             }
         }
+    }
+
+    private fun drawDynamic(c:Canvas){
+        paint.style=Paint.Style.FILL
         val frameTime=SystemClock.elapsedRealtime()
         trainPainter.time = trainTime(frameTime)
         trainPainter.update(centerX,centerY,scale,width,height)
-        if (frameTime-trainAt < trainWindow) postInvalidateDelayed(50)
+        if (frameTime-trainAt < trainWindow) { removeCallbacks(redrawTask); postDelayed(redrawTask,50) }
         if (displaySettings.trains) trainPainter.draw(c,scale,width,height,displaySettings)
         if (!overlay.active && !previewRequested && requiresStudioClock && trainPainter.needsLoads && onTrainPreviewNeeded!=null) {
             previewRequested=true
