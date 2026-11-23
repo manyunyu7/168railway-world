@@ -177,7 +177,7 @@ internal object StudioUi {
         }.apply {
             orientation = LinearLayout.VERTICAL
             isFocusableInTouchMode = true
-            background = glass(activity, 32, 0xf7ffffff.toInt())
+            background = glass(activity, 32, 0xfffbfaff.toInt())
             clipToOutline = true
             setPadding(dp(context,18),dp(context,10),dp(context,18),dp(context,14))
         }
