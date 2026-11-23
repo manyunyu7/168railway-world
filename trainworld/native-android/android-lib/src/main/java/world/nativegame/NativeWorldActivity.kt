@@ -92,6 +92,7 @@ class NativeWorldActivity : Activity() {
     private lateinit var zoomTools: LinearLayout
     private lateinit var controlHint: LinearLayout
     private lateinit var cancel: Button
+    private lateinit var sunArc: SunArcView
     private lateinit var localTime: TextView
     private lateinit var balance: TextView
     private lateinit var balanceUnit: TextView
@@ -134,7 +135,7 @@ class NativeWorldActivity : Activity() {
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = window.decorView.systemUiVisibility or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         @Suppress("DEPRECATION")
-        window.statusBarColor = 0xffe4f0ef.toInt()
+        window.statusBarColor = 0xffd7f0ff.toInt()
         map = NetworkView(this).apply {
             workshop = this@NativeWorldActivity.workshop
             trainEngine = { handle }
@@ -159,67 +160,74 @@ class NativeWorldActivity : Activity() {
         root.addView(hud, FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply {
             setMargins(gutter, gutter, gutter, 0)
         })
+        fun glassIcon(icon: StudioUi.Icon, description: String, size: Int, click: () -> Unit) =
+            StudioUi.iconButton(this, description, icon) { click() }.apply {
+                background = StudioUi.glass(context, size / 2)
+                elevation = dp(3).toFloat()
+                setPadding(0, 0, 0, 0)
+                textSize = 22f
+            }
         val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         hud.addView(header)
-        header.addView(StudioUi.iconButton(this, "Kembali", StudioUi.Icon.BACK) { leaveWorld() },
-            LinearLayout.LayoutParams(dp(48), dp(48)))
-        val titles = LinearLayout(this).apply {
+        header.addView(glassIcon(StudioUi.Icon.BACK, "Kembali", 50) { leaveWorld() },
+            LinearLayout.LayoutParams(dp(50), dp(50)))
+        // One frosted pill: day arc, clock, network summary and cash.
+        val clockPill = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = StudioUi.glass(context, 26)
+            elevation = dp(3).toFloat()
+            minimumHeight = dp(52)
+            setPadding(dp(8), dp(5), dp(5), dp(5))
+        }
+        sunArc = SunArcView(this)
+        clockPill.addView(sunArc, LinearLayout.LayoutParams(dp(if (compact) 36 else 44), dp(28)))
+        val timeColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        localTime = StudioUi.text(this, "—", if (compact) 16f else 18f, color = StudioUi.INK).apply {
+            typeface = StudioUi.heavy(context)
+            singleLine()
+            includeFontPadding = false
+        }
+        timeColumn.addView(localTime)
+        info = StudioUi.text(this, "Membuka jaringan…", 11f, true, StudioUi.MUTED).apply { singleLine() }
+        timeColumn.addView(info)
+        clockPill.addView(timeColumn, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
+        val cashPill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(48)
-            setPadding(dp(12), dp(4), dp(12), dp(4))
-            background = StudioUi.panel(context, radius = 16)
-            elevation = dp(2).toFloat()
-        }
-        titles.addView(StudioUi.text(this, archiveSlot?.title ?: city.name, 18f, true).apply { singleLine() })
-        info = StudioUi.text(this, "Membuka jaringan…", 12f, color = StudioUi.MUTED).apply { singleLine() }
-        titles.addView(info)
-        header.addView(titles, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(6); marginEnd = dp(6) })
-        save = StudioUi.iconButton(this, "Simpan ke Studio", StudioUi.Icon.SAVE, StudioUi.Tone.BLUE) {
-            withCommittedWorld { saveWorld() }
-        }.apply { isEnabled = false }
-        header.addView(save, LinearLayout.LayoutParams(dp(48), dp(48)))
-
-        val mapTools = LinearLayout(this).apply { gravity = Gravity.TOP }
-        hud.addView(mapTools, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(8) })
-        val metrics = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            background = StudioUi.panel(context, 0xff173f48.toInt(), 16, 0xff264d55.toInt())
-            elevation = dp(2).toFloat()
-            setPadding(dp(12), dp(7), dp(12), dp(7))
-        }
-        fun metric(caption: String, ink: Int): Pair<TextView,TextView> {
-            val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            val title = StudioUi.text(this, caption, 10f, true, ink)
-            column.addView(title)
-            val value = StudioUi.text(this, "—", if (compact) 16f else 18f, true, StudioUi.WHITE).apply {
-                singleLine()
-                minimumWidth = dp(if (compact) 78 else 88)
-            }
-            column.addView(value, LinearLayout.LayoutParams(-2, -2))
-            metrics.addView(column)
-            return title to value
+            gravity = Gravity.CENTER
+            background = StudioUi.pill(context, 0xccffffff.toInt(), 22)
+            setPadding(dp(12), dp(3), dp(12), dp(4))
         }
         currency = StudioCurrency.current(this)
-        val cash = metric("KAS · ${currency.code}", 0xffbbef9e.toInt())
-        balanceUnit = cash.first
-        balance = cash.second
-        metrics.addView(View(this).apply { setBackgroundColor(0xff5a777c.toInt()) },
-            LinearLayout.LayoutParams(dp(1), dp(26)).apply { marginStart = dp(11); marginEnd = dp(11) })
-        localTime = metric(if (compact) "JAM LOKAL" else "WAKTU LOKAL", 0xffb0e9fa.toInt()).second
-        mapTools.addView(metrics)
+        balanceUnit = StudioUi.text(this, "KAS · ${currency.code}", 9f, true, StudioUi.MUTED)
+        balance = StudioUi.text(this, "—", if (compact) 14f else 16f, color = StudioUi.INK).apply {
+            typeface = StudioUi.heavy(context)
+            maxLines = 1
+            includeFontPadding = false
+            minWidth = (paint.measureText("Rp 000,00 T") + dp(2)).toInt()
+        }
+        cashPill.addView(balanceUnit)
+        cashPill.addView(balance)
+        clockPill.addView(cashPill, LinearLayout.LayoutParams(-2, dp(42)))
+        header.addView(clockPill, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(6) })
+        save = glassIcon(StudioUi.Icon.SAVE, "Simpan ke Studio", 46) { withCommittedWorld { saveWorld() } }.apply { isEnabled = false }
+
+        val mapTools = LinearLayout(this).apply { gravity = Gravity.TOP }
+        hud.addView(mapTools, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
         mapTools.addView(View(this), LinearLayout.LayoutParams(0,1,1f))
+        val rightTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        rightTools.addView(save, LinearLayout.LayoutParams(dp(46), dp(46)).apply { bottomMargin = dp(8) })
         zoomTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        rightTools.addView(zoomTools)
         listOf(
             Triple(StudioUi.Icon.PLUS, "Perbesar peta", { map.zoom(1.6f) }),
             Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoom(1f / 1.6f) }),
             Triple(StudioUi.Icon.CENTER, "Tampilkan jaringan", { map.resetCamera() })
         ).forEach { (icon, description, click) ->
-            zoomTools.addView(StudioUi.iconButton(this, description, icon, click = click),
-                LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(3) })
+            zoomTools.addView(glassIcon(icon, description, 46, click),
+                LinearLayout.LayoutParams(dp(46), dp(46)).apply { bottomMargin = dp(8) })
         }
         zoomTools.visibility = if (StudioGameSettings.read(this).zoomButtons) View.VISIBLE else View.GONE
-        mapTools.addView(zoomTools)
+        mapTools.addView(rightTools)
 
         val dock = object : LinearLayout(this) {
             override fun onMeasure(widthSpec: Int, heightSpec: Int) {
@@ -235,35 +243,38 @@ class NativeWorldActivity : Activity() {
         }
         controlHint = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = StudioUi.panel(context, radius = 14)
-            setPadding(dp(12),dp(6),dp(12),dp(6))
+            background = StudioUi.glass(context, 22)
+            elevation = dp(3).toFloat()
+            setPadding(dp(16),dp(9),dp(16),dp(10))
         }
-        dock.addView(controlHint, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(4) })
-        dockTitle = StudioUi.text(this, "", 14f, true)
-        status = StudioUi.text(this, "Memuat dunia…", 13f, color = StudioUi.MUTED)
+        dock.addView(controlHint, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(8) })
+        dockTitle = StudioUi.text(this, "", 15f).apply { typeface = StudioUi.heavy(context) }
+        status = StudioUi.text(this, "Memuat dunia…", 13f, true, StudioUi.MUTED)
         controlHint.addView(dockTitle)
         controlHint.addView(status)
         val bar = LinearLayout(this).apply {
-            background = StudioUi.panel(context, DOCK_GREEN, 23, DOCK_GREEN)
-            setPadding(dp(4),dp(4),dp(4),dp(4))
+            gravity = Gravity.CENTER_VERTICAL
+            background = StudioUi.glass(context, 34)
+            elevation = dp(4).toFloat()
+            setPadding(dp(8),dp(8),dp(8),dp(8))
         }
         dock.addView(bar)
         fun action(primary: Boolean = false, click: () -> Unit) = Button(this).apply {
-            val fill = if (primary) 0xffffd496.toInt() else DOCK_GREEN
             backgroundTintList = null
-            background = StudioDepot.touch(context, fill, 18)
+            if (primary) StudioUi.style(this, StudioUi.Tone.PRIMARY)
+            else background = StudioDepot.touch(context, 0xd9ffffff.toInt(), 22)
             stateListAnimator = null
             isAllCaps = false
-            typeface = StudioUi.face(context,true)
-            textSize = 12f
+            typeface = StudioUi.heavy(context)
+            textSize = if (primary) 14f else 11f
             letterSpacing = 0f
             gravity = Gravity.CENTER
             minWidth = 0
             minimumWidth = 0
-            minHeight = dp(48)
-            minimumHeight = dp(48)
-            setTextColor(if (primary) DOCK_GREEN else -1)
-            setPadding(0,dp(5),0,dp(4))
+            minHeight = dp(54)
+            minimumHeight = dp(54)
+            setTextColor(if (primary) StudioUi.WHITE else StudioUi.INK)
+            setPadding(0,dp(5),0,if (primary) dp(9) else dp(4))
             maxLines = 1
             compoundDrawablePadding = dp(1)
             setOnClickListener { click() }
@@ -290,7 +301,9 @@ class NativeWorldActivity : Activity() {
         cancel = action { discardDraft() }
         more = action { withCommittedWorld { manageWorld() } }
         for (item in listOf(cancel, play, lines, build, finance, more)) {
-            bar.addView(item, LinearLayout.LayoutParams(0,-2,if (item == build) 1.25f else 1f))
+            bar.addView(item, LinearLayout.LayoutParams(0,-2,if (item == build) 1.6f else 1f).apply {
+                marginStart = dp(3); marginEnd = dp(3)
+            })
         }
         updateControls()
         map.onLocation = { point ->
@@ -538,13 +551,95 @@ class NativeWorldActivity : Activity() {
             })
             if (!hostLibrary) options.add("Pilih kota" to { showCityPicker(this, cityStore, city.id) { writeSave() } })
         }
-        StudioUi.sheet(this, if (drawing) "Rancangan jalur" else "Kelola dunia") { column, dialog ->
-            if (!drawing && !selectingInfrastructure && !removingTrack) column.addView(StudioUi.text(this,status.text.toString(),14f))
-            options.forEach { (label, click) ->
-                column.addView(StudioUi.button(this, label) { dialog.dismiss(); click() }.apply {
-                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        if (drawing) {
+            StudioUi.sheet(this, "Rancangan jalur") { column, dialog ->
+                options.forEach { (label, click) ->
+                    column.addView(StudioUi.button(this, label) { dialog.dismiss(); click() }.apply {
+                        gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+                }
+            }
+            return
+        }
+        searchMenu(options)
+    }
+
+    /** Cari & menu: one box finds commands, settings and stations; replaces the old Kelola list. */
+    private fun searchMenu(options: List<Pair<String, () -> Unit>>) {
+        fun iconFor(label: String): Pair<StudioUi.Icon, Int> = when {
+            label.startsWith("Urungkan") || label.startsWith("Ulangi") -> StudioUi.Icon.UNDO to 0xffefedf5.toInt()
+            label.startsWith("Pilih stasiun") -> StudioUi.Icon.PIN to 0xffe3edf9.toInt()
+            label.startsWith("Peta penumpang") -> StudioUi.Icon.CENTER to 0xffffe4e4.toInt()
+            label.startsWith("Bongkar") -> StudioUi.Icon.CLOSE to 0xffffe4e4.toInt()
+            label.startsWith("Tutorial") -> StudioUi.Icon.HELP to 0xffe8e2ff.toInt()
+            label.startsWith("Diagram") -> StudioUi.Icon.ROUTE to 0xffe1f1f6.toInt()
+            label.startsWith("Cetak") -> StudioUi.Icon.PLUS to 0xffddf4d3.toInt()
+            label.startsWith("Pengaturan") -> StudioUi.Icon.MENU to 0xffefedf5.toInt()
+            label.startsWith("Arsip") -> StudioUi.Icon.CLOUD to 0xffe3edf9.toInt()
+            else -> StudioUi.Icon.FOLDER to 0xfffff3c4.toInt()
+        }
+        val stations = map.stops.filter { it.id >= 0 }.distinctBy { it.id }.sortedBy { it.name }
+        StudioUi.sheet(this, "Cari & menu") { column, dialog ->
+            val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            fun row(label: String, sub: String?, icon: StudioUi.Icon, tint: Int, click: () -> Unit) {
+                results.addView(LinearLayout(this).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = StudioDepot.touch(context, 0xd9ffffff.toInt(), 18)
+                    setPadding(dp(10), dp(8), dp(12), dp(8))
+                    minimumHeight = dp(56)
+                    isClickable = true
+                    contentDescription = label
+                    addView(StudioDepot.symbol(context, icon, 19f, StudioUi.INK).apply {
+                        background = StudioUi.panel(context, tint, 12, tint)
+                    }, LinearLayout.LayoutParams(dp(38), dp(38)))
+                    val texts = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+                    texts.addView(StudioUi.text(context, label, 15f, true))
+                    if (sub != null) texts.addView(StudioUi.text(context, sub, 12f, true, StudioUi.MUTED))
+                    addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+                    setOnClickListener { dialog.dismiss(); click() }
                 }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             }
+            fun section(name: String) = results.addView(StudioUi.text(this, name.uppercase(), 12f, true, StudioUi.MUTED).apply {
+                letterSpacing = .06f
+                setPadding(dp(4), dp(12), 0, dp(2))
+            })
+            fun render(query: String) {
+                results.removeAllViews()
+                val q = query.trim().lowercase()
+                val commands = options.filter { q.isEmpty() || it.first.lowercase().contains(q) }
+                if (commands.isNotEmpty()) section(if (q.isEmpty()) "Menu" else "Perintah")
+                commands.forEach { (label, click) -> val (icon, tint) = iconFor(label); row(label, null, icon, tint, click) }
+                if (q.length >= 2) {
+                    val found = stations.filter { it.name.lowercase().contains(q) }.take(8)
+                    if (found.isNotEmpty()) section("Stasiun")
+                    found.forEach { st -> row(st.name, "Buka stasiun", StudioUi.Icon.PIN, 0xffe3edf9.toInt()) { openStation(st.id) } }
+                }
+                if (results.childCount == 0) results.addView(StudioUi.text(this, "Tidak ada yang cocok dengan “$query”.", 14f, true, StudioUi.MUTED).apply {
+                    setPadding(dp(4), dp(16), dp(4), dp(16))
+                })
+            }
+            if (!selectingInfrastructure && !removingTrack && status.text.isNotEmpty()) column.addView(StudioUi.text(this, status.text.toString(), 13f, true, StudioUi.MUTED).apply {
+                setPadding(dp(4), 0, dp(4), dp(8))
+            })
+            column.addView(android.widget.EditText(this).apply {
+                hint = "Cari perintah, menu, atau stasiun"
+                typeface = StudioUi.face(context, true)
+                textSize = 16f
+                setTextColor(StudioUi.INK)
+                setHintTextColor(StudioUi.MUTED)
+                isSingleLine = true
+                background = StudioUi.pill(context, -1, 28)
+                setPadding(dp(18), 0, dp(18), 0)
+                minHeight = dp(54)
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) { render(s?.toString().orEmpty()) }
+                })
+            }, LinearLayout.LayoutParams(-1, dp(54)))
+            column.addView(results)
+            render("")
         }
     }
 
@@ -733,7 +828,7 @@ class NativeWorldActivity : Activity() {
             button.contentDescription = description
             button.alpha = if (button.isEnabled) 1f else .55f
             if (button.tag != icon) {
-                val glyph = StudioUi.glyph(this, icon, if (button == build) DOCK_GREEN else -1)
+                val glyph = StudioUi.glyph(this, icon, if (button == build) StudioUi.WHITE else StudioUi.INK)
                 button.setCompoundDrawables(null,glyph,null,null)
                 button.tag = icon
             }
@@ -743,7 +838,7 @@ class NativeWorldActivity : Activity() {
         render(lines,"Jalur","Jalur",StudioUi.Icon.ROUTE)
         render(finance,"Kas","Keuangan",StudioUi.Icon.WALLET)
         render(cancel,"Batal","Batalkan rancangan",StudioUi.Icon.CLOSE)
-        render(more,if (drawing) "Alat" else "Kelola",if (drawing) "Alat rancangan" else "Kelola",StudioUi.Icon.MENU)
+        render(more,if (drawing) "Alat" else "Menu",if (drawing) "Alat rancangan" else "Cari dan menu",StudioUi.Icon.MENU)
         when {
             drawing -> render(play,"Urung","Urungkan titik terakhir",StudioUi.Icon.UNDO)
             running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
@@ -776,13 +871,14 @@ class NativeWorldActivity : Activity() {
         selectingInfrastructure=false
         removingTrack=false
         stopClock()
-        StudioUi.sheet(this,"Bangun jalur") { body,dialog ->
+        var dialog: android.app.Dialog? = null
+        run {
             val tiles=BuildTool.values().map { tool -> Triple(tool.key,tool.label,{
-                dialog.dismiss()
+                dialog?.dismiss()
                 configureTool(tool)
             }) }.toMutableList()
             tiles.add(Triple("select","Pilih") {
-                dialog.dismiss()
+                dialog?.dismiss()
                 selectingInfrastructure=true
                 updateControls()
                 status.text="Ketuk ruas rel atau stasiun untuk memeriksanya."
@@ -790,13 +886,13 @@ class NativeWorldActivity : Activity() {
                 map.announceForAccessibility(status.text)
             })
             tiles.add(Triple("delete","Bongkar") {
-                dialog.dismiss()
+                dialog?.dismiss()
                 StudioUi.sheet(this,"Bongkar") { choices,menu ->
                     choices.addView(StudioUi.button(this,"Bongkar rel di peta") { menu.dismiss(); startTrackRemoval() })
                     choices.addView(StudioUi.button(this,"Layanan dan stasiun") { menu.dismiss(); demolition() })
                 }
             })
-            body.addView(ConstructionTools.palette(this,tiles))
+            dialog = BuildWheel.show(this, "Mau bangun apa?", tiles)
         }
     }
 
@@ -1014,6 +1110,7 @@ class NativeWorldActivity : Activity() {
     }
     private fun refresh() {
         val displayClock = referenceTime ?: clock
+        if (::sunArc.isInitialized) sunArc.second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         val trainCount = map.updateTrains(displayClock, referenceState == ReferenceState.PLAYING)
         val second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         if(second!=lastStatus) {

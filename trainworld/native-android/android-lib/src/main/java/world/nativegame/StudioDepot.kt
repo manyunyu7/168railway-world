@@ -19,12 +19,13 @@ import android.widget.TextView
 
 /** Artwork and ticket cards shared by the Android library and the departure form. */
 internal object StudioDepot {
-    val PAPER = 0xfffaf8f2.toInt()
-    val TEAL = 0xff103d3b.toInt()
-    val SECONDARY = 0xff52675f.toInt()
-    val CORAL = 0xfff8aa72.toInt()
-    val LINE = 0xffd8ddd1.toInt()
-    val MINT = 0xffd4edd9.toInt()
+    // Kaca Diorama palette (see StudioUi): cards sit on frosted glass.
+    val PAPER = 0xfff8f6ff.toInt()
+    val TEAL = 0xff22204a.toInt()
+    val SECONDARY = 0xff5a5878.toInt()
+    val CORAL = 0xffff7a2f.toInt()
+    val LINE = 0xffe4e0ee.toInt()
+    val MINT = 0xffe3f5da.toInt()
     private var engine: Bitmap? = null
     private fun dp(c: Context, value: Int) = StudioUi.dp(c, value)
 

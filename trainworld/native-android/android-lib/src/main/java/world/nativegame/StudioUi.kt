@@ -27,13 +27,21 @@ import android.widget.TextView
 import kotlin.math.min
 
 internal object StudioUi {
-    val INK = 0xff1f2937.toInt()
-    val MUTED = 0xff52606d.toInt()
-    val GREEN = 0xff58cc02.toInt()
-    val BLUE = 0xff1cb0f6.toInt()
+    // Kaca Diorama: playful game colours on frosted glass over a full-screen map.
+    val INK = 0xff22204a.toInt()
+    val MUTED = 0xff5a5878.toInt()
+    val GREEN = 0xffff7a2f.toInt()          // primary action (orange)
+    val GREEN_EDGE = 0xffc24e12.toInt()
+    val BLUE = 0xff6c4df6.toInt()           // secondary emphasis (purple)
+    val BLUE_EDGE = 0xff4630b8.toInt()
+    val LEAF = 0xff3fb06a.toInt()
     val WHITE = Color.WHITE
-    val BACKGROUND = 0xfff8f9fa.toInt()
-    val BORDER = 0xffdee2e6.toInt()
+    val BACKGROUND = 0xffcfebc0.toInt()
+    val BORDER = 0xffe4e0ee.toInt()
+    val SURFACE_EDGE = 0xffd8cbb0.toInt()
+    val GLASS = 0xe6ffffff.toInt()
+    val GLASS_STRONG = 0xf2ffffff.toInt()
+    val GLASS_DARK = 0xcc22204a.toInt()
     enum class Tone { PRIMARY, BLUE, SURFACE }
     enum class Icon(val code: Int) {
         TRAIN(0xf024a), SAVE(0xf0126), PLUS(0xf537), BACK(0xf572), FOLDER(0xf77d),
@@ -47,6 +55,21 @@ internal object StudioUi {
         Typeface.createFromAsset(c.assets, "world-native/fonts/$file")
     }
     fun face(c: Context, bold: Boolean = false) = font(c, if (bold) "Nunito-ExtraBold.ttf" else "Nunito-Regular.ttf")
+    fun heavy(c: Context) = font(c, "Nunito-Black.ttf")
+    fun display(c: Context) = font(c, "BricolageGrotesque-ExtraBold.ttf")
+    fun title(context: Context, value: String, size: Float = 24f, color: Int = INK) =
+        text(context, value, size, color = color).apply { typeface = display(context); letterSpacing = -0.01f }
+
+    /** Frosted panel: translucent white with a bright rim. Blur comes from the window where Android supports it. */
+    fun glass(context: Context, radius: Int = 26, fill: Int = GLASS) = GradientDrawable().apply {
+        setColor(fill)
+        cornerRadius = dp(context, radius).toFloat()
+        setStroke(dp(context, 1) + 1, 0xccffffff.toInt())
+    }
+    fun pill(context: Context, fill: Int, radius: Int = 999) = GradientDrawable().apply {
+        setColor(fill)
+        cornerRadius = dp(context, minOf(radius, 200)).toFloat()
+    }
     fun text(context: Context, value: String, size: Float, bold: Boolean = false, color: Int = INK) =
         TextView(context).apply {
             text = value
@@ -63,14 +86,14 @@ internal object StudioUi {
 
     private fun raised(c: Context, tone: Tone): StateListDrawable {
         val fill = when (tone) { Tone.PRIMARY -> GREEN; Tone.BLUE -> BLUE; Tone.SURFACE -> WHITE }
-        val edge = when (tone) { Tone.PRIMARY -> 0xff46a302.toInt(); Tone.BLUE -> 0xff1899d6.toInt(); Tone.SURFACE -> BORDER }
+        val edge = when (tone) { Tone.PRIMARY -> GREEN_EDGE; Tone.BLUE -> BLUE_EDGE; Tone.SURFACE -> SURFACE_EDGE }
         fun layers(top: Int, bottom: Int, pressed: Boolean, focus: Boolean = false): Drawable {
-            return LayerDrawable(arrayOf(panel(c, bottom, 16, bottom), panel(c, top, 16, if (focus) INK else bottom))).apply {
-                setLayerInset(1, 0, if (pressed) dp(c, 3) else 0, 0, if (pressed) 0 else dp(c, 4))
+            return LayerDrawable(arrayOf(panel(c, bottom, 20, bottom), panel(c, top, 20, if (focus) INK else top))).apply {
+                setLayerInset(1, 0, if (pressed) dp(c, 4) else 0, 0, if (pressed) 0 else dp(c, 5))
             }
         }
         return StateListDrawable().apply {
-            addState(intArrayOf(-android.R.attr.state_enabled), layers(0xffedf0f2.toInt(), BORDER, false))
+            addState(intArrayOf(-android.R.attr.state_enabled), layers(0xffefedf5.toInt(), 0xffd9d5e6.toInt(), false))
             addState(intArrayOf(android.R.attr.state_pressed), layers(fill, edge, true))
             addState(intArrayOf(android.R.attr.state_focused), layers(fill, edge, false, true))
             addState(intArrayOf(), layers(fill, edge, false))
@@ -104,25 +127,27 @@ internal object StudioUi {
     }
 
     fun setIcon(button: Button, icon: Icon?) {
-        button.setCompoundDrawablesRelative(icon?.let { glyph(button.context, it, INK) }, null, null, null)
+        val ink = if (button.tag == Tone.SURFACE || button.tag == null) INK else WHITE
+        button.setCompoundDrawablesRelative(icon?.let { glyph(button.context, it, ink) }, null, null, null)
     }
 
     fun button(context: Context, label: String, tone: Tone = Tone.SURFACE, icon: Icon? = null, click: () -> Unit) =
         Button(context).apply {
             text = label
-            typeface = face(context, true)
+            typeface = heavy(context)
             textSize = 15f
             isAllCaps = false
             letterSpacing = 0f
             stateListAnimator = null
             backgroundTintList = null
             style(this, tone)
-            setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()), intArrayOf(MUTED, INK)))
+            setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+                intArrayOf(MUTED, if (tone == Tone.SURFACE) INK else WHITE)))
             minWidth = dp(context, 48)
             minimumWidth = minWidth
-            minHeight = dp(context, 48)
+            minHeight = dp(context, 52)
             minimumHeight = minHeight
-            setPadding(dp(context, 10), dp(context, 2), dp(context, 10), dp(context, 6))
+            setPadding(dp(context, 12), dp(context, 2), dp(context, 12), dp(context, 7))
             compoundDrawablePadding = dp(context, 5)
             setIcon(this, icon)
             setOnClickListener { click() }
@@ -149,18 +174,18 @@ internal object StudioUi {
         }.apply {
             orientation = LinearLayout.VERTICAL
             isFocusableInTouchMode = true
-            background = panel(activity, StudioDepot.PAPER, 24, StudioDepot.LINE)
+            background = glass(activity, 32, if (android.os.Build.VERSION.SDK_INT >= 31) GLASS else GLASS_STRONG)
             clipToOutline = true
-            setPadding(dp(context,18),dp(context,10),dp(context,18),dp(context,12))
+            setPadding(dp(context,18),dp(context,10),dp(context,18),dp(context,14))
         }
         root.addView(View(activity).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            background = panel(context, 0xffa9bdb2.toInt(), 4, 0xffa9bdb2.toInt())
-        }, LinearLayout.LayoutParams(dp(activity,36),dp(activity,4)).apply {
+            background = pill(context, 0x3822204a)
+        }, LinearLayout.LayoutParams(dp(activity,40),dp(activity,5)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
             bottomMargin = dp(activity,10)
         })
-        if (!title.isNullOrEmpty()) root.addView(text(activity,title.toString(),22f,true,StudioDepot.TEAL).apply {
+        if (!title.isNullOrEmpty()) root.addView(StudioUi.title(activity,title.toString(),24f).apply {
             if (android.os.Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
         }, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(activity,8) })
         root.addView(body,LinearLayout.LayoutParams(-1,-2,1f))
@@ -169,12 +194,20 @@ internal object StudioUi {
         val window = dialog.window ?: return
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        window.setDimAmount(.18f)
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            // Frosted glass: blur what is behind the sheet itself, keep the map visible around it.
+            window.setBackgroundBlurRadius(dp(activity, 28))
+            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            window.attributes = window.attributes.apply { blurBehindRadius = dp(activity, 6) }
+        }
         val host = activity.window.decorView
         fun resize() {
             val available = host.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
             val wide = available >= dp(activity,600)
             window.setGravity(if (wide) Gravity.CENTER else Gravity.BOTTOM)
-            window.setLayout(if (wide) min(available-dp(activity,48),dp(activity,660)) else available,-2)
+            window.setLayout(if (wide) min(available-dp(activity,48),dp(activity,660)) else available-dp(activity,16),-2)
+            window.attributes = window.attributes.apply { y = if (wide) 0 else dp(activity,8) }
         }
         val listener = View.OnLayoutChangeListener { _,l,_,r,_,ol,_,or,_ ->
             if (r-l != or-ol) resize()
@@ -198,5 +231,61 @@ internal object StudioUi {
         layoutSheet(activity,dialog,title,scroll,pinnedAction?.invoke(),heightFraction)
         dialog.show()
         return dialog
+    }
+
+    // ---- Kaca Diorama building blocks shared by every panel ----
+    /** White card on glass. */
+    fun card(context: Context, radius: Int = 22, fill: Int = 0xd9ffffff.toInt()) = pill(context, fill, radius)
+    /** Small uppercase section label. */
+    fun section(context: Context, value: String) = text(context, value.uppercase(), 12f, true, MUTED).apply {
+        letterSpacing = .06f
+        setPadding(dp(context, 4), dp(context, 12), 0, dp(context, 4))
+    }
+    /** Rounded colour chip such as "28 jalur". */
+    fun chip(context: Context, value: String, fill: Int, ink: Int) = text(context, value, 13f, true, ink).apply {
+        background = pill(context, fill, 12)
+        setPadding(dp(context, 10), dp(context, 4), dp(context, 10), dp(context, 5))
+    }
+    /** Line badge: coloured rounded square with a short code. */
+    fun badge(context: Context, code: String, color: Int, size: Int = 40) = text(context, code.take(2), size * .42f, color = WHITE).apply {
+        typeface = heavy(context)
+        gravity = Gravity.CENTER
+        background = LayerDrawable(arrayOf(panel(context, darker(color), 14, darker(color)), panel(context, color, 14, color))).apply {
+            setLayerInset(1, 0, 0, 0, dp(context, 3))
+        }
+        setPadding(0, 0, 0, dp(context, 3))
+    }
+    fun darker(color: Int): Int {
+        val r = (Color.red(color) * .78f).toInt(); val g = (Color.green(color) * .78f).toInt(); val b = (Color.blue(color) * .78f).toInt()
+        return Color.rgb(r, g, b)
+    }
+    /** A tappable list row on glass: icon tile, title, optional subtitle, optional trailing view. */
+    fun row(context: Context, icon: Icon?, tint: Int, title: String, subtitle: String? = null, trailing: View? = null, click: (() -> Unit)? = null) =
+        LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = if (click != null) StudioDepot.touch(context, 0xd9ffffff.toInt(), 18) else card(context, 18)
+            setPadding(dp(context, 10), dp(context, 8), dp(context, 12), dp(context, 8))
+            minimumHeight = dp(context, 56)
+            if (icon != null) addView(StudioDepot.symbol(context, icon, 19f, INK).apply {
+                background = panel(context, tint, 12, tint)
+            }, LinearLayout.LayoutParams(dp(context, 38), dp(context, 38)))
+            val texts = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+            texts.addView(text(context, title, 15f, true))
+            if (subtitle != null) texts.addView(text(context, subtitle, 12f, true, MUTED))
+            addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(context, if (icon != null) 12 else 4) })
+            trailing?.let { addView(it) }
+            if (click != null) { isClickable = true; contentDescription = title; setOnClickListener { click() } }
+        }
+    /** Pastel tints for icon tiles. */
+    val TINT_GREEN = 0xffddf4d3.toInt(); val TINT_BLUE = 0xffe3edf9.toInt(); val TINT_PURPLE = 0xffe8e2ff.toInt()
+    val TINT_ORANGE = 0xffffe9da.toInt(); val TINT_RED = 0xffffe4e4.toInt(); val TINT_YELLOW = 0xfffff3c4.toInt(); val TINT_GREY = 0xffefedf5.toInt()
+    val RED = 0xffe5484d.toInt(); val YELLOW = 0xffffb020.toInt(); val GOOD = 0xff2f6b22.toInt(); val BAD = 0xffb02e33.toInt()
+    /** Large figure card: caption + big value, for stats grids. */
+    fun stat(context: Context, caption: String, value: String, ink: Int = INK) = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        background = card(context, 18)
+        setPadding(dp(context, 12), dp(context, 9), dp(context, 12), dp(context, 10))
+        addView(text(context, caption, 12f, true, MUTED))
+        addView(text(context, value, 17f, color = ink).apply { typeface = heavy(context) })
     }
 }
