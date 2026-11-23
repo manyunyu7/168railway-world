@@ -12,7 +12,7 @@ initSync({module:readFileSync(new URL('sim_bg.wasm',js))});
 const json=path=>JSON.parse(readFileSync(path,'utf8'));
 const n=json(servicePath), expected=json(resultPath),q=expected.period;
 const h=readFileSync(headerPath,'utf8'), c=readFileSync(cellsPath);
-const work=new DemandApi(h,c), outings=EverydayApi.beside(work,h,c);
+const work=new DemandApi(h,c), outings=EverydayApi.beside_with(work,h,c,Float32Array.from(n.attractions ?? []));
 let market,packs;
 const regionalInput=process.argv.slice(7); // index.json.gz, market-drives.bin, one or more zone.market.json
 try {

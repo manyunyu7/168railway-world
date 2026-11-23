@@ -24,6 +24,25 @@ fn main() {
     }
     countries.push_str("];");
     fs::write(PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("starting_countries.rs"),countries).unwrap();
+    // Only coordinates and annual visits enter the native solver.
+    const SITES: &str = "../app/src/game/attractions.json";
+    println!("cargo:rerun-if-changed={SITES}");
+    let sites: Value = serde_json::from_slice(&fs::read(SITES).unwrap()).unwrap();
+    let mut binary = Vec::new();
+    for row in sites["rows"].as_array().unwrap() {
+        for column in 2..5 {
+            binary.extend(row[column].as_f64().unwrap().to_le_bytes());
+        }
+    }
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    fs::write(out_dir.join("attractions.bin"), binary).unwrap();
+    let mut boxes = String::from("const ZONE_BOXES: &[(&str, [f64; 4])] = &[\n");
+    for city in registry["cities"].as_array().unwrap() {
+        let bounds: [f64; 4] = std::array::from_fn(|i| city["box"][i].as_f64().unwrap());
+        writeln!(boxes, "({:?}, {bounds:?}),", city["id"].as_str().unwrap()).unwrap();
+    }
+    boxes.push_str("];");
+    fs::write(out_dir.join("zone_boxes.rs"), boxes).unwrap();
     let clock = registry["clockUtcOffset"].as_f64().unwrap();
     let mut output = format!(
         "const CLOCK_OFFSET: f64 = {clock:?};\nconst ZONES: &[(&str, f64, f64, f64, f64)] = &[\n"

@@ -2,6 +2,7 @@ mod bus_plan;
 mod city_surface;
 mod construction;
 mod demand;
+mod demand_zones;
 mod demolition;
 mod fare_editor;
 mod fares;

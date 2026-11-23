@@ -13,26 +13,57 @@ use trainworld_sim::{
     track::frame::{Frame, FrameKind},
 };
 
+const ATTRACTIONS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/attractions.bin"));
+
+fn attractions(city: &str, frame: &Frame) -> Vec<f32> {
+    let Some([w, s, e, n]) = super::demand_zones::bounds(city) else {
+        return vec![];
+    };
+    let dy = 1000. / 111_320.;
+    let dx = dy / s.abs().max(n.abs()).min(85.).to_radians().cos();
+    let mut sites = Vec::new();
+    for row in ATTRACTIONS.chunks_exact(24) {
+        let value = |i: usize| f64::from_le_bytes(row[i..i + 8].try_into().unwrap());
+        let (lon, lat) = (value(0), value(8));
+        if lon >= w - dx && lon <= e + dx && lat >= s - dy && lat <= n + dy {
+            let (x, y) = frame.from_lonlat(lon, lat);
+            sites.extend([x as f32, y as f32, value(16) as f32]);
+        }
+    }
+    sites
+}
+
 type MarketInput<'a> = (&'a [u8], &'a [u8], &'a [&'a str]);
+struct LocalPack {
+    header: String,
+    cells: Vec<u8>,
+    country: String,
+}
+
 fn commute(
     save: &[u8],
-    header: &str,
-    cells: &[u8],
+    packs: &[LocalPack],
     period: usize,
     market_input: Option<MarketInput>,
-    country: &str,
 ) -> Result<Value, String> {
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
-    let fares = super::fares::Fares::read(&world.header["fares"], country);
+    let first = packs.first().ok_or("Paket kota tidak tersedia")?;
+    let fares = super::fares::Fares::read(&world.header["fares"], &first.country);
     let mut api = world.api;
-    let city: Value = serde_json::from_str(header).map_err(|e| e.to_string())?;
-    super::city_surface::install_streets(&mut api, &city, cells);
-    let origin = &city["origin"];
-    let frame = Frame::new(
-        FrameKind::Equirect,
-        origin["lon"].as_f64().ok_or("Bujur tidak ada")?,
-        origin["lat"].as_f64().ok_or("Lintang tidak ada")?,
-    );
+    let mut frames = Vec::new();
+    for pack in packs {
+        let city: Value = serde_json::from_str(&pack.header).map_err(|e| e.to_string())?;
+        super::city_surface::install_streets(&mut api, &city, &pack.cells);
+        let origin = &city["origin"];
+        frames.push((
+            city["city"].as_str().unwrap_or("").to_owned(),
+            Frame::new(
+                FrameKind::Equirect,
+                origin["lon"].as_f64().ok_or("Bujur tidak ada")?,
+                origin["lat"].as_f64().ok_or("Lintang tidak ada")?,
+            ),
+        ));
+    }
     let nodes = api.nodes_info();
     let mut coords: HashMap<u32, (f64, f64)> = nodes
         .chunks_exact(10)
@@ -62,16 +93,13 @@ fn commute(
         ids.extend(stops.iter().chain(&back).copied());
         lines.push((id, row, stops, back));
     }
-    let mut xy = Vec::new();
     let mut ll_all = Vec::new();
     let mut ix = HashMap::new();
     for id in ids {
-        ix.insert(id, (xy.len() / 2) as u32);
+        ix.insert(id, (ll_all.len() / 2) as u32);
         let (x, y) = coords[&id];
-        let ll = api.to_lonlat(x, y);
+        let ll = api.to_lonlat(f64::from(x as f32), f64::from(y as f32));
         ll_all.extend_from_slice(&ll[..2]);
-        let (px, py) = frame.from_lonlat(ll[0], ll[1]);
-        xy.extend([px as f32, py as f32]);
     }
     let (mut counts, mut stops, mut reverse, mut times, mut tph, mut cars) =
         (vec![], vec![], vec![], vec![], vec![], vec![]);
@@ -144,8 +172,7 @@ fn commute(
     }
     let mut span = vec![1.; 10 * stops.len()];
     let mut off = 0;
-    let (mut tram, mut ferry, mut catch_n, mut catch_xy, mut catch_ll) =
-        (vec![], vec![], vec![], vec![], vec![]);
+    let (mut tram, mut ferry, mut catch_n, mut catch_ll) = (vec![], vec![], vec![], vec![]);
     for (id, _, ss, _) in &lines {
         let n = ss.len();
         let part = api.line_span(*id);
@@ -174,10 +201,8 @@ fn commute(
                 return Err("Koridor bus tidak lengkap".into());
             }
             for v in catches[k..k + 2 * count].chunks_exact(2) {
-                let ll = api.to_lonlat(v[0], v[1]);
+                let ll = api.to_lonlat(f64::from(v[0] as f32), f64::from(v[1] as f32));
                 catch_ll.extend_from_slice(&ll[..2]);
-                let (x, y) = frame.from_lonlat(ll[0], ll[1]);
-                catch_xy.extend([x as f32, y as f32]);
             }
             k += 2 * count;
         }
@@ -211,50 +236,70 @@ fn commute(
     if span.iter().all(|&v| v == 1.) {
         span.clear();
     }
-    #[cfg(test)]
-    if let Ok(path) = std::env::var("WORLD_NETWORK_EXPORT") {
-        let packed = json!({"xy":xy,"ll":ll_all,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars,"complexes":complexes,"upgrades":upgrades,"passages":passages,"span":span,"tram":tram,"ferry":ferry,"catchN":catch_n,"catchXY":catch_xy,"catchLL":catch_ll,"hopKm":hop_km,"baseMul":base_mul,"rateMul":rate_mul,"localFare":fares.local,"marketFare":fares.market,"rawFare":fares.raw,"country":country});
-        std::fs::write(path, packed.to_string()).map_err(|e| e.to_string())?;
-    }
-    let mut solver = DemandApi::new(header, cells)?;
-    let mut outings =
-        trainworld_sim::demand::everyday::EverydayApi::beside(&solver, header, cells)?;
-    let local = &fares.local;
-    let wallet = scalar(local, "weight");
-    solver.set_fare_weight(wallet)?;
-    outings.set_fare_weight(wallet)?;
-    solver.set_chunked(true);
-    solver.set_complexes(&complexes);
-    outings.set_complexes(&complexes);
-    solver.set_upgrades(&upgrades);
-    outings.set_upgrades(&upgrades);
-    solver.set_passages(&passages);
-    outings.set_passages(&passages);
-    solver.set_span(&span);
-    outings.set_span(&span);
-    solver.set_tram_lines(&tram);
-    solver.set_bus(&catch_n, &catch_xy);
-    outings.set_bus(&catch_n, &catch_xy);
-    solver.set_back_stops(&reverse);
-    outings.set_back_stops(&reverse);
-    solver.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
-    outings.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
-    let (base, rate) = (scalar(local, "base"), scalar(local, "rate"));
-    solver.set_fares(base, rate, &hop_km)?;
-    outings.set_fares(base, rate, &hop_km)?;
-    solver.set_fare_mul(&rate_mul)?;
-    outings.set_fare_mul(&rate_mul)?;
-    solver.set_base_mul(&base_mul)?;
-    outings.set_base_mul(&base_mul)?;
-    let curve = to_curve(local);
-    solver.set_fare_curve(&curve)?;
-    outings.set_fare_curve(&curve)?;
-    let transfer = scalar(local, "transfer");
-    solver.set_transfer_fare(transfer)?;
-    outings.set_transfer_fare(transfer)?;
-    outings.set_ferry(&ferry)?;
-    if !solver.solve(period) || !outings.solve(period) {
-        return Err("Periode perjalanan tidak tersedia".into());
+    let mut cities = Vec::new();
+    for (pack, (id, frame)) in packs.iter().zip(frames) {
+        let project = |points: &[f64]| -> Vec<f32> {
+            points
+                .chunks_exact(2)
+                .flat_map(|ll| {
+                    let (x, y) = frame.from_lonlat(ll[0], ll[1]);
+                    [x as f32, y as f32]
+                })
+                .collect()
+        };
+        let xy = project(&ll_all);
+        let catch_xy = project(&catch_ll);
+        let sites = attractions(&id, &frame);
+        #[cfg(test)]
+        if let Ok(path) = std::env::var("WORLD_NETWORK_EXPORT") {
+            let packed = json!({"attractions":sites,"xy":xy,"ll":ll_all,"counts":counts,"stops":stops,"back":reverse,"times":times,"tph":tph,"cars":cars,"complexes":complexes,"upgrades":upgrades,"passages":passages,"span":span,"tram":tram,"ferry":ferry,"catchN":catch_n,"catchXY":catch_xy,"catchLL":catch_ll,"hopKm":hop_km,"baseMul":base_mul,"rateMul":rate_mul,"localFare":fares.local,"marketFare":fares.market,"rawFare":fares.raw,"country":pack.country});
+            std::fs::write(path, packed.to_string()).map_err(|e| e.to_string())?;
+        }
+        let mut solver = DemandApi::new(&pack.header, &pack.cells)?;
+        let mut outings = trainworld_sim::demand::everyday::EverydayApi::beside_with(
+            &solver,
+            &pack.header,
+            &pack.cells,
+            &sites,
+        )?;
+        let local = &super::fares::Fares::read(&world.header["fares"], &pack.country).local;
+        let wallet = scalar(local, "weight");
+        solver.set_fare_weight(wallet)?;
+        outings.set_fare_weight(wallet)?;
+        solver.set_chunked(true);
+        solver.set_complexes(&complexes);
+        outings.set_complexes(&complexes);
+        solver.set_upgrades(&upgrades);
+        outings.set_upgrades(&upgrades);
+        solver.set_passages(&passages);
+        outings.set_passages(&passages);
+        solver.set_span(&span);
+        outings.set_span(&span);
+        solver.set_tram_lines(&tram);
+        solver.set_bus(&catch_n, &catch_xy);
+        outings.set_bus(&catch_n, &catch_xy);
+        solver.set_back_stops(&reverse);
+        outings.set_back_stops(&reverse);
+        solver.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
+        outings.set_network(&xy, &counts, &stops, &times, &tph, &cars)?;
+        let (base, rate) = (scalar(local, "base"), scalar(local, "rate"));
+        solver.set_fares(base, rate, &hop_km)?;
+        outings.set_fares(base, rate, &hop_km)?;
+        solver.set_fare_mul(&rate_mul)?;
+        outings.set_fare_mul(&rate_mul)?;
+        solver.set_base_mul(&base_mul)?;
+        outings.set_base_mul(&base_mul)?;
+        let curve = to_curve(local);
+        solver.set_fare_curve(&curve)?;
+        outings.set_fare_curve(&curve)?;
+        let transfer = scalar(local, "transfer");
+        solver.set_transfer_fare(transfer)?;
+        outings.set_transfer_fare(transfer)?;
+        outings.set_ferry(&ferry)?;
+        if !solver.solve(period) || !outings.solve(period) {
+            return Err("Periode perjalanan tidak tersedia".into());
+        }
+        cities.push((solver, outings));
     }
     let mut market = if let Some((index, drives, zones)) = market_input {
         let mut m = super::regional::open(index, drives, zones)?;
@@ -283,16 +328,29 @@ fn commute(
     // either population, since each shares the same seats and boarding capacity.
     let mut free_board = Vec::new();
     for round in 0..=3 {
-        let mut frozen = Vec::new();
-        for (commute, everyday) in [
-            (solver.seg(period), outings.seg(period)),
-            (solver.board(period), outings.board(period)),
-            (solver.alight(period), outings.alight(period)),
-        ] {
-            if commute.len() != everyday.len() {
+        let mut frozen = Vec::<f32>::new();
+        for (solver, outings) in &cities {
+            let combined = [
+                solver.seg(period),
+                solver.board(period),
+                solver.alight(period),
+            ]
+            .concat();
+            let everyday = [
+                outings.seg(period),
+                outings.board(period),
+                outings.alight(period),
+            ]
+            .concat();
+            if frozen.is_empty() {
+                frozen.resize(combined.len(), 0.);
+            }
+            if combined.len() != frozen.len() || everyday.len() != frozen.len() {
                 return Err("Susunan ruas perjalanan berbeda".into());
             }
-            frozen.extend(commute.iter().zip(everyday).map(|(a, b)| a + b));
+            for ((total, a), b) in frozen.iter_mut().zip(combined).zip(everyday) {
+                *total += a + b;
+            }
         }
         if let Some(m) = market.as_mut() {
             let loads = [m.seg(period), m.board(period), m.alight(period)].concat();
@@ -310,11 +368,18 @@ fn commute(
         }
         if round == 3 {
             // The web accounts for passengers who would have boarded without crowding.
-            let arrivals = free_board.iter().zip(board).map(|(free, last)| free.max(*last)).collect::<Vec<_>>();
+            let arrivals = free_board
+                .iter()
+                .zip(board)
+                .map(|(free, last)| free.max(*last))
+                .collect::<Vec<_>>();
             frozen.extend(arrivals);
-            if !solver.cap_with_external(period, &frozen)
-                || !outings.cap_with_external(period, &frozen)
-                || market.as_mut().is_some_and(|m| !m.cap_with_external(period, &frozen))
+            if cities.iter_mut().any(|(solver, outings)| {
+                !solver.cap_with_external(period, &frozen)
+                    || !outings.cap_with_external(period, &frozen)
+            }) || market
+                .as_mut()
+                .is_some_and(|m| !m.cap_with_external(period, &frozen))
             {
                 return Err("Susunan kapasitas akhir berbeda".into());
             }
@@ -325,74 +390,120 @@ fn commute(
                 return Err("Perhitungan kepadatan regional gagal".into());
             }
         }
-        if !solver.crowd_with_external(period, &frozen)
-            || !outings.crowd_with_external(period, &frozen)
-        {
+        if cities.iter_mut().any(|(solver, outings)| {
+            !solver.crowd_with_external(period, &frozen)
+                || !outings.crowd_with_external(period, &frozen)
+        }) {
             return Err("Perhitungan kapasitas tidak tersedia".into());
         }
     }
-    let work = solver.summary(period);
-    let other = outings.summary(period);
+    let mut work = [0.; 14];
+    let mut other = [0.; 14];
+    let mut boardings = 0.;
+    for (solver, outings) in &cities {
+        for (total, values) in [
+            (&mut work, solver.summary(period)),
+            (&mut other, outings.summary(period)),
+        ] {
+            total[0] = values[0];
+            for i in 1..total.len() {
+                total[i] += values[i];
+            }
+        }
+        boardings += solver
+            .board(period)
+            .into_iter()
+            .chain(outings.board(period))
+            .map(f64::from)
+            .sum::<f64>();
+    }
     let regional = market
         .as_ref()
         .map(|m| m.summary(period))
         .unwrap_or_else(|| vec![0.; 4]);
     let regional_board = market.as_ref().map(|m| m.board(period)).unwrap_or_default();
-    let boardings = solver
-        .board(period)
-        .into_iter()
-        .chain(outings.board(period))
-        .chain(regional_board)
-        .map(f64::from)
-        .sum::<f64>();
+    boardings += regional_board.into_iter().map(f64::from).sum::<f64>();
     Ok(
-        json!({"period":period,"lines":lines.len(),"stations":xy.len()/2,"rounds":work[0],"commuteRail":work[2],"outingsRail":other[2],"regionalRail":regional[2],"regionalTrips":regional[1],"trips":work[1]+other[1]+regional[1],"rail":work[2]+other[2]+regional[2],"walk":work[3]+other[3]+regional[3],"unserved":work[13]+other[13],"boardings":boardings}),
+        json!({"period":period,"lines":lines.len(),"stations":ix.len(),"rounds":work[0],"commuteRail":work[2],"outingsRail":other[2],"regionalRail":regional[2],"regionalTrips":regional[1],"trips":work[1]+other[1]+regional[1],"rail":work[2]+other[2]+regional[2],"walk":work[3]+other[3]+regional[3],"unserved":work[13]+other[13],"boardings":boardings}),
     )
 }
+#[derive(serde::Deserialize)]
+pub(super) struct DemandFiles {
+    local: Vec<[String; 2]>,
+    markets: Vec<String>,
+    index: Option<String>,
+    drives: Option<String>,
+}
+pub(super) struct Inputs {
+    packs: Vec<LocalPack>,
+    markets: Vec<String>,
+    index: Vec<u8>,
+    drives: Vec<u8>,
+}
+impl DemandFiles {
+    pub(super) fn read(&self) -> Result<Inputs, String> {
+        use std::fs;
+        let mut packs = Vec::new();
+        for [h, c] in &self.local {
+            let header = fs::read_to_string(h).map_err(|e| e.to_string())?;
+            let city: Value = serde_json::from_str(&header).map_err(|e| e.to_string())?;
+            let country = city["country"].as_str().unwrap_or("").to_owned();
+            packs.push(LocalPack {
+                header,
+                country,
+                cells: fs::read(c).map_err(|e| e.to_string())?,
+            });
+        }
+        let markets = self
+            .markets
+            .iter()
+            .map(fs::read_to_string)
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        let read_optional = |p: &Option<String>| {
+            p.as_ref()
+                .map(fs::read)
+                .transpose()
+                .map(Option::unwrap_or_default)
+                .map_err(|e| e.to_string())
+        };
+        Ok(Inputs {
+            packs,
+            markets,
+            index: read_optional(&self.index)?,
+            drives: read_optional(&self.drives)?,
+        })
+    }
+}
+impl Inputs {
+    fn estimate(&self, save: &[u8], period: usize) -> Result<Value, String> {
+        if period >= 5 {
+            return Err("Periode perjalanan tidak tersedia".into());
+        }
+        let zones: Vec<_> = self.markets.iter().map(String::as_str).collect();
+        let market = (!zones.is_empty()).then_some((
+            self.index.as_slice(),
+            self.drives.as_slice(),
+            zones.as_slice(),
+        ));
+        commute(save, &self.packs, period, market)
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_NativeRidership_estimate(
     mut env: JNIEnv,
     _: JClass,
     save: JByteArray,
-    header: JString,
-    cells: JString,
+    manifest: JString,
     period: jint,
-    index: JString,
-    drives: JString,
-    zone: JString,
 ) -> jstring {
     let result = (|| {
-        // Verified assets are already in private storage. Read from disk in Rust so the
-        // Java heap doesn't retain another copy of the city, route matrix and global index.
         let save = env.convert_byte_array(save).map_err(|e| e.to_string())?;
-        let mut path = |s: &JString| {
-            env.get_string(s)
-                .map(String::from)
-                .map_err(|e| e.to_string())
-        };
-        let h = std::fs::read_to_string(path(&header)?).map_err(|e| e.to_string())?;
-        let cells = std::fs::read(path(&cells)?).map_err(|e| e.to_string())?;
-        let z = std::fs::read_to_string(path(&zone)?).map_err(|e| e.to_string())?;
-        #[derive(serde::Deserialize)]
-        struct MarketZone {
-            country: Option<String>,
-        }
-        let zone_info: MarketZone = serde_json::from_str(&z).map_err(|e| e.to_string())?;
-        let country = zone_info.country.as_deref().unwrap_or("");
-        if index.is_null() {
-            return commute(&save, &h, &cells, period as usize, None, country);
-        }
-        let idx = std::fs::read(path(&index)?).map_err(|e| e.to_string())?;
-        let dr = std::fs::read(path(&drives)?).map_err(|e| e.to_string())?;
-
-        commute(
-            &save,
-            &h,
-            &cells,
-            period as usize,
-            Some((&idx, &dr, &[&z])),
-            country,
-        )
+        let spec: String = env.get_string(&manifest).map_err(|e| e.to_string())?.into();
+        let files: DemandFiles = serde_json::from_str(&spec).map_err(|e| e.to_string())?;
+        let data = files.read()?;
+        data.estimate(&save, period as usize)
     })()
     .unwrap_or_else(|e| json!({"error":e}));
     env.new_string(result.to_string())
@@ -411,16 +522,28 @@ mod tests {
             std::env::var("WORLD_SAVE").unwrap(),
         ))
         .unwrap();
-        let h = std::fs::read_to_string(dir.join(format!("{id}.json"))).unwrap();
-        let b = read(dir.join(format!("{id}.bin"))).unwrap();
+        let locals = std::env::var("WORLD_LOCAL_PACKS").unwrap_or_else(|_| id.clone());
+        let packs: Vec<_> = locals
+            .split(',')
+            .map(|z| {
+                let zone: Value =
+                    serde_json::from_slice(&read(dir.join(format!("{z}.market.json"))).unwrap())
+                        .unwrap();
+                LocalPack {
+                    header: std::fs::read_to_string(dir.join(format!("{z}.json"))).unwrap(),
+                    cells: read(dir.join(format!("{z}.bin"))).unwrap(),
+                    country: zone["country"].as_str().unwrap_or("").to_owned(),
+                }
+            })
+            .collect();
         let base = std::env::var("WORLD_MARKET_INDEX").ok();
         let mi = base.as_ref().map(|p| std::fs::read(p).unwrap());
         let drives = base
             .as_ref()
             .map(|_| std::fs::read(dir.join("market-drives.bin")).unwrap());
-        let zone = std::fs::read_to_string(dir.join(format!("{id}.market.json"))).unwrap();
         let market_zones = std::env::var("WORLD_MARKET_ZONES").unwrap_or_else(|_| id.clone());
-        let zone_headers: Vec<_> = market_zones.split(',')
+        let zone_headers: Vec<_> = market_zones
+            .split(',')
             .map(|z| std::fs::read_to_string(dir.join(format!("{z}.market.json"))).unwrap())
             .collect();
         let zones: Vec<_> = zone_headers.iter().map(String::as_str).collect();
@@ -428,19 +551,11 @@ mod tests {
             .as_ref()
             .zip(drives.as_ref())
             .map(|(i, d)| (i.as_slice(), d.as_slice(), zones.as_slice()));
-        let info: Value = serde_json::from_str(&zone).unwrap();
-        let period = std::env::var("WORLD_PERIOD")
-            .map_or(0, |value| value.parse::<usize>().expect("WORLD_PERIOD must be 0..4"));
+        let period = std::env::var("WORLD_PERIOD").map_or(0, |value| {
+            value.parse::<usize>().expect("WORLD_PERIOD must be 0..4")
+        });
         assert!(period < 5);
-        let r = commute(
-            &save,
-            &h,
-            &b,
-            period,
-            market,
-            info["country"].as_str().unwrap_or(""),
-        )
-        .unwrap();
+        let r = commute(&save, &packs, period, market).unwrap();
         if market.is_some() {
             assert!(r["regionalTrips"].as_f64().unwrap() > 0.)
         }

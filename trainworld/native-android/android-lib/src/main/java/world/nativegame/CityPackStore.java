@@ -84,20 +84,8 @@ public final class CityPackStore {
             try {
                 long done=0;
                 for(Asset part:city.assets){
-                    MessageDigest digest=sha();
-                    long count=0;
-                    File out=new File(tmp,part.local);
-                    try(InputStream in=transport.open(part.remote);FileOutputStream f=new FileOutputStream(out)){
-                        byte[] buffer=new byte[65536]; int n;
-                        while((n=in.read(buffer))!=-1){
-                            if(Thread.currentThread().isInterrupted())throw new InterruptedIOException();
-                            count+=n;if(count>part.size)throw new IOException("Ukuran paket melebihi katalog");
-                            digest.update(buffer,0,n);f.write(buffer,0,n);progress.downloaded(done+count,city.bytes);
-                        }
-                        f.getFD().sync();
-                    }
-                    if(count!=part.size||!hex(digest.digest()).equals(part.sha))throw new IOException("Verifikasi paket gagal: "+part.remote);
-                    done+=count;
+                    download(part,new File(tmp,part.local),progress,done,city.bytes);
+                    done+=part.size;
                 }
                 File old=null;
                 if(dest.exists()){
@@ -113,19 +101,56 @@ public final class CityPackStore {
             } finally { cleanPrivateCache(tmp); }
         }
     }
+    private void download(Asset part, File out, Progress progress, long done, long total) throws IOException {
+        MessageDigest digest=sha();
+        long count=0;
+        try(InputStream in=transport.open(part.remote);FileOutputStream f=new FileOutputStream(out)){
+            byte[] buffer=new byte[65536]; int n;
+            while((n=in.read(buffer))!=-1){
+                if(Thread.currentThread().isInterrupted())throw new InterruptedIOException();
+                count+=n;if(count>part.size)throw new IOException("Ukuran paket melebihi katalog");
+                digest.update(buffer,0,n);f.write(buffer,0,n);progress.downloaded(done+count,total);
+            }
+            f.getFD().sync();
+        }
+        if(count!=part.size||!hex(digest.digest()).equals(part.sha))throw new IOException("Verifikasi paket gagal: "+part.remote);
+    }
+
+    // Load just the solver input. Terrain, places and the scenario save are unnecessary here.
+    File demandAsset(String id, String name) throws IOException {
+        City c=city(id);
+        Asset a=c.assets.stream().filter(part -> part.local.equals(name)).findFirst()
+            .orElseThrow(() -> new IOException("Data demand tidak tersedia"));
+        synchronized(LOCK) {
+            File installed=new File(new File(root,id),name);
+            if(validAsset(installed,a))return installed;
+            File mirror=new File(new File(root,"reference"),a.remote);
+            if(validAsset(mirror,a))return mirror;
+            File dir=mirror.getParentFile();
+            if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Penyimpanan tidak tersedia");
+            File tmp=File.createTempFile(id+"-",".part",dir);
+            try {
+                download(a,tmp,(n,t)->{},0,a.size);
+                if(!tmp.renameTo(mirror))throw new IOException("Paket gagal disimpan");
+                return mirror;
+            } finally { tmp.delete(); }
+        }
+    }
+
+    private static boolean validAsset(File f, Asset a)throws IOException {
+        if(!f.isFile()||f.length()!=a.size)return false;
+        MessageDigest digest=sha();
+        byte[] buffer=new byte[65536];
+        try(InputStream in=new FileInputStream(f)){int n;while((n=in.read(buffer))!=-1)digest.update(buffer,0,n);}
+        return hex(digest.digest()).equals(a.sha);
+    }
     private static void cleanPrivateCache(File dir){
         File[] files=dir.listFiles();if(files!=null)for(File f:files)if(f.isFile())f.delete();
         if(dir.exists())dir.delete();
     }
     private static boolean valid(File dir,City city)throws IOException{
         if(!dir.isDirectory())return false;
-        byte[] buffer=new byte[65536];
-        for(Asset a:city.assets){
-            File f=new File(dir,a.local);if(!f.isFile()||f.length()!=a.size)return false;
-            MessageDigest digest=sha();
-            try(InputStream in=new FileInputStream(f)){int n;while((n=in.read(buffer))!=-1)digest.update(buffer,0,n);}
-            if(!hex(digest.digest()).equals(a.sha))return false;
-        }
+        for(Asset a:city.assets)if(!validAsset(new File(dir,a.local),a))return false;
         return true;
     }
     private static MessageDigest sha(){

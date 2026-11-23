@@ -1,7 +1,10 @@
 package world.nativegame
 
 import android.app.Activity
+import org.json.JSONArray
 import org.json.JSONObject
+import android.content.Context
+import java.net.URL
 import java.io.File
 import java.text.NumberFormat
 import java.util.Locale
@@ -10,7 +13,44 @@ import java.util.concurrent.Executors
 /** Read-only analysis of a world snapshot. Serialize expensive city assignments across screens. */
 object NativeRidership {
     private val executor = Executors.newSingleThreadExecutor()
-    @JvmStatic private external fun estimate(save: ByteArray, header: String, cells: String, period: Int, index: String?, drives: String?, zone: String?): String
+    @JvmStatic private external fun plan(save: ByteArray, boundaries: String): String
+    @JvmStatic private external fun estimate(save: ByteArray, manifest: String, period: Int): String
+
+    internal fun inputs(context: Context, save: ByteArray, cityHeader: File, cells: File, regional: Boolean): JSONObject {
+        val local = JSONArray().put(JSONArray().put(cityHeader.path).put(cells.path))
+        val markets = JSONArray()
+        val files = JSONObject().put("local",local).put("markets",markets)
+        if (!regional) return files
+        val store = StudioCatalog.get(context)
+        val reference = File(context.filesDir,"world-data/${CityPackStore.RELEASE}/reference")
+        check(reference.isDirectory || reference.mkdirs())
+        fun ids(obj: JSONObject, key: String): List<String> {
+            val list = obj.getJSONArray(key)
+            return List(list.length()) { list.getString(it) }
+        }
+        fun coverage(): JSONObject = JSONObject(plan(save,reference.path)).also { check(!it.has("error")) { it.optString("error") } }
+        var zones = coverage()
+        val missing = ids(zones,"missing")
+        for (id in missing) {
+            store.city(id)
+            val name = "$id.boundary.geojson"
+            val tmp = File.createTempFile("boundary-", ".part",reference)
+            try {
+                val source = URL(CityPackStore.ORIGIN + name).openConnection().apply { connectTimeout=15000; readTimeout=30000 }
+                source.getInputStream().use { input -> tmp.outputStream().use { output -> input.copyTo(output) } }
+                JSONObject(tmp.readText()).getJSONArray("features")
+                check(tmp.renameTo(File(reference,name))) { "Batas wilayah gagal disimpan" }
+            } finally { tmp.delete() }
+        }
+        if (missing.isNotEmpty()) zones = coverage()
+        val home = JSONObject(cityHeader.readText()).getString("city")
+        for (id in ids(zones,"local")) {
+            if (id != home) local.put(JSONArray().put(store.demandAsset(id,"header.json").path).put(store.demandAsset(id,"cells.bin").path))
+        }
+        for (id in (ids(zones,"markets") + home).distinct()) markets.put(store.demandAsset(id,"market.json").path)
+        val global = RegionalData.load(context.filesDir)
+        return files.put("index",global[0].path).put("drives",global[1].path)
+    }
 
     private val periods = listOf("06.00–10.00", "10.00–16.00", "16.00–20.00", "20.00–24.00", "00.00–06.00")
 
@@ -30,7 +70,7 @@ object NativeRidership {
             if (!includeRegion && zone.isFile) column.addView(StudioUi.row(activity,StudioUi.Icon.ROUTE,StudioUi.TINT_PURPLE,"Antarwilayah","Hitung juga perjalanan dari luar kota") {
                 StudioDialogBuilder(activity).setTitle("Hitung perjalanan antarwilayah?")
                     .setView(StudioDecision(activity,"Data pasar dan rute jalan","Disimpan di perangkat untuk permainan berikutnya.").apply {
-                        fact("Ukuran data","17,6 MB")
+                        fact("Data global","17,6 MB ditambah paket wilayah yang dijangkau")
                         fact("Periode",periods[period])
                     }).setNegativeButton("Batal",null).setPositiveButton("Hitung") { _,_ ->
                         dialog.dismiss()
@@ -41,8 +81,8 @@ object NativeRidership {
         }
         val task = executor.submit {
             val result = runCatching {
-                val files = if (includeRegion) RegionalData.load(activity.filesDir) else emptyList()
-                JSONObject(estimate(currentSave,cityHeader.path,cells.path,period,files.getOrNull(0)?.path,files.getOrNull(1)?.path,zone.path))
+                val manifest = inputs(activity,currentSave,cityHeader,cells,includeRegion)
+                JSONObject(estimate(currentSave,manifest.toString(),period))
             }
             activity.runOnUiThread {
                 if (activity.isDestroyed || activity.isFinishing || !panel.isShowing) return@runOnUiThread
