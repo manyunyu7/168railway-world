@@ -46,6 +46,16 @@ fn commute(
     period: usize,
     market_input: Option<MarketInput>,
 ) -> Result<Value, String> {
+    Ok(solve(save, packs, &[period], market_input, None)?.remove(0))
+}
+
+fn solve(
+    save: &[u8],
+    packs: &[LocalPack],
+    periods: &[usize],
+    market_input: Option<MarketInput>,
+    mut account: Option<&mut super::passenger_account::Forecast>,
+) -> Result<Vec<Value>, String> {
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
     let first = packs.first().ok_or("Paket kota tidak tersedia")?;
     let fares = super::fares::Fares::read(&world.header["fares"], &first.country);
@@ -296,9 +306,6 @@ fn commute(
         solver.set_transfer_fare(transfer)?;
         outings.set_transfer_fare(transfer)?;
         outings.set_ferry(&ferry)?;
-        if !solver.solve(period) || !outings.solve(period) {
-            return Err("Periode perjalanan tidak tersedia".into());
-        }
         cities.push((solver, outings));
     }
     let mut market = if let Some((index, drives, zones)) = market_input {
@@ -317,115 +324,149 @@ fn commute(
         m.set_fare_mul(&rate_mul)?;
         m.set_base_mul(&base_mul)?;
         m.set_fare_curve(&to_curve(regional))?;
-        if !m.solve(period) {
-            return Err("Perjalanan antarwilayah tidak tersedia".into());
-        }
         Some(m)
     } else {
         None
     };
-    // Match the web worker's three rounds: freeze the combined loads before advancing
-    // either population, since each shares the same seats and boarding capacity.
-    let mut free_board = Vec::new();
-    for round in 0..=3 {
-        let mut frozen = Vec::<f32>::new();
-        for (solver, outings) in &cities {
-            let combined = [
-                solver.seg(period),
-                solver.board(period),
-                solver.alight(period),
-            ]
-            .concat();
-            let everyday = [
-                outings.seg(period),
-                outings.board(period),
-                outings.alight(period),
-            ]
-            .concat();
-            if frozen.is_empty() {
-                frozen.resize(combined.len(), 0.);
-            }
-            if combined.len() != frozen.len() || everyday.len() != frozen.len() {
-                return Err("Susunan ruas perjalanan berbeda".into());
-            }
-            for ((total, a), b) in frozen.iter_mut().zip(combined).zip(everyday) {
-                *total += a + b;
-            }
+    let mut results = Vec::new();
+    for &period in periods {
+        if cities
+            .iter_mut()
+            .any(|(s, e)| !s.solve(period) || !e.solve(period))
+            || market.as_mut().is_some_and(|m| !m.solve(period))
+        {
+            return Err("Periode perjalanan tidak tersedia".into());
         }
-        if let Some(m) = market.as_mut() {
-            let loads = [m.seg(period), m.board(period), m.alight(period)].concat();
-            if loads.len() != frozen.len() {
-                return Err("Susunan jaringan regional berbeda".into());
+        // Match the web worker's three rounds: freeze the combined loads before advancing
+        // either population, since each shares the same seats and boarding capacity.
+        let mut free_board = Vec::new();
+        let mut rounds_board = Vec::new();
+        for round in 0..=3 {
+            let mut frozen = Vec::<f32>::new();
+            for (solver, outings) in &cities {
+                let combined = [
+                    solver.seg(period),
+                    solver.board(period),
+                    solver.alight(period),
+                ]
+                .concat();
+                let everyday = [
+                    outings.seg(period),
+                    outings.board(period),
+                    outings.alight(period),
+                ]
+                .concat();
+                if frozen.is_empty() {
+                    frozen.resize(combined.len(), 0.);
+                }
+                if combined.len() != frozen.len() || everyday.len() != frozen.len() {
+                    return Err("Susunan ruas perjalanan berbeda".into());
+                }
+                for ((total, a), b) in frozen.iter_mut().zip(combined).zip(everyday) {
+                    *total += a;
+                    *total += b;
+                }
             }
-            for (f, x) in frozen.iter_mut().zip(loads) {
-                *f += x;
+            if let Some(m) = market.as_mut() {
+                let loads = [m.seg(period), m.board(period), m.alight(period)].concat();
+                if loads.len() != frozen.len() {
+                    return Err("Susunan jaringan regional berbeda".into());
+                }
+                for (f, x) in frozen.iter_mut().zip(loads) {
+                    *f += x;
+                }
             }
-        }
-        let nodes = frozen.len() / 3;
-        let board = &frozen[nodes..2 * nodes];
-        if round == 0 {
-            free_board.extend_from_slice(board);
-        }
-        if round == 3 {
-            // The web accounts for passengers who would have boarded without crowding.
-            let arrivals = free_board
-                .iter()
-                .zip(board)
-                .map(|(free, last)| free.max(*last))
-                .collect::<Vec<_>>();
-            frozen.extend(arrivals);
+            let nodes = frozen.len() / 3;
+            let board = &frozen[nodes..2 * nodes];
+            if round == 0 {
+                free_board.extend_from_slice(board);
+            }
+            if round == 3 {
+                // The web accounts for passengers who would have boarded without crowding.
+                let arrivals = free_board
+                    .iter()
+                    .zip(board)
+                    .map(|(free, last)| free.max(*last))
+                    .collect::<Vec<_>>();
+                rounds_board.extend_from_slice(board);
+                free_board = arrivals;
+                frozen.extend(&free_board);
+                if cities.iter_mut().any(|(solver, outings)| {
+                    !solver.cap_with_external(period, &frozen)
+                        || !outings.cap_with_external(period, &frozen)
+                }) || market
+                    .as_mut()
+                    .is_some_and(|m| !m.cap_with_external(period, &frozen))
+                {
+                    return Err("Susunan kapasitas akhir berbeda".into());
+                }
+                break;
+            }
+            if let Some(m) = market.as_mut() {
+                if !m.crowd_with_external(period, &frozen) {
+                    return Err("Perhitungan kepadatan regional gagal".into());
+                }
+            }
             if cities.iter_mut().any(|(solver, outings)| {
-                !solver.cap_with_external(period, &frozen)
-                    || !outings.cap_with_external(period, &frozen)
-            }) || market
-                .as_mut()
-                .is_some_and(|m| !m.cap_with_external(period, &frozen))
-            {
-                return Err("Susunan kapasitas akhir berbeda".into());
+                !solver.crowd_with_external(period, &frozen)
+                    || !outings.crowd_with_external(period, &frozen)
+            }) {
+                return Err("Perhitungan kapasitas tidak tersedia".into());
             }
-            break;
+        }
+        let mut work = [0.; 14];
+        let mut other = [0.; 14];
+        let mut boardings = 0.;
+        for (solver, outings) in &cities {
+            for (total, values) in [
+                (&mut work, solver.summary(period)),
+                (&mut other, outings.summary(period)),
+            ] {
+                total[0] = values[0];
+                for i in 1..total.len() {
+                    total[i] += values[i];
+                }
+            }
+            boardings += solver
+                .board(period)
+                .into_iter()
+                .chain(outings.board(period))
+                .map(f64::from)
+                .sum::<f64>();
+        }
+        let regional = market
+            .as_ref()
+            .map(|m| m.summary(period))
+            .unwrap_or_else(|| vec![0.; 4]);
+        let regional_board = market.as_ref().map(|m| m.board(period)).unwrap_or_default();
+        boardings += regional_board.into_iter().map(f64::from).sum::<f64>();
+        results.push(
+        json!({"period":period,"lines":lines.len(),"stations":ix.len(),"rounds":work[0],"commuteRail":work[2],"outingsRail":other[2],"regionalRail":regional[2],"regionalTrips":regional[1],"trips":work[1]+other[1]+regional[1],"rail":work[2]+other[2]+regional[2],"walk":work[3]+other[3]+regional[3],"unserved":work[13]+other[13],"boardings":boardings}),
+    );
+        if let Some(account) = account.as_deref_mut() {
+            account.add_period(
+                period,
+                &cities,
+                market.as_ref(),
+                &free_board,
+                &rounds_board,
+                &lines.iter().map(|l| l.0).collect::<Vec<_>>(),
+                &counts,
+                &hop_km,
+                &base_mul,
+                &rate_mul,
+                &fares.local,
+            )?;
+        }
+        for (work, other) in &mut cities {
+            work.forget_period(period);
+            other.forget_period(period);
         }
         if let Some(m) = market.as_mut() {
-            if !m.crowd_with_external(period, &frozen) {
-                return Err("Perhitungan kepadatan regional gagal".into());
-            }
-        }
-        if cities.iter_mut().any(|(solver, outings)| {
-            !solver.crowd_with_external(period, &frozen)
-                || !outings.crowd_with_external(period, &frozen)
-        }) {
-            return Err("Perhitungan kapasitas tidak tersedia".into());
+            m.forget_period(period);
         }
     }
-    let mut work = [0.; 14];
-    let mut other = [0.; 14];
-    let mut boardings = 0.;
-    for (solver, outings) in &cities {
-        for (total, values) in [
-            (&mut work, solver.summary(period)),
-            (&mut other, outings.summary(period)),
-        ] {
-            total[0] = values[0];
-            for i in 1..total.len() {
-                total[i] += values[i];
-            }
-        }
-        boardings += solver
-            .board(period)
-            .into_iter()
-            .chain(outings.board(period))
-            .map(f64::from)
-            .sum::<f64>();
-    }
-    let regional = market
-        .as_ref()
-        .map(|m| m.summary(period))
-        .unwrap_or_else(|| vec![0.; 4]);
-    let regional_board = market.as_ref().map(|m| m.board(period)).unwrap_or_default();
-    boardings += regional_board.into_iter().map(f64::from).sum::<f64>();
-    Ok(
-        json!({"period":period,"lines":lines.len(),"stations":ix.len(),"rounds":work[0],"commuteRail":work[2],"outingsRail":other[2],"regionalRail":regional[2],"regionalTrips":regional[1],"trips":work[1]+other[1]+regional[1],"rail":work[2]+other[2]+regional[2],"walk":work[3]+other[3]+regional[3],"unserved":work[13]+other[13],"boardings":boardings}),
-    )
+    Ok(results)
 }
 #[derive(serde::Deserialize)]
 pub(super) struct DemandFiles {
@@ -476,6 +517,37 @@ impl DemandFiles {
     }
 }
 impl Inputs {
+    pub(super) fn account(
+        &self,
+        save: &[u8],
+        world: &mut World,
+    ) -> Result<super::timed_account::Account, String> {
+        let mut forecast = crate::passenger_account::Forecast::default();
+        let zones: Vec<_> = self.markets.iter().map(String::as_str).collect();
+        let market = (!zones.is_empty()).then_some((
+            self.index.as_slice(),
+            self.drives.as_slice(),
+            zones.as_slice(),
+        ));
+        solve(
+            save,
+            &self.packs,
+            &[0, 1, 2, 3, 4],
+            market,
+            Some(&mut forecast),
+        )?;
+        for pack in &self.packs {
+            let header: Value = serde_json::from_str(&pack.header).map_err(|e| e.to_string())?;
+            super::city_surface::install_streets(&mut world.api, &header, &pack.cells);
+        }
+        let costs = super::operating::Costs::new(&mut world.api);
+        let clock = world.header["clock"].as_f64().ok_or("Jam tidak valid")?;
+        let account =
+            super::timed_account::Account::new(&forecast, &mut world.api, clock, costs.lag);
+        world.operating = Some(costs);
+        Ok(account)
+    }
+
     fn estimate(&self, save: &[u8], period: usize) -> Result<Value, String> {
         if period >= 5 {
             return Err("Periode perjalanan tidak tersedia".into());
@@ -555,6 +627,61 @@ mod tests {
             value.parse::<usize>().expect("WORLD_PERIOD must be 0..4")
         });
         assert!(period < 5);
+        if let Ok(dir) = std::env::var("WORLD_ACCOUNT_EXPORT") {
+            let mut forecast = crate::passenger_account::Forecast::default();
+            solve(&save, &packs, &[0, 1, 2, 3, 4], market, Some(&mut forecast)).unwrap();
+            let dir = std::path::PathBuf::from(dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            if let Ok(reference) = std::env::var("WORLD_REFERENCE_CHECKPOINT") {
+                let reference = World::open(&std::fs::read(reference).unwrap()).unwrap();
+                let mut world = World::open(&save).unwrap();
+                for p in &packs {
+                    super::super::city_surface::install_streets(
+                        &mut world.api,
+                        &serde_json::from_str(&p.header).unwrap(),
+                        &p.cells,
+                    );
+                }
+                let costs = crate::operating::Costs::new(&mut world.api);
+                let mut account = crate::timed_account::Account::new(
+                    &forecast,
+                    &mut world.api,
+                    world.header["clock"].as_f64().unwrap(),
+                    costs.lag,
+                );
+                if let Ok(path)=std::env::var("WORLD_PREVIEW_REFERENCE") {
+                    let reference:Value=serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+                    let time=reference["clock"].as_f64().unwrap();
+                    let rows=crate::train_loads::Loads::new(&mut world,time).unwrap().rows(&world,time);
+                    std::fs::write(dir.join("trainLoads.json"),json!({"clock":time,"rows":rows}).to_string()).unwrap();
+                }
+                world.operating = Some(costs);
+                crate::finance::tick_with_account(
+                    &mut world,
+                    reference.header["clock"].as_f64().unwrap(),
+                    Some(&mut account),
+                );
+                std::fs::write(dir.join("settled.json"), world.header.to_string()).unwrap();
+            }
+            for day in 0..6 {
+                let (packed, arrive) = forecast.riders(day);
+                std::fs::write(
+                    dir.join(format!("riders{day}.json")),
+                    json!({ "day":day, "packed":packed, "arrive":arrive }).to_string(),
+                )
+                .unwrap();
+            }
+            std::fs::write(
+                dir.join("transfers.json"),
+                json!({"packed":forecast.transfers()}).to_string(),
+            )
+            .unwrap();
+            std::fs::write(
+                dir.join("income.json"),
+                serde_json::to_vec(&forecast.income()).unwrap(),
+            )
+            .unwrap();
+        }
         let r = commute(&save, &packs, period, market).unwrap();
         if market.is_some() {
             assert!(r["regionalTrips"].as_f64().unwrap() > 0.)

@@ -120,7 +120,8 @@ class NativeWorldActivity : Activity() {
     private var reference: SimulationClock? = null
     private var referenceState: ReferenceState? = null
     private var referenceTime: Double? = null
-    private var trainPreview: StudioReferenceClock? = null
+    private var trainPreview: java.util.concurrent.Future<*>? = null
+    private var previewGeneration = 0L
     private var afterCheckpoint: (() -> Unit)? = null
     private var foreground = false
     // A replacement activity must read the completed checkpoint after a rotation.
@@ -1302,31 +1303,36 @@ class NativeWorldActivity : Activity() {
         }
     }
 
-    /** Compute the paused gauge on the reference workers too. Discard the read-only worker as
-     * soon as its complete first batch arrives. Its clock, money and archive never replace the slot. */
     private fun previewTrainLoads() {
         if (reference != null || parked != null || trainPreview != null || closed || !foreground || drawing || handle == 0L) return
         val version = map.trainNetworkVersion
         val source = handle
-        val bytes = Engine.previewArchive(source,clock) ?: return
-        var received = false
-        lateinit var preview: StudioReferenceClock
-        fun stop() { if (trainPreview === preview) { trainPreview=null; preview.close() } }
-        preview = StudioReferenceClock(this,{ if (received) stop() },{ stop() })
-        trainPreview = preview
-        preview.onTrainLoads = { epoch,rows ->
-            if (handle==source && version==map.trainNetworkVersion && reference==null && !closed) {
-                received = true
-                map.trainLoads(epoch,rows)
-            } else stop()
+        val time = clock
+        val bytes = Engine.previewArchive(source,time) ?: return
+        val pack = activePack
+        val cityId = city.id
+        val generation = ++previewGeneration
+        trainPreview = executor.submit {
+            val rows = runCatching {
+                val local = pack ?: cityStore.load(cityId)
+                val files = NativeRidership.inputs(this,bytes,local.header,local.cells,true)
+                NativeRidership.trainLoads(bytes,files.toString(),time)
+            }.getOrNull()
+            runOnUiThread {
+                if (generation != previewGeneration) return@runOnUiThread
+                trainPreview = null
+                if (rows != null && !closed && handle == source && version == map.trainNetworkVersion && reference == null) {
+                    val epoch = kotlin.math.floor(time/3600).toLong()*3600
+                    map.trainLoads(epoch,org.json.JSONArray(rows))
+                }
+            }
         }
-        preview.open(bytes) { map.postDelayed({ stop() },20_000) }
     }
 
     private fun stopTrainPreview() {
-        val preview=trainPreview
+        previewGeneration++
+        trainPreview?.cancel(true)
         trainPreview=null
-        preview?.close()
     }
 
     private fun startReference() {

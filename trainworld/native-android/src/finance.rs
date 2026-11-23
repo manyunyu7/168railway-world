@@ -72,6 +72,9 @@ pub(super) fn book_charge(header: &mut Value, clock: f64, charge: f64, trains: f
     }
 }
 pub(super) fn tick(w: &mut World, now: f64) {
+    tick_with_account(w,now,None)
+}
+pub(super) fn tick_with_account(w: &mut World, now: f64, mut account: Option<&mut crate::timed_account::Account>) {
     let start = w.header["clock"].as_f64().unwrap_or(now);
     if !now.is_finite() || now <= start {
         return;
@@ -110,9 +113,12 @@ pub(super) fn tick(w: &mut World, now: f64) {
                 w.header["loanPay"] = pay.into();
             }
         }
-        cash -= owed + upkeep + running;
+        let (fares,rides)=account.as_deref_mut().map_or((0.,0.),|a|a.settle(&mut w.api,hour,end));
+        cash += fares - (owed + upkeep + running);
         for (key, index, at) in [("ledger", "day", day), ("hours", "hour", hour)] {
             let row = entry(&mut w.header, key, index, at);
+            add(row,"fares",fares);
+            add(row,"rides",rides);
             add(row, "upkeep", upkeep);
             add(row, "running", running);
             if owed > 0. {

@@ -18,7 +18,7 @@ struct Group {
 }
 
 pub(super) struct Costs {
-    lag: f64,
+    pub(super) lag: f64,
     groups: Vec<Group>,
 }
 

@@ -22,6 +22,8 @@ const entry = fs.readdirSync(assets).find(name => /^clock-.*\.js$/.test(name));
 await import(path.join(assets, entry));
 const { port1, port2 } = new MessageChannel();
 const send = data => port1.postMessage(JSON.stringify(data));
+const preview = process.env.SPIKE_TRAIN_PREVIEW;
+let previewRows = [];
 let chunks, size, offset = 0, playing = false, saving = false;
 try {
   const checkpoint = await new Promise((resolve, reject) => {
@@ -32,17 +34,27 @@ try {
         const msg = JSON.parse(event.data);
         switch (msg.type) {
           case "ready":
-            send({ type: "open", id: 1, size: bytes.length });
+            send({ type: "open", id: 1, size: bytes.length, trainLoads: !!preview });
             for (let k = 0; k < bytes.length; k += 49152) {
               send({ type: "input", id: 1, offset: k, base64: bytes.subarray(k, k + 49152).toString("base64") });
             }
             send({ type: "finish", id: 1 });
             break;
+          case "trainLoads":
+            if (preview && !playing) previewRows.push(...msg.rows);
+            break;
           case "opened":
+            if (preview) { send({type:"pause"}); break; }
             playing = true;
             send({ type: "play", rate: 240 });
             break;
           case "state":
+            if (preview && !playing && previewRows.length) {
+              fs.writeFileSync(preview,JSON.stringify({clock:msg.clock,rows:previewRows}));
+              previewRows = [];
+              playing = true;
+              send({type:"play",rate:240});
+            }
             if (playing && !saving && msg.clock >= original.clock + 3600) {
               saving = true;
               send({ type: "pause" });

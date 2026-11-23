@@ -147,13 +147,21 @@ mod tests {
     fn reference_coverage() {
         let save = std::fs::read(std::env::var("WORLD_SAVE").unwrap()).unwrap();
         let dir = std::env::var("WORLD_CITY_DATA").unwrap();
-        let actual = plan(&save,Path::new(&dir)).unwrap();
-        assert_eq!(actual["missing"],json!([]));
-        for (field, var) in [("local","WORLD_LOCAL_PACKS"),("markets","WORLD_MARKET_ZONES")] {
+        let actual = plan(&save, Path::new(&dir)).unwrap();
+        assert_eq!(actual["missing"], json!([]));
+        for (field, var) in [
+            ("local", "WORLD_LOCAL_PACKS"),
+            ("markets", "WORLD_MARKET_ZONES"),
+        ] {
             let expected = std::env::var(var).unwrap();
             let expected: std::collections::BTreeSet<_> = expected.split(',').collect();
-            let got: std::collections::BTreeSet<_> = actual[field].as_array().unwrap().iter().map(|v|v.as_str().unwrap()).collect();
-            assert_eq!(expected,got,"{field}");
+            let got: std::collections::BTreeSet<_> = actual[field]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            assert_eq!(expected, got, "{field}");
         }
     }
 }
