@@ -12,6 +12,8 @@ import org.json.JSONObject
 import java.util.Locale
 
 internal object StationInspector {
+    /** Daily riders for a station node and its share of the busiest stop, when the passenger layer has data. */
+    var riders: ((Int) -> Pair<Int, Float>?)? = null
     @JvmStatic external fun structure(handle: Long, node: Int, clock: Double, command: String): String
     @JvmStatic external fun upgrade(handle:Long,node:Int,bit:Int,on:Int,clock:Double):String
     @JvmStatic external fun read(handle: Long, node: Int, line: Int, run: Int, clock: Double): String
@@ -20,43 +22,113 @@ internal object StationInspector {
         val minute = Math.floorMod(kotlin.math.floor(seconds/60).toLong(),1440L)
         return String.format(Locale.ROOT,"%02d:%02d",minute/60,minute%60)
     }
-    private class Sheet(val activity: Activity,val title: String) {
+    /** Coloured line dot used beside departures and route rows. */
+    private fun dot(activity: Activity, color: Int, size: Int = 12) = android.view.View(activity).apply {
+        background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Color.BLACK or color)
+        }
+        importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        layoutParams = LinearLayout.LayoutParams(StudioUi.dp(activity, size), StudioUi.dp(activity, size))
+    }
+    private class Sheet(val activity: Activity,val title: String?) {
         val root=LinearLayout(activity).apply {
             orientation=LinearLayout.VERTICAL
         }
         private var dialog: android.app.Dialog?=null
         fun text(value: String, heading: Boolean=false) {
-            root.addView(StudioUi.text(activity,value,if(heading) 18f else 15f,heading).apply {
-                setPadding(0,StudioUi.dp(activity,if(heading) 14 else 3),0,StudioUi.dp(activity,3))
+            root.addView(if (heading) StudioUi.section(activity,value) else StudioUi.text(activity,value,14f,true,StudioUi.MUTED).apply {
+                setPadding(StudioUi.dp(activity,4),StudioUi.dp(activity,4),StudioUi.dp(activity,4),StudioUi.dp(activity,4))
             })
         }
-        fun action(value: String,color: Int?=null,icon: Int?=null,onClick: ()->Unit) {
-            root.addView(StudioUi.button(activity,value) { dialog?.dismiss(); onClick() }.apply {
-                gravity=android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
-                if(color!=null) setCompoundDrawablesWithIntrinsicBounds(android.graphics.drawable.GradientDrawable().apply {
-                    shape=android.graphics.drawable.GradientDrawable.OVAL; setColor(Color.BLACK or color)
-                    val dp=(11*resources.displayMetrics.density).toInt(); setSize(dp,dp)
-                },null,null,null)
-                if(icon!=null) setCompoundDrawablesWithIntrinsicBounds(icon,0,0,0)
-                compoundDrawablePadding=(9*resources.displayMetrics.density).toInt()
-            })
+        fun add(view: android.view.View, top: Int = 8) =
+            root.addView(view, LinearLayout.LayoutParams(view.layoutParams?.width ?: -1, -2).apply { topMargin = StudioUi.dp(activity,top) })
+        /** A white glass row; [color] shows a line dot, [icon] a drawable tile. */
+        fun action(value: String,color: Int?=null,icon: Int?=null,subtitle: String?=null,trailing: android.view.View?=null,onClick: ()->Unit) {
+            val row = StudioUi.row(activity,null,0,value,subtitle,trailing) { dialog?.dismiss(); onClick() }
+            when {
+                icon != null -> row.addView(android.widget.ImageView(activity).apply {
+                    setImageResource(icon)
+                    background = StudioUi.panel(activity,StudioUi.TINT_BLUE,12,StudioUi.TINT_BLUE)
+                    val pad = StudioUi.dp(activity,7); setPadding(pad,pad,pad,pad)
+                    importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, 0, LinearLayout.LayoutParams(StudioUi.dp(activity,38),StudioUi.dp(activity,38)))
+                color != null -> row.addView(dot(activity,color).apply {
+                    (layoutParams as LinearLayout.LayoutParams).marginStart = StudioUi.dp(activity,6)
+                }, 0)
+            }
+            add(row,6)
         }
         fun dismiss() { dialog?.dismiss() }
         fun show() {
-            dialog = StudioUi.sheet(activity,title,heightFraction = .72f) { column, _ -> column.addView(root) }
+            dialog = StudioUi.sheet(activity,title ?: "",heightFraction = .78f) { column, _ -> column.addView(root) }
         }
     }
+    /** Dark price pill for facility rows, green when the facility is already installed. */
+    private fun priceTag(activity: Activity, label: String, installed: Boolean) =
+        StudioUi.text(activity,label,13f,true,if (installed) StudioUi.GOOD else StudioUi.WHITE).apply {
+            background = StudioUi.pill(activity,if (installed) StudioUi.TINT_GREEN else StudioUi.INK,19)
+            setPadding(StudioUi.dp(activity,12),StudioUi.dp(activity,8),StudioUi.dp(activity,12),StudioUi.dp(activity,8))
+        }
     fun show(activity: Activity,handle: Long,node: Int,time: Double, changed: () -> Unit) {
         val payload=read(handle,node,-1,0,time)
         if(payload=="null") return
         val station=JSONObject(payload)
-        val sheet=Sheet(activity,station.getString("name"))
+        val sheet=Sheet(activity,null)
         val platforms=station.getJSONArray("platforms").rows()
         val lines = station.getJSONArray("lines").rows()
         val byId = lines.associateBy { it.getInt("id") }
         val departures = station.getJSONArray("departures").rows()
         fun dp(n: Int) = StudioUi.dp(activity,n)
-        sheet.root.addView(StudioUi.text(activity,"${platforms.size} peron   ·   ${lines.size} layanan",15f,false,StudioDepot.SECONDARY))
+        // Header: thick blue station tile, name in display type, platforms and services.
+        val header = LinearLayout(activity).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        header.addView(StudioDepot.symbol(activity,StudioUi.Icon.TRAIN,28f,StudioUi.WHITE).apply {
+            val blue = 0xff3e7bfa.toInt()
+            background = android.graphics.drawable.LayerDrawable(arrayOf(
+                StudioUi.panel(activity,StudioUi.darker(blue),20,StudioUi.darker(blue)),StudioUi.panel(activity,blue,20,blue))).apply {
+                setLayerInset(1,0,0,0,dp(4))
+            }
+            setPadding(0,0,0,dp(4))
+        }, LinearLayout.LayoutParams(dp(60),dp(60)))
+        val names = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        names.addView(StudioUi.title(activity,station.getString("name"),26f).apply { maxLines = 2 })
+        val lineNames = lines.map { it.getString("name") }.distinct()
+        names.addView(StudioUi.text(activity,
+            (if (lineNames.size in 1..2) lineNames.joinToString(" · ") + " · " else "${lines.size} layanan · ") + "${platforms.size} peron",
+            13f,true,StudioUi.MUTED).apply { maxLines = 2 })
+        header.addView(names, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
+        sheet.add(header,0)
+        // Platform crowding, only when the engine reports who is waiting.
+        val waiting = station.optInt("waiting",-1)
+        val daily = if (waiting < 0) riders?.invoke(node) else null
+        if (waiting >= 0 || daily != null) {
+            val capacity = station.optInt("capacity",0).takeIf { it > 0 } ?: maxOf(1,platforms.sumOf { it.getInt("meters") } * 4)
+            val share = if (daily != null) daily.second.toDouble() else (waiting.toDouble()/capacity).coerceIn(0.0,1.0)
+            val count = java.text.NumberFormat.getIntegerInstance(java.util.Locale.forLanguageTag("id-ID")).format(daily?.first ?: waiting)
+            val unit = if (daily != null) "penumpang/hari" else "orang"
+            val crowd = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                background = StudioUi.card(activity,22)
+                setPadding(dp(14),dp(12),dp(14),dp(14))
+            }
+            val top = LinearLayout(activity)
+            top.addView(StudioUi.text(activity,if (daily != null) "Keramaian stasiun" else "Keramaian peron",14f,true),LinearLayout.LayoutParams(0,-2,1f))
+            top.addView(StudioUi.text(activity,when { share > .75 -> "Padat"; share > .4 -> "Ramai"; else -> "Lengang" } + " · $count $unit",
+                14f,true,if (share > .75) 0xffb4500f.toInt() else StudioUi.MUTED))
+            crowd.addView(top)
+            val dots = LinearLayout(activity).apply { setPadding(0,dp(10),0,0) }
+            val filled = Math.round(share*12).toInt()
+            repeat(12) { k ->
+                dots.addView(android.view.View(activity).apply {
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(if (k < filled) StudioUi.YELLOW else 0x1a22204a)
+                    }
+                }, LinearLayout.LayoutParams(dp(20),dp(20)).apply { marginEnd = dp(5) })
+            }
+            crowd.addView(dots)
+            crowd.contentDescription = "Keramaian, $count $unit"
+            sheet.add(crowd,12)
+        }
         val upcoming = departures.filter { byId.containsKey(it.getInt("line")) }
         fun destination(d: JSONObject): String {
             val line = byId.getValue(d.getInt("line"))
@@ -66,40 +138,38 @@ internal object StationInspector {
         val first = upcoming.firstOrNull()
         if (first != null) {
             val card = LinearLayout(activity).apply {
-                orientation = LinearLayout.VERTICAL
-                background = StudioUi.panel(activity,StudioDepot.TEAL,18,StudioDepot.TEAL)
-                setPadding(dp(16),dp(12),dp(16),dp(14))
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                background = StudioUi.pill(activity,StudioUi.INK,22)
+                setPadding(dp(16),dp(14),dp(16),dp(14))
             }
-            card.addView(StudioUi.text(activity,"Keberangkatan berikutnya",14f,true,StudioDepot.MINT))
-            card.addView(StudioUi.text(activity,clock(first.getDouble("at")+first.optDouble("shift",0.0)),31f,true,Color.WHITE))
-            card.addView(StudioUi.text(activity,"Ke "+destination(first),19f,true,Color.WHITE))
-            card.addView(StudioUi.text(activity,byId.getValue(first.getInt("line")).getString("name"),14f,false,StudioDepot.MINT))
-            sheet.root.addView(card,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
+            card.addView(StudioUi.title(activity,clock(first.getDouble("at")+first.optDouble("shift",0.0)),32f,Color.WHITE))
+            val labels = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            labels.addView(StudioUi.text(activity,"Kereta berikutnya",12f,true,0xffbeb6e8.toInt()))
+            labels.addView(StudioUi.text(activity,"ke "+destination(first),16f,color = Color.WHITE).apply { typeface = StudioUi.heavy(activity) })
+            labels.addView(StudioUi.text(activity,byId.getValue(first.getInt("line")).getString("name"),12f,true,0xffbeb6e8.toInt()))
+            card.addView(labels,LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(14) })
+            sheet.add(card,12)
         } else sheet.text("Belum ada keberangkatan dalam dua jam ke depan.")
-        sheet.root.addView(StudioDepot.ticket(activity,"Fasilitas & upgrade stasiun",
-            "Peron, ruang tunggu, bangunan dan lorong",StudioUi.Icon.TRAIN) {
-            sheet.dismiss()
-            facilities(activity,handle,node,time,platforms,changed)
-        },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
         if (upcoming.size>1) {
             sheet.text("Jadwal berikutnya",true)
             val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-            sheet.root.addView(rows)
+            sheet.add(rows,0)
             fun appendDeparture(d: JSONObject) {
                 val line = byId.getValue(d.getInt("line"))
                 val row = LinearLayout(activity).apply {
                     gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(0,dp(6),0,dp(6))
+                    background = StudioUi.card(activity,18)
+                    setPadding(dp(14),dp(9),dp(14),dp(9))
+                    minimumHeight = dp(52)
                 }
-                row.addView(StudioUi.text(activity,clock(d.getDouble("at")+d.optDouble("shift",0.0)),17f,true,StudioDepot.TEAL),
-                    LinearLayout.LayoutParams(dp(59),-2))
-                val stripe = android.view.View(activity).apply { setBackgroundColor(line.getInt("color") or Color.BLACK) }
-                row.addView(stripe,LinearLayout.LayoutParams(dp(4),dp(30)).apply { marginEnd=dp(10) })
+                row.addView(StudioUi.text(activity,clock(d.getDouble("at")+d.optDouble("shift",0.0)),16f).apply { typeface = StudioUi.heavy(activity) },
+                    LinearLayout.LayoutParams(dp(56),-2))
+                row.addView(dot(activity,line.getInt("color")).apply { (layoutParams as LinearLayout.LayoutParams).marginEnd = dp(10) })
                 val labels=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL }
-                labels.addView(StudioUi.text(activity,destination(d),16f,true))
-                labels.addView(StudioUi.text(activity,line.getString("name"),13f,false,StudioDepot.SECONDARY))
+                labels.addView(StudioUi.text(activity,destination(d),15f,true))
+                labels.addView(StudioUi.text(activity,line.getString("name"),12f,true,StudioUi.MUTED))
                 row.addView(labels,LinearLayout.LayoutParams(0,-2,1f))
-                rows.addView(row)
+                rows.addView(row,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
             }
             upcoming.drop(1).take(2).forEach(::appendDeparture)
             if(upcoming.size>3) {
@@ -112,14 +182,15 @@ internal object StationInspector {
                     if (shown == upcoming.size) more.visibility=android.view.View.GONE
                     else more.text = "Lihat jadwal lainnya (${upcoming.size-shown})"
                 }
-                sheet.root.addView(more)
+                sheet.add(more,8)
             }
         }
         sheet.text("Peron",true)
         for (platform in platforms) {
             val level = platform.getInt("level")
             val location = when { level==0 -> "Permukaan"; level>0 -> "Layang · tingkat $level"; else -> "Bawah tanah · tingkat ${-level}" }
-            sheet.text(platform.getString("name")+"  ·  "+platform.getInt("meters")+" m  ·  "+location)
+            sheet.add(StudioUi.row(activity,StudioUi.Icon.PIN,StudioUi.TINT_BLUE,platform.getString("name"),
+                "${platform.getInt("meters")} m · $location"),6)
         }
         if(lines.isNotEmpty()) sheet.text("Diagram rute",true)
         for(line in lines) for(direction in line.getJSONArray("runs").rows()) {
@@ -127,6 +198,15 @@ internal object StationInspector {
                 route(activity,handle,line.getInt("id"),direction.getInt("run"),node,time,changed)
             }
         }
+        // Actions: structure (white) and facility upgrades (orange).
+        val actions = LinearLayout(activity)
+        actions.addView(StudioUi.button(activity,"Bangunan") {
+            sheet.dismiss(); StationStructurePanel(activity,handle,node,time,changed).show()
+        }, LinearLayout.LayoutParams(0,-2,1f).apply { marginEnd = dp(5) })
+        actions.addView(StudioUi.button(activity,"Upgrade",StudioUi.Tone.PRIMARY) {
+            sheet.dismiss(); facilities(activity,handle,node,time,platforms,changed)
+        }, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(5) })
+        sheet.add(actions,16)
         sheet.show()
     }
     private fun facilities(activity: Activity,handle: Long,node: Int,time: Double,platforms: List<JSONObject>,
@@ -144,7 +224,21 @@ internal object StationInspector {
             val station = JSONObject(read(handle,node,-1,0,time))
             facilities(activity,handle,node,time,station.getJSONArray("platforms").rows(),changed)
         }
-        val sheet = Sheet(activity,"Fasilitas stasiun")
+        val sheet = Sheet(activity,"Upgrade stasiun")
+        fun dp(n: Int) = StudioUi.dp(activity,n)
+        val banner = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = android.graphics.drawable.LayerDrawable(arrayOf(
+                StudioUi.panel(activity,StudioUi.BLUE_EDGE,24,StudioUi.BLUE_EDGE),
+                android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(StudioUi.BLUE,0xff9a7bff.toInt())).apply { cornerRadius = dp(24).toFloat() })).apply {
+                setLayerInset(1,0,0,0,dp(5))
+            }
+            setPadding(dp(16),dp(14),dp(16),dp(18))
+        }
+        banner.addView(StudioUi.text(activity,"${platforms.size} peron · pilih fasilitas",15f,color = Color.WHITE).apply { typeface = StudioUi.heavy(activity) })
+        banner.addView(StudioUi.text(activity,"Fasilitas membuat penumpang betah dan kereta lebih lancar.",12f,true,0xd9ffffff.toInt()))
+        sheet.add(banner,0)
         for (platform in platforms) {
             sheet.text(platform.getString("name")+" · "+platform.getInt("meters")+" m",true)
             val options = platform.getJSONArray("facilities").rows()
@@ -154,7 +248,10 @@ internal object StationInspector {
                 val name = names[bit] ?: continue
                 val installed = option.getBoolean("on")
                 val price = StudioCurrency.current(activity).compact(option.getDouble("price"))
-                sheet.action(if (installed) "$name · Terpasang" else "$name · $price", icon=symbols[bit]) {
+                sheet.action(name, icon=symbols[bit], subtitle=effects[bit],
+                    trailing=priceTag(activity,if (installed) "Terpasang" else price,installed).apply {
+                        (layoutParams as? LinearLayout.LayoutParams)?.marginStart = dp(8)
+                    }) {
                     StudioDialogBuilder(activity).setTitle(if (installed) "Lepas $name?" else "Pasang $name?")
                         .setView(StudioDecision(activity,platform.getString("name"),effects[bit]).apply {
                             fact("Panjang peron",platform.getInt("meters").toString()+" m")
@@ -173,7 +270,9 @@ internal object StationInspector {
                 }
             }
         }
-        sheet.action("Bangunan & lorong",icon=R.drawable.studio_upgrade_passage) { StationStructurePanel(activity,handle,node,time,changed).show() }
+        sheet.text("Bangunan",true)
+        sheet.action("Bangunan & lorong",icon=R.drawable.studio_upgrade_passage,subtitle="Denah bangunan dan lorong antarperon",
+            trailing=StudioDepot.symbol(activity,StudioUi.Icon.ROUTE,18f,StudioUi.MUTED)) { StationStructurePanel(activity,handle,node,time,changed).show() }
         sheet.show()
     }
     private fun route(activity: Activity,handle: Long,line: Int,run: Int,selected: Int,time: Double, changed: () -> Unit) {
@@ -183,7 +282,9 @@ internal object StationInspector {
         val shift = route.optDouble("shift",0.0)
         val sheet=Sheet(activity,route.getString("name"))
         if(route.isNull("base")) sheet.text("Belum ada perjalanan yang berangkat dalam 24 jam.")
-        else sheet.text("Perjalanan berikutnya · berangkat ${clock(route.getDouble("base")+shift)}",true)
+        else sheet.add(StudioUi.chip(activity,"Berangkat ${clock(route.getDouble("base")+shift)}",StudioUi.TINT_PURPLE,StudioUi.BLUE_EDGE).apply {
+            layoutParams = LinearLayout.LayoutParams(-2,-2)
+        },0)
         val stops=route.getJSONArray("stops").rows()
         for((index,stop) in stops.withIndex()) {
             val node=stop.getInt("node")
@@ -191,8 +292,9 @@ internal object StationInspector {
             val at=if(stop.isNull("arrival")) "" else clock(stop.getDouble("arrival")+shift)
             val departure=if(stop.isNull("departure")) "" else clock(stop.getDouble("departure")+shift)
             val times=if(departure.isNotEmpty() && departure!=at) "$at–$departure" else at
-            val position=if(index==0 || index==stops.lastIndex) "●" else "│"
-            sheet.action("$position  $times   $name"+if(node==selected) " · Dipilih" else "",route.getInt("color")) {
+            val terminal = index==0 || index==stops.lastIndex
+            sheet.action(name+if(node==selected) " · Dipilih" else "",route.getInt("color"),
+                subtitle=(if (terminal) "Ujung · " else "")+times.ifEmpty { "—" }) {
                 show(activity,handle,node,time,changed)
             }
         }

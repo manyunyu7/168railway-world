@@ -23,8 +23,21 @@ class WorldArchiveActivity : Activity() {
     private var busy=false
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        menu=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(24,24,24,24) }
-        setContentView(ScrollView(this).apply { addView(menu) })
+        val d=resources.displayMetrics.density
+        menu=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding((18*d).toInt(),(14*d).toInt(),(18*d).toInt(),(28*d).toInt()) }
+        if (android.os.Build.VERSION.SDK_INT >= 30) menu.setOnApplyWindowInsetsListener { view, insets ->
+            val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+            view.setPadding((18*d).toInt()+bars.left,(14*d).toInt()+bars.top,(18*d).toInt()+bars.right,(28*d).toInt()+bars.bottom)
+            insets
+        }
+        window.statusBarColor = 0xff9fd8f7.toInt()
+        window.navigationBarColor = 0xffbfe6a8.toInt()
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        setContentView(FrameLayout(this).apply {
+            addView(KScene.Sky(context), FrameLayout.LayoutParams(-1,-1))
+            addView(ScrollView(context).apply { isVerticalScrollBarEnabled=false; addView(menu) }, FrameLayout.LayoutParams(-1,-1))
+        })
         render()
     }
     override fun onResume() { super.onResume(); if(!busy) render() }
@@ -38,31 +51,71 @@ class WorldArchiveActivity : Activity() {
         val file=source() ?: error("Buka dunia terlebih dahulu.")
         return AtomicFile(file).openRead().use { WorldDocuments.read(it) }
     }
+    private fun dp(n: Int) = StudioUi.dp(this,n)
     private fun button(label: String, enabled: Boolean=true, action: ()->Unit) {
-        menu.addView(Button(this).apply { text=label; isEnabled=enabled; setOnClickListener { action() } })
+        menu.addView(StudioUi.button(this,label) { action() }.apply { isEnabled=enabled },
+            LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
+    }
+    private fun item(icon: StudioUi.Icon, tint: Int, label: String, detail: String?, enabled: Boolean=true, action: ()->Unit) {
+        menu.addView(StudioUi.row(this,icon,tint,label,detail) { if (!busy) action() }.apply {
+            isEnabled=enabled
+            alpha = if (enabled) 1f else .5f
+        }, LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
     }
     private fun render() {
         menu.removeAllViews()
-        menu.addView(TextView(this).apply { text="Arsip dunia"; textSize=24f })
-        feedback=TextView(this); menu.addView(feedback)
-        button("Impor berkas TWG1") {
+        menu.addView(LinearLayout(this).apply {
+            gravity=android.view.Gravity.CENTER_VERTICAL
+            addView(KScene.glassIcon(context,StudioUi.Icon.BACK,"Kembali") { finish() },LinearLayout.LayoutParams(dp(50),dp(50)))
+            val heading=LinearLayout(context).apply {
+                orientation=LinearLayout.VERTICAL
+                background=StudioUi.glass(context,25)
+                setPadding(dp(18),dp(6),dp(18),dp(8))
+                addView(StudioUi.title(context,"Arsip & akun",22f))
+                intent.getStringExtra("city")?.let { addView(StudioUi.text(context,"Dunia aktif · ${it.uppercase()}",12f,true,StudioUi.MUTED)) }
+            }
+            addView(heading,LinearLayout.LayoutParams(-2,-2).apply { marginStart=dp(10) })
+        })
+        feedback=StudioUi.text(this,"",14f,true,StudioUi.MUTED).apply { setPadding(dp(4),dp(10),dp(4),0) }
+        menu.addView(feedback)
+        val session=login.get("session")
+        val account=LinearLayout(this).apply {
+            gravity=android.view.Gravity.CENTER_VERTICAL
+            background=StudioUi.glass(this@WorldArchiveActivity,24)
+            setPadding(dp(14),dp(12),dp(14),dp(12))
+            addView(StudioDepot.symbol(context,StudioUi.Icon.CLOUD,22f,StudioUi.INK).apply {
+                background=StudioUi.panel(context,if (session==null) StudioUi.TINT_ORANGE else StudioUi.TINT_GREEN,15,0)
+            },LinearLayout.LayoutParams(dp(46),dp(46)))
+            val texts=LinearLayout(context).apply {
+                orientation=LinearLayout.VERTICAL
+                addView(StudioUi.text(context,if (session==null) "Belum terhubung" else "Akun 168Railway",15f,true))
+                addView(StudioUi.text(context,if (session==null) "Arsip tersimpan di HP ini saja" else "ID ${session.getString("userId")}",12f,true,StudioUi.MUTED))
+            }
+            addView(texts,LinearLayout.LayoutParams(0,-2,1f).apply { marginStart=dp(12) })
+        }
+        menu.addView(account,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
+        if(session==null) {
+            menu.addView(StudioUi.button(this,"Hubungkan akun 168Railway",StudioUi.Tone.PRIMARY,StudioUi.Icon.CLOUD) {
+                if (!busy) runCatching { startActivity(Intent(Intent.ACTION_VIEW,login.start())) }.onFailure { feedback.text=it.localizedMessage }
+            },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
+        } else {
+            menu.addView(StudioUi.section(this,"Akun"))
+            item(StudioUi.Icon.SAVE,StudioUi.TINT_PURPLE,"Simpan ke akun","Buat atau perbarui arsip",source()?.isFile==true) { chooseRemote(session,true) }
+            item(StudioUi.Icon.UNDO,StudioUi.TINT_BLUE,"Pulihkan dari akun","Buka arsip sebagai dunia baru") { chooseRemote(session,false) }
+            item(StudioUi.Icon.CLOSE,StudioUi.TINT_RED,"Putuskan akun",null) { job({ try { WorldCloud.logout(session) } finally { login.forget() } }) { render() } }
+        }
+        menu.addView(StudioUi.section(this,"Berkas"))
+        item(StudioUi.Icon.FOLDER,StudioUi.TINT_YELLOW,"Impor berkas TWG1","Dari penyimpanan HP") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),1)
         }
-        button("Ekspor dunia aktif",source()?.isFile==true) {
+        item(StudioUi.Icon.ROUTE,StudioUi.TINT_GREEN,"Ekspor dunia aktif","Simpan sebagai berkas .save",source()?.isFile==true) {
             startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                 .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,"${intent.getStringExtra("city") ?: "dunia"}.save"),2)
         }
-        val session=login.get("session")
-        if(session==null) button("Hubungkan akun 168Railway") {
-            runCatching { startActivity(Intent(Intent.ACTION_VIEW,login.start())) }.onFailure { feedback.text=it.localizedMessage }
-        } else {
-            menu.addView(TextView(this).apply { text="Akun 168Railway · ${session.getString("userId")}" })
-            button("Pulihkan dari akun") { chooseRemote(session,false) }
-            button("Simpan ke akun",source()?.isFile==true) { chooseRemote(session,true) }
-            button("Putuskan akun") { job({ try { WorldCloud.logout(session) } finally { login.forget() } }) { render() } }
-        }
-        WorldDocuments.list(this).forEach { slot ->
-            button("Buka ${slot.title} · ${slot.city.uppercase()}") { open(slot) }
+        val slots=WorldDocuments.list(this)
+        if (slots.isNotEmpty()) menu.addView(StudioUi.section(this,"Dunia di HP"))
+        slots.forEach { slot ->
+            item(StudioUi.Icon.TRAIN,StudioUi.TINT_ORANGE,slot.title,slot.city.uppercase()) { open(slot) }
         }
         button("Kembali") { finish() }
     }
@@ -106,8 +159,8 @@ class WorldArchiveActivity : Activity() {
             val content = LinearLayout(this).apply {
                 orientation=LinearLayout.VERTICAL
                 StudioMapPreview.image(context,StudioMapPreview.cityPath(id),"Peta wilayah "+place.name)?.let { addView(it) }
-                addView(StudioUi.text(context,name,19f,true,StudioDepot.TEAL))
-                addView(StudioUi.text(context,place.name+" · "+Formatter.formatShortFileSize(context,bytes.size.toLong()),15f,color=StudioDepot.SECONDARY))
+                addView(StudioUi.title(context,name,21f))
+                addView(StudioUi.text(context,place.name+" · "+Formatter.formatShortFileSize(context,bytes.size.toLong()),15f,true,StudioUi.MUTED))
             }
             StudioDialogBuilder(this).setTitle("Impor ke dunia baru?").setView(content)
                 .setPositiveButton("Buat slot baru") { _,_ ->
@@ -125,7 +178,12 @@ class WorldArchiveActivity : Activity() {
                 fun add(view: View) = content.addView(view,LinearLayout.LayoutParams(-1,-2).apply { topMargin=StudioUi.dp(this@WorldArchiveActivity,8) })
                 if (write) add(StudioUi.button(this,"Buat arsip baru",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLUS) {
                     dialog.dismiss()
-                    val name=EditText(this).apply { hint="Nama arsip"; setSingleLine(true); filters=arrayOf(android.text.InputFilter.LengthFilter(100)) }
+                    val name=EditText(this).apply {
+                        hint="Nama arsip"; setSingleLine(true); filters=arrayOf(android.text.InputFilter.LengthFilter(100))
+                        typeface=StudioUi.face(context,true); textSize=16f
+                        setTextColor(StudioUi.INK); setHintTextColor(StudioUi.MUTED)
+                        background=StudioUi.pill(context,StudioUi.WHITE,27); minHeight=dp(54); setPadding(dp(18),0,dp(18),0)
+                    }
                     val entry = LinearLayout(this).apply {
                         orientation=LinearLayout.VERTICAL
                         addView(name)
@@ -146,12 +204,12 @@ class WorldArchiveActivity : Activity() {
                         }
                     }
                 })
-                if (records.isEmpty()) add(StudioUi.text(this,"Belum ada dunia tersimpan di akun ini.",15f,color=StudioDepot.SECONDARY))
+                if (records.isEmpty()) add(StudioUi.text(this,"Belum ada dunia tersimpan di akun ini.",15f,true,StudioUi.MUTED))
                 for(row in records) {
                     val id=row.getString("id")
                     val title=row.getString("name")
                     val detail=saveDetails(row)
-                    add(StudioDepot.ticket(this,title,detail,StudioUi.Icon.CLOUD) {
+                    add(StudioUi.row(this,StudioUi.Icon.CLOUD,StudioUi.TINT_BLUE,title,detail) {
                         dialog.dismiss()
                         if(write) {
                             StudioDialogBuilder(this).setTitle("Perbarui $title?")

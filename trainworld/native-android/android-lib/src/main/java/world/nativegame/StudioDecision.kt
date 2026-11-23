@@ -16,35 +16,37 @@ internal class StudioDecision(context: Context, title: String, detail: String? =
 
     init {
         orientation = VERTICAL
-        background = StudioUi.panel(context, StudioDepot.PAPER, 18, StudioDepot.LINE)
-        setPadding(dp(14),dp(12),dp(14),dp(12))
-        addView(StudioUi.text(context,title,18f,true,StudioDepot.TEAL))
-        detail?.let { addView(StudioUi.text(context,it,14f,false,StudioDepot.SECONDARY)) }
+        background = StudioUi.card(context, 22)
+        setPadding(dp(16),dp(14),dp(16),dp(14))
+        addView(StudioUi.text(context,title,17f,color = StudioUi.INK).apply { typeface = StudioUi.heavy(context) })
+        detail?.let { addView(StudioUi.text(context,it,13f,true,StudioUi.MUTED).apply { setPadding(0,dp(2),0,dp(4)) }) }
     }
 
     fun fact(label: String, value: String) {
         val row = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0,dp(5),0,0)
-            addView(StudioUi.text(context,label,14f,false,StudioDepot.SECONDARY), LayoutParams(0,-2,1f))
-            addView(StudioUi.text(context,value,15f,true,StudioDepot.TEAL).apply {
+            background = StudioUi.pill(context, 0x0d22204a, 14)
+            setPadding(dp(12),dp(9),dp(12),dp(9))
+            addView(StudioUi.text(context,label,13f,true,StudioUi.MUTED), LayoutParams(0,-2,1f))
+            addView(StudioUi.text(context,value,15f,color = StudioUi.INK).apply {
+                typeface = StudioUi.heavy(context)
                 gravity = Gravity.END
             }, LayoutParams(0,-2,1.15f))
         }
-        addView(row)
+        addView(row, LayoutParams(-1,-2).apply { topMargin = dp(6) })
     }
 
     fun bar(label: String, value: String, fraction: Double, color: Int) {
         fact(label,value)
         val track = LinearLayout(context).apply {
-            background = StudioUi.panel(context,StudioDepot.LINE,3,StudioDepot.LINE)
+            background = StudioUi.pill(context,0x1f22204a,4)
             weightSum = 1f
             val part = fraction.toFloat().coerceIn(0f,1f)
-            if (part > 0) addView(View(context).apply { background = StudioUi.panel(context,color,3,color) },
+            if (part > 0) addView(View(context).apply { background = StudioUi.pill(context,color,4) },
                 LayoutParams(0,-1,part))
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        addView(track,LayoutParams(-1,dp(6)).apply { topMargin=dp(3); bottomMargin=dp(4) })
+        addView(track,LayoutParams(-1,dp(8)).apply { topMargin=dp(5); bottomMargin=dp(4) })
     }
 
     companion object {
@@ -61,18 +63,18 @@ internal class StudioDecision(context: Context, title: String, detail: String? =
                     val scale=min((width-2*inset)/(right-left).coerceAtLeast(1f),(height-2*inset)/(top-bottom).coerceAtLeast(1f))
                     fun x(pt: PointF)=width/2f+(pt.x-(left+right)/2f)*scale
                     fun y(pt: PointF)=height/2f-(pt.y-(bottom+top)/2f)*scale
-                    p.color=StudioDepot.TEAL; p.strokeWidth=StudioUi.dp(c,4).toFloat()
+                    p.color=StudioUi.BLUE; p.strokeWidth=StudioUi.dp(c,5).toFloat()
                     pathPoints.zipWithNext().forEach { (a,b) -> canvas.drawLine(x(a),y(a),x(b),y(b),p) }
                     for (stop in stops) {
-                        p.color=StudioDepot.TEAL
-                        canvas.drawCircle(x(stop),y(stop),StudioUi.dp(c,6).toFloat(),p)
-                        p.color=StudioDepot.PAPER
+                        p.color=StudioUi.INK
+                        canvas.drawCircle(x(stop),y(stop),StudioUi.dp(c,7).toFloat(),p)
+                        p.color=StudioUi.WHITE
                         canvas.drawCircle(x(stop),y(stop),StudioUi.dp(c,3).toFloat(),p)
                     }
                 }
             }
             diagram.importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            diagram.background=StudioUi.panel(c,StudioDepot.MINT,12,StudioDepot.MINT)
+            diagram.background=StudioUi.pill(c,0xffcfebc0.toInt(),16)
             card.addView(diagram, LayoutParams(-1,StudioUi.dp(c,92)).apply { topMargin=StudioUi.dp(c,8) })
             return card
         }

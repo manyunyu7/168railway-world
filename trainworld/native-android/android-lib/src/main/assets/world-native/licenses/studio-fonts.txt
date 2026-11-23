@@ -1,6 +1,11 @@
 Nunito Regular and ExtraBold are distributed unchanged from the host application's bundled fonts.
+Nunito Black is the static weight 900 instance served by Google Fonts, unchanged.
 Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito). See nunito-ofl.txt.
 
 StudioMaterialIcons.otf is a subset of Google's Material Icons font distributed with the Flutter SDK,
 containing the rounded symbols used by Studio. Glyph outlines are unchanged.
 Source: https://github.com/google/material-design-icons ; license: see material-icons.txt.
+
+BricolageGrotesque-ExtraBold.ttf is the static weight 800 (opsz 96) instance served by Google Fonts, unchanged.
+Copyright 2022 The Bricolage Grotesque Project Authors (https://github.com/ateliertriay/bricolage). Licensed under the
+SIL Open Font License, Version 1.1; the license text is identical to nunito-ofl.txt apart from the copyright line.

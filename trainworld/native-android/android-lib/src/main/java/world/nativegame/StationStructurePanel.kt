@@ -40,23 +40,26 @@ internal class StationStructurePanel(private val activity: Activity, private val
         val buildings=data.getJSONArray("buildings").rows()
         val currency=StudioCurrency.current(activity)
         StudioUi.sheet(activity,"Bangunan & lorong") { column,dialog ->
-            column.addView(StudioUi.text(activity,data.getString("name"),19f,true))
-            column.addView(StudioUi.text(activity,"Bangunan stasiun",17f,true).apply { setPadding(0,dp(12),0,dp(3)) })
-            if (buildings.isEmpty()) column.addView(StudioUi.text(activity,"Peron ini belum memiliki bangunan.",14f))
+            fun gap(n: Int = 6) = LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(n) }
+            column.addView(StudioUi.chip(activity,data.getString("name"),StudioUi.TINT_BLUE,0xff2a5bc4.toInt()),
+                LinearLayout.LayoutParams(-2,-2))
+            column.addView(StudioUi.section(activity,"Bangunan stasiun"))
+            if (buildings.isEmpty()) column.addView(StudioUi.text(activity,"Peron ini belum memiliki bangunan.",14f,true,StudioUi.MUTED))
             for (item in buildings) {
-                column.addView(StudioDepot.ticket(activity,item.getString("name"),
-                    "${item.getDouble("area").toInt()} m² · ${item.getInt("members")} peron",StudioUi.Icon.TRAIN) {
+                column.addView(StudioUi.row(activity,StudioUi.Icon.TRAIN,StudioUi.TINT_ORANGE,item.getString("name"),
+                    "${item.getDouble("area").toInt()} m² · ${item.getInt("members")} peron",
+                    StudioDepot.symbol(activity,StudioUi.Icon.ROUTE,18f,StudioUi.MUTED)) {
                     dialog.dismiss()
                     editBuilding(data,item)
-                })
+                }, gap())
             }
             column.addView(StudioUi.button(activity,"Rancang bangunan",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLUS) {
                 dialog.dismiss()
                 editBuilding(data,null)
-            })
-            column.addView(StudioUi.text(activity,"Lorong antarperon",17f,true).apply { setPadding(0,dp(14),0,dp(3)) })
+            }, gap(10))
+            column.addView(StudioUi.section(activity,"Lorong antarperon"))
             if (platforms.isEmpty()) column.addView(StudioUi.text(activity,
-                "Belum ada peron lain dalam jarak 1 km. Bangun peron lebih dekat untuk menyambungkannya.",14f))
+                "Belum ada peron lain dalam jarak 1 km. Bangun peron lebih dekat untuk menyambungkannya.",14f,true,StudioUi.MUTED))
             for (dest in platforms) {
                 val name=dest.getString("name")
                 val linked=dest.getBoolean("linked")
@@ -64,7 +67,12 @@ internal class StationStructurePanel(private val activity: Activity, private val
                 val length="${dest.getDouble("meters").toInt()} m"
                 val cost=currency.compact(dest.getDouble("cost"))
                 val state=when { linked -> "Terhubung"; built -> cost; else -> "Cetak biru" }
-                column.addView(StudioDepot.ticket(activity,name,"$length · $state",StudioUi.Icon.ROUTE) {
+                val tag = StudioUi.text(activity,if (linked) "Terhubung" else if (built) cost else "Cetak biru",13f,true,
+                    if (linked) StudioUi.GOOD else StudioUi.WHITE).apply {
+                    background = StudioUi.pill(activity,if (linked) StudioUi.TINT_GREEN else StudioUi.INK,19)
+                    setPadding(dp(12),dp(8),dp(12),dp(8))
+                }
+                column.addView(StudioUi.row(activity,StudioUi.Icon.ROUTE,StudioUi.TINT_PURPLE,name,"$length · $state",tag) {
                     val preview=StudioDecision(activity,name).apply {
                         fact("Panjang lorong",length)
                         if (linked) fact("Pengembalian",currency.compact(0.0))
@@ -76,7 +84,7 @@ internal class StationStructurePanel(private val activity: Activity, private val
                             dialog.dismiss()
                             commit(if (linked) "unlink" else "link",JSONObject().put("id",dest.getInt("id")))
                         }.show()
-                })
+                }, gap())
             }
         }
     }
@@ -90,16 +98,20 @@ internal class StationStructurePanel(private val activity: Activity, private val
                 setSingleLine()
                 hint="Nama bangunan"
                 setText(building?.getString("name") ?: data.getString("name"))
+                typeface=StudioUi.face(activity,true); textSize=16f; setTextColor(StudioUi.INK)
+                background=StudioUi.pill(activity,StudioUi.WHITE,26); setPadding(dp(18),0,dp(18),0); minHeight=dp(52)
             }
-            column.addView(nameField)
-            column.addView(StudioUi.text(activity,"Geser sudut untuk membentuk denah. Ketuk sisi untuk menambah sudut. Titik gelap menandai peron.",14f))
+            column.addView(nameField,LinearLayout.LayoutParams(-1,dp(52)))
+            column.addView(StudioUi.text(activity,"Geser sudut untuk membentuk denah. Ketuk sisi untuk menambah sudut. Titik gelap menandai peron.",13f,true,StudioUi.MUTED).apply {
+                setPadding(dp(4),dp(8),dp(4),dp(8))
+            })
             val nearby=data.getJSONArray("platforms").rows().map { PointF(it.getDouble("x").toFloat(),it.getDouble("y").toFloat()) }
             val plan=FootprintView(activity,points,nearby)
             column.addView(plan,LinearLayout.LayoutParams(-1,dp(210)))
             val tools=LinearLayout(activity)
-            column.addView(tools)
+            column.addView(tools,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
             fun tool(label: String, action: () -> Unit) {
-                tools.addView(StudioUi.button(activity,label,click=action),LinearLayout.LayoutParams(0,-2,1f))
+                tools.addView(StudioUi.button(activity,label,click=action),LinearLayout.LayoutParams(0,-2,1f).apply { marginEnd=dp(6) })
             }
             tool("−") { plan.zoom(.65f) }
             tool("+") { plan.zoom(1.5f) }
@@ -146,7 +158,7 @@ private class FootprintView(activity: Activity, private val points: MutableList<
     private val scale get()=min(width,height)/2f/span
     private fun x(p: PointF)=width/2f+p.x*scale
     private fun y(p: PointF)=height/2f-p.y*scale
-    init { isClickable=true; contentDescription="Denah bangunan, peron di tengah"; background=StudioUi.panel(activity,StudioDepot.MINT,12,StudioDepot.MINT) }
+    init { isClickable=true; contentDescription="Denah bangunan, peron di tengah"; background=StudioUi.pill(activity,0xffcfebc0.toInt(),20) }
     fun zoom(factor: Float) { span=(span/factor).coerceIn(25f,1200f); invalidate() }
     fun removeSelected() {
         if (points.size<=3) return
@@ -161,7 +173,7 @@ private class FootprintView(activity: Activity, private val points: MutableList<
             close()
         }
         paint.style=Paint.Style.FILL
-        paint.color=0x6645a783
+        paint.color=0x806c4df6.toInt()
         canvas.drawPath(outline,paint)
         paint.style=Paint.Style.STROKE
         paint.strokeWidth=2*density
@@ -171,7 +183,7 @@ private class FootprintView(activity: Activity, private val points: MutableList<
         for (p in nearby) canvas.drawCircle(x(p),y(p),3*density,paint)
         canvas.drawCircle(width/2f,height/2f,5*density,paint)
         for ((i,p) in points.withIndex()) {
-            paint.color=if(i==selected) 0xffc75a22.toInt() else StudioDepot.TEAL
+            paint.color=if(i==selected) StudioUi.GREEN else StudioDepot.TEAL
             canvas.drawCircle(x(p),y(p),6*density,paint)
             paint.color=-1
             canvas.drawCircle(x(p),y(p),2*density,paint)

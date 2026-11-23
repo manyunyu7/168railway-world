@@ -46,8 +46,16 @@ internal object StudioCityStart {
         val regional = activity.assets.list("world-native/zone-previews").orEmpty().toSet()
         lateinit var reviewButton: android.widget.Button
         StudioUi.sheet(activity, "Bangun dunia baru",pinnedAction={ reviewButton }) { form, dialog ->
-            val progress = StudioUi.text(activity,"Langkah 1 dari 3 · Pilih peta",17f,true,StudioDepot.TEAL)
+            val progress = StudioUi.text(activity,"Langkah 1 dari 3 · Pilih peta",13f,color = StudioUi.BLUE).apply {
+                typeface = StudioUi.heavy(activity)
+            }
             progress.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            // Three-segment step bar under the sheet title.
+            val steps = LinearLayout(activity)
+            val segments = List(3) { View(activity).also { steps.addView(it, LinearLayout.LayoutParams(0, dp(6), 1f).apply { if (steps.childCount > 0) marginStart = dp(6) }) } }
+            fun markStep(n: Int) = segments.forEachIndexed { i, v -> v.background = StudioUi.pill(activity, if (i < n) StudioUi.BLUE else 0x1f22204a, 3) }
+            markStep(1)
+            form.addView(steps, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
             form.addView(progress)
             fun page() = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -58,19 +66,19 @@ internal object StudioCityStart {
             var section = mapPage
             fun row(view: View, gap: Int = 6) =
                 section.addView(view, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(gap) })
-            fun label(text: String) = row(StudioUi.text(activity, text, 15f, true, StudioDepot.TEAL), 10)
+            fun label(text: String) = row(StudioUi.title(activity, text, 19f), 14)
             fun choices() = RadioGroup(activity).apply { orientation = LinearLayout.HORIZONTAL }
             fun option(group: RadioGroup, title: String) = RadioButton(activity).apply {
                 id = View.generateViewId()
                 text = title
                 textSize = 14f
                 typeface = StudioUi.face(activity,true)
-                setTextColor(StudioDepot.TEAL)
-                buttonTintList = ColorStateList.valueOf(StudioDepot.TEAL)
-                minHeight = dp(48)
+                setTextColor(StudioUi.INK)
+                buttonTintList = ColorStateList.valueOf(StudioUi.BLUE)
+                minHeight = dp(54)
                 background = StateListDrawable().apply {
-                    addState(intArrayOf(android.R.attr.state_checked),StudioUi.panel(activity,StudioDepot.MINT,13,StudioDepot.TEAL))
-                    addState(intArrayOf(),StudioUi.panel(activity,StudioDepot.PAPER,13,StudioDepot.LINE))
+                    addState(intArrayOf(android.R.attr.state_checked),KScene.choiceBackground(activity,true))
+                    addState(intArrayOf(),KScene.choiceBackground(activity,false))
                 }
                 group.addView(this,RadioGroup.LayoutParams(0,-2,1f).apply {
                     if (group.childCount > 0) marginStart = dp(6)
@@ -95,7 +103,7 @@ internal object StudioCityStart {
             row(scenarioRow,4)
             val preview = FrameLayout(activity)
             row(preview,4)
-            val originHint = StudioUi.text(activity,"",13f,color = StudioDepot.SECONDARY)
+            val originHint = StudioUi.text(activity,"",13f,true,StudioUi.MUTED)
             row(originHint,0)
 
             fun updateNetwork() {
@@ -103,7 +111,7 @@ internal object StudioCityStart {
                 scenarioRow.visibility = if (showScenarios) View.VISIBLE else View.GONE
                 scenarioRow.removeAllViews()
                 if (showScenarios) {
-                    scenarioRow.addView(StudioDepot.ticket(activity,scenarios.getValue(scenario),"Pilih skenario Jakarta",StudioUi.Icon.ROUTE) {
+                    scenarioRow.addView(KScene.choice(activity,StudioUi.Icon.TRAIN,StudioUi.TINT_PURPLE,scenarios.getValue(scenario),"Ketuk untuk ganti skenario",true) {
                         StudioUi.sheet(activity, "Pilih skenario Jakarta") { content, picker ->
                             scenarios.forEach { (id, title) ->
                                 val item = StudioMapPreview.card(activity,StudioMapPreview.scenarioPath(id),title,
@@ -136,7 +144,7 @@ internal object StudioCityStart {
                 destination.removeAllViews()
                 val download = if (store.cached(city.id)) "Peta tersedia di perangkat"
                     else "Unduhan %.1f MB".format(Locale.getDefault(),city.bytes / 1_000_000.0)
-                destination.addView(StudioDepot.ticket(activity,city.name,"Ubah kota awal · $download",StudioUi.Icon.PIN) {
+                destination.addView(KScene.choice(activity,StudioUi.Icon.PIN,StudioUi.TINT_ORANGE,city.name,"Ubah kota awal · $download",true) {
                     StudioZonePicker.show(activity,store,city.id,"Pilih kota awal") { id ->
                         city=store.city(id)
                         updateCity()
@@ -147,7 +155,7 @@ internal object StudioCityStart {
                 for (id in StudioZonePicker.featured) {
                     val place = store.city(id)
                     val selected = id == city.id
-                    val chip = StudioUi.button(activity,place.name,if(selected) StudioUi.Tone.PRIMARY else StudioUi.Tone.SURFACE) {
+                    val chip = StudioUi.button(activity,place.name,if(selected) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE) {
                         if (city.id != id) {
                             city = place
                             updateCity()
@@ -172,7 +180,7 @@ internal object StudioCityStart {
             val modes = choices()
             val normal = option(modes,"Normal")
             val sandbox = option(modes,"Sandbox")
-            val modeHint = StudioUi.text(activity,"",13f,color = StudioDepot.SECONDARY)
+            val modeHint = StudioUi.text(activity,"",13f,true,StudioUi.MUTED)
             modes.setOnCheckedChangeListener { _, _ ->
                 modeHint.text = if (sandbox.isChecked) "Bangun bebas dengan dana tanpa batas." else "Kelola layanan dan anggaran kota."
             }
@@ -184,13 +192,13 @@ internal object StudioCityStart {
                 setSingleLine()
                 typeface = StudioUi.face(activity)
                 textSize = 16f
-                setTextColor(StudioDepot.TEAL)
-                setHintTextColor(StudioDepot.SECONDARY)
+                setTextColor(StudioUi.INK)
+                setHintTextColor(StudioUi.MUTED)
                 hint = "Lintas ${city.name}"
                 filters = arrayOf(InputFilter.LengthFilter(100))
-                minHeight = dp(48)
-                background = StudioUi.panel(activity,StudioDepot.PAPER,13,StudioDepot.LINE)
-                setPadding(dp(14),dp(5),dp(14),dp(5))
+                minHeight = dp(54)
+                background = StudioUi.pill(activity,StudioUi.WHITE,27)
+                setPadding(dp(18),dp(5),dp(18),dp(5))
             }
             row(name,3)
             lateinit var currency: android.widget.Button
@@ -207,6 +215,7 @@ internal object StudioCityStart {
                 mapPage.visibility = if (show) View.GONE else View.VISIBLE
                 settingsPage.visibility = if (show) View.VISIBLE else View.GONE
                 progress.text = if (show) "Langkah 2 dari 3 · Atur permainan" else "Langkah 1 dari 3 · Pilih peta"
+                markStep(if (show) 2 else 1)
                 reviewButton.text = if (show) "Tinjau dunia" else "Lanjut"
                 form.requestFocus()
                 (form.parent as? android.widget.ScrollView)?.scrollTo(0,0)
@@ -231,12 +240,16 @@ internal object StudioCityStart {
                     fun add(view:View,gap:Int=8) = review.addView(view,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(gap) })
                     val path = selected?.let(StudioMapPreview::scenarioPath) ?: StudioMapPreview.cityPath(city.id)
                     StudioMapPreview.image(activity,path,"Pratinjau "+(selected?.let(scenarios::getValue) ?: city.name))?.let { add(it) }
-                    add(StudioUi.text(activity,title,22f,true,StudioDepot.TEAL))
+                    add(StudioUi.title(activity,title,26f))
                     val mode = if(free) "Sandbox" else "Normal"
-                    add(StudioUi.text(activity,"${city.name}  ·  $mode  ·  ${displayCurrency.code}",15f,true,StudioDepot.SECONDARY),2)
-                    add(StudioUi.text(activity,selected?.let(scenarios::getValue) ?: if(populated) "Jaringan contoh" else "Peta kosong",17f,true))
-                    add(StudioUi.text(activity,originHint.text.toString(),14f,color=StudioDepot.SECONDARY),2)
-                    add(StudioUi.button(activity,"Mulai bermain",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
+                    val facts = LinearLayout(activity)
+                    for ((value, tint, ink) in listOf(Triple(city.name,StudioUi.TINT_ORANGE,0xff9a3a0b.toInt()),
+                            Triple(mode,StudioUi.TINT_PURPLE,0xff3f2aa8.toInt()),Triple(displayCurrency.code,StudioUi.TINT_YELLOW,0xff7a5600.toInt())))
+                        facts.addView(StudioUi.chip(activity,value,tint,ink),LinearLayout.LayoutParams(-2,-2).apply { marginEnd = dp(6) })
+                    add(facts,6)
+                    add(KScene.choice(activity,StudioUi.Icon.TRAIN,StudioUi.TINT_PURPLE,
+                        selected?.let(scenarios::getValue) ?: if(populated) "Jaringan contoh" else "Peta kosong",originHint.text.toString(),true) {},10)
+                    add(StudioUi.button(activity,"Mulai petualangan",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
                         confirmation.dismiss()
                         dialog.dismiss()
                         prepare(activity,store,city,populated,free,title,account,selected) { slot ->
@@ -246,11 +259,7 @@ internal object StudioCityStart {
                     },14)
                     add(StudioUi.button(activity,"Ubah pilihan") { confirmation.dismiss() },4)
                 }
-            }.apply {
-                background = StudioDepot.touch(activity,StudioDepot.CORAL,16)
-                setTextColor(StudioDepot.TEAL)
-                minHeight = dp(51)
-            }
+            }.apply { minHeight = dp(56); textSize = 17f }
         }
     }
 
@@ -259,17 +268,22 @@ internal object StudioCityStart {
         title: String, account: String, scenario: String?, onWorldReady: (WorldDocuments.Slot) -> Unit
     ) {
         lateinit var worker: Thread
-        val meter = android.widget.ProgressBar(activity,null,android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = true
-            max = 100
-            progressTintList = ColorStateList.valueOf(StudioDepot.TEAL)
-        }
+        val meter = KScene.meter(activity).apply { isIndeterminate = true }
+        val (mapStep, markMap) = KScene.step(activity, "Data peta kota")
+        val (networkStep, markNetwork) = KScene.step(activity, "Jaringan awal")
+        val (worldStep, markWorld) = KScene.step(activity, "Dunia siap dimainkan")
+        markMap(if (store.cached(city.id)) 0 else 1)
+        markNetwork(if (store.cached(city.id)) 1 else 2)
         val preparation = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            val path = scenario?.let(StudioMapPreview::scenarioPath) ?: StudioMapPreview.cityPath(city.id)
-            StudioMapPreview.image(context,path,"Pratinjau "+(scenario?.let(scenarios::getValue) ?: city.name))?.let { addView(it) }
-            addView(StudioUi.text(context,title,18f,true,StudioDepot.TEAL))
-            addView(meter,LinearLayout.LayoutParams(-1,StudioUi.dp(activity,8)).apply { topMargin=StudioUi.dp(activity,6) })
+            addView(KScene.Island(context), LinearLayout.LayoutParams(-1, StudioUi.dp(activity,150)))
+            addView(StudioUi.title(context,title,22f).apply { gravity = android.view.Gravity.CENTER })
+            addView(meter,LinearLayout.LayoutParams(-1,StudioUi.dp(activity,14)).apply { topMargin=StudioUi.dp(activity,12); bottomMargin=StudioUi.dp(activity,8) })
+            addView(mapStep); addView(networkStep); addView(worldStep)
+            addView(StudioUi.text(context,"Tip: tahan stasiun untuk melihat penumpang yang menunggu.",13f,true,0xff7a5600.toInt()).apply {
+                background = StudioUi.pill(context, StudioUi.TINT_YELLOW, 18)
+                setPadding(StudioUi.dp(activity,12),StudioUi.dp(activity,10),StudioUi.dp(activity,12),StudioUi.dp(activity,10))
+            }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = StudioUi.dp(activity,10) })
         }
         val progress = StudioDialogBuilder(activity).setTitle("Menyiapkan ${city.name}")
             .setMessage("Membuka peta…").setView(preparation).setNegativeButton("Batal") { _, _ -> worker.interrupt() }.create()
@@ -288,6 +302,7 @@ internal object StudioCityStart {
                                     meter.isIndeterminate = false
                                     meter.progress = percent
                                     progress.setMessage("Mengunduh peta · $percent%")
+                                    if (percent >= 100) { markMap(0); markNetwork(1) }
                                 }
                             }
                         }
@@ -302,6 +317,7 @@ internal object StudioCityStart {
                 } else initialSave(city.id, pack, populated) {
                     activity.assets.open("world-native/nyc.save").use { it.readBytes() }
                 }
+                activity.runOnUiThread { markMap(0); markNetwork(0); markWorld(1) }
                 StudioNewGame.prepare(source, city.id, sandbox)
             }
             activity.runOnUiThread {

@@ -29,6 +29,14 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cells = mutableListOf<FloatArray>()
     private val stations = mutableListOf<FloatArray>()
+    /** Daily riders at the stop nearest (x,y) and that stop's share of the busiest stop; null until loaded. */
+    fun riders(x: Float, y: Float, radius: Float = 120f): Pair<Int, Float>? {
+        if (stations.isEmpty()) return null
+        val hit = stations.minByOrNull { (it[0]-x)*(it[0]-x)+(it[1]-y)*(it[1]-y) } ?: return null
+        if ((hit[0]-x)*(hit[0]-x)+(hit[1]-y)*(hit[1]-y) > radius*radius) return null
+        val top = stations.maxOf { it[2] }.coerceAtLeast(1f)
+        return hit[2].toInt() to hit[2] / top
+    }
     private val edgeProfit = mutableMapOf<Int,Float>()
     private data class Span(val path: Path, val riders: Float, val profit: Float, val color: Int)
     private val spans = mutableListOf<Span>()

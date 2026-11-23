@@ -21,18 +21,31 @@ internal object StudioGameSettings {
 
     fun show(host:Activity, changed:()->Unit) {
         val prefs=prefs(host)
-        StudioUi.sheet(host,"Pengaturan permainan") { body,dialog ->
-            fun heading(label:String) = body.addView(StudioUi.text(host,label,17f,true).apply {
-                setPadding(0,StudioUi.dp(host,12),0,StudioUi.dp(host,4))
-            })
+        fun dp(n:Int)=StudioUi.dp(host,n)
+        StudioUi.sheet(host,"Tampilan peta") { body,dialog ->
+            var group: LinearLayout? = null
+            fun heading(label:String) {
+                body.addView(StudioUi.section(host,label))
+                group = LinearLayout(host).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = StudioUi.card(host, 22)
+                    setPadding(dp(12),dp(4),dp(12),dp(6))
+                }
+                body.addView(group,LinearLayout.LayoutParams(-1,-2))
+            }
             fun toggle(key:String,label:String) {
-                body.addView(Switch(host).apply {
+                group!!.addView(Switch(host).apply {
                     text = label
                     setTextColor(StudioUi.INK)
-                    typeface=StudioUi.face(host)
-                    textSize=16f
+                    typeface=StudioUi.face(host,true)
+                    textSize=15f
                     isChecked=prefs.getBoolean(key,true)
-                    minHeight=StudioUi.dp(host,48)
+                    minHeight=dp(52)
+                    thumbTintList = android.content.res.ColorStateList.valueOf(StudioUi.WHITE)
+                    trackTintList = android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                        intArrayOf(StudioUi.LEAF, 0x4d22204a))
+                    trackTintMode = android.graphics.PorterDuff.Mode.SRC
+                    StudioUi.styleSwitch(this)
                     setOnCheckedChangeListener { _,checked ->
                         prefs.edit().putBoolean(key,checked).apply()
                         changed()
@@ -40,9 +53,14 @@ internal object StudioGameSettings {
                 })
             }
             fun slider(key:String,label:String,min:Int,max:Int) {
-                val row=StudioUi.text(host,"",15f,true)
-                body.addView(row)
-                val seek=SeekBar(host)
+                val row=StudioUi.text(host,"",15f,true).apply { setPadding(0,dp(10),0,0) }
+                group!!.addView(row)
+                val seek=SeekBar(host).apply {
+                    progressTintList = android.content.res.ColorStateList.valueOf(StudioUi.INK)
+                    progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0x3322204a)
+                    thumbTintList = android.content.res.ColorStateList.valueOf(StudioUi.INK)
+                    StudioUi.styleSeek(this)
+                }
                 fun update(progress:Int) {
                     val percent=min+progress*5
                     row.text="$label · $percent%"
@@ -62,7 +80,7 @@ internal object StudioGameSettings {
                     override fun onStartTrackingTouch(bar:SeekBar) {}
                     override fun onStopTrackingTouch(bar:SeekBar) {}
                 })
-                body.addView(seek,LinearLayout.LayoutParams(-1,StudioUi.dp(host,48)))
+                group!!.addView(seek,LinearLayout.LayoutParams(-1,dp(44)))
             }
             heading("Tampilan peta")
             toggle("trains","Tampilkan kendaraan")
@@ -76,8 +94,14 @@ internal object StudioGameSettings {
             slider("lineWidth","Ketebalan jalur",50,200)
             slider("stationCircleSize","Ukuran lingkaran stasiun",50,200)
             slider("basemapContrast","Kontras peta dasar",0,100)
-            heading("Keuangan")
-            body.addView(StudioUi.button(host,"Mata uang · ${StudioCurrency.current(host).code}",icon=StudioUi.Icon.WALLET) {
+            body.addView(StudioUi.section(host,"Keuangan"))
+            val code = StudioCurrency.current(host).code
+            body.addView(StudioUi.row(host,StudioUi.Icon.WALLET,StudioUi.TINT_YELLOW,"Mata uang","Ketuk untuk mengganti",
+                StudioUi.text(host,code,13f,color = StudioUi.WHITE).apply {
+                    typeface = StudioUi.heavy(host)
+                    background = StudioUi.pill(host, StudioUi.INK, 16)
+                    setPadding(dp(12),dp(6),dp(12),dp(7))
+                }) {
                 dialog.dismiss()
                 StudioCurrency.picker(host,changed)
             })
