@@ -46,7 +46,7 @@ fn commute(
     period: usize,
     market_input: Option<MarketInput>,
 ) -> Result<Value, String> {
-    Ok(solve(save, packs, &[period], market_input, None)?.remove(0))
+    Ok(solve(save, packs, &[period], market_input, None, None)?.remove(0))
 }
 
 fn solve(
@@ -55,6 +55,7 @@ fn solve(
     periods: &[usize],
     market_input: Option<MarketInput>,
     mut account: Option<&mut super::passenger_account::Forecast>,
+    geo: Option<&crate::demand_zones::Geography>,
 ) -> Result<Vec<Value>, String> {
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
     let first = packs.first().ok_or("Paket kota tidak tersedia")?;
@@ -328,6 +329,31 @@ fn solve(
     } else {
         None
     };
+    if let Some(account) = account.as_deref_mut() {
+        account.set_layout(
+            &packs
+                .iter()
+                .map(|p| {
+                    serde_json::from_str::<Value>(&p.header).unwrap()["city"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .collect::<Vec<_>>(),
+        );
+        if let Some(geo) = geo {
+            for (id, _, served, _) in &lines {
+                let zones = served
+                    .iter()
+                    .map(|s| {
+                        let i = 2 * ix[s] as usize;
+                        geo.zone(ll_all[i], ll_all[i + 1])
+                    })
+                    .collect();
+                account.line_zones(*id, zones);
+            }
+        }
+    }
     let mut results = Vec::new();
     for &period in periods {
         if cities
@@ -474,12 +500,14 @@ pub(super) struct DemandFiles {
     markets: Vec<String>,
     index: Option<String>,
     drives: Option<String>,
+    boundaries: Option<String>,
 }
 pub(super) struct Inputs {
     packs: Vec<LocalPack>,
     markets: Vec<String>,
     index: Vec<u8>,
     drives: Vec<u8>,
+    geo: crate::demand_zones::Geography,
 }
 impl DemandFiles {
     pub(super) fn read(&self) -> Result<Inputs, String> {
@@ -508,7 +536,30 @@ impl DemandFiles {
                 .map(Option::unwrap_or_default)
                 .map_err(|e| e.to_string())
         };
+        let ids = self
+            .markets
+            .iter()
+            .filter_map(|s| {
+                let p = std::path::Path::new(s);
+                let name = p.file_name()?.to_str()?;
+                Some(
+                    if name == "market.json" {
+                        p.parent()?.file_name()?.to_str()?
+                    } else {
+                        name.strip_suffix(".market.json")?
+                    }
+                    .to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let geo = self
+            .boundaries
+            .as_ref()
+            .map(|s| crate::demand_zones::Geography::read(std::path::Path::new(s), &ids))
+            .transpose()?
+            .unwrap_or_default();
         Ok(Inputs {
+            geo,
             packs,
             markets,
             index: read_optional(&self.index)?,
@@ -535,6 +586,7 @@ impl Inputs {
             &[0, 1, 2, 3, 4],
             market,
             Some(&mut forecast),
+            Some(&self.geo),
         )?;
         for pack in &self.packs {
             let header: Value = serde_json::from_str(&pack.header).map_err(|e| e.to_string())?;
@@ -542,8 +594,9 @@ impl Inputs {
         }
         let costs = super::operating::Costs::new(&mut world.api);
         let clock = world.header["clock"].as_f64().ok_or("Jam tidak valid")?;
+        let upkeep = self.geo.upkeep(&mut world.api);
         let account =
-            super::timed_account::Account::new(&forecast, &mut world.api, clock, costs.lag);
+            super::timed_account::Account::new(&forecast, &mut world.api, clock, &costs, upkeep);
         world.operating = Some(costs);
         Ok(account)
     }
@@ -629,7 +682,24 @@ mod tests {
         assert!(period < 5);
         if let Ok(dir) = std::env::var("WORLD_ACCOUNT_EXPORT") {
             let mut forecast = crate::passenger_account::Forecast::default();
-            solve(&save, &packs, &[0, 1, 2, 3, 4], market, Some(&mut forecast)).unwrap();
+            let zone_ids = market_zones
+                .split(',')
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            let geo = crate::demand_zones::Geography::read(
+                &std::path::PathBuf::from(std::env::var("WORLD_CITY_DATA").unwrap()),
+                &zone_ids,
+            )
+            .unwrap();
+            solve(
+                &save,
+                &packs,
+                &[0, 1, 2, 3, 4],
+                market,
+                Some(&mut forecast),
+                Some(&geo),
+            )
+            .unwrap();
             let dir = std::path::PathBuf::from(dir);
             std::fs::create_dir_all(&dir).unwrap();
             if let Ok(reference) = std::env::var("WORLD_REFERENCE_CHECKPOINT") {
@@ -643,19 +713,29 @@ mod tests {
                     );
                 }
                 let costs = crate::operating::Costs::new(&mut world.api);
+                let upkeep = geo.upkeep(&mut world.api);
                 let mut account = crate::timed_account::Account::new(
                     &forecast,
                     &mut world.api,
                     world.header["clock"].as_f64().unwrap(),
-                    costs.lag,
+                    &costs,
+                    upkeep,
                 );
-                if let Ok(path)=std::env::var("WORLD_PREVIEW_REFERENCE") {
-                    let reference:Value=serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-                    let time=reference["clock"].as_f64().unwrap();
-                    let rows=crate::train_loads::Loads::new(&mut world,time).unwrap().rows(&world,time);
-                    std::fs::write(dir.join("trainLoads.json"),json!({"clock":time,"rows":rows}).to_string()).unwrap();
+                if let Ok(path) = std::env::var("WORLD_PREVIEW_REFERENCE") {
+                    let reference: Value =
+                        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+                    let time = reference["clock"].as_f64().unwrap();
+                    let rows = crate::train_loads::Loads::new(&mut world, time)
+                        .unwrap()
+                        .rows(&world, time);
+                    std::fs::write(
+                        dir.join("trainLoads.json"),
+                        json!({"clock":time,"rows":rows}).to_string(),
+                    )
+                    .unwrap();
                 }
                 world.operating = Some(costs);
+                crate::finance::prepare_session(&mut world);
                 crate::finance::tick_with_account(
                     &mut world,
                     reference.header["clock"].as_f64().unwrap(),

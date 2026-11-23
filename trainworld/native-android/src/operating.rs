@@ -20,6 +20,7 @@ struct Group {
 pub(super) struct Costs {
     pub(super) lag: f64,
     groups: Vec<Group>,
+    lines: HashMap<u32, Group>,
 }
 
 fn install_prices(api: &mut TrackApi, lines: &[f64]) {
@@ -74,6 +75,7 @@ impl Costs {
                 ..Group::default()
             })
             .collect();
+        let mut line_groups = HashMap::new();
         let mut weight = 0.;
         let mut weighted_time = 0.;
         for r in lines.chunks_exact(22).filter(|r| r[3] == 1.) {
@@ -96,6 +98,13 @@ impl Costs {
             let ways = if api.line_one_way(id) { 1. } else { 2. };
             let per_tph = ways * r[9] / 1000. * (train + car * cars) * ECONOMY / 1e6
                 * api.line_run_factor(id);
+            let mut line = Group {
+                shift: api.line_shift(id),
+                rates: std::array::from_fn(|k| {
+                    f64::from(api.line_tph_on(id, (k / 3) as u32, (k % 3) as u32)) * per_tph
+                }),
+                ..Default::default()
+            };
             let lead = (one_way / 2.).clamp(0., 7200.);
             for row in 0..2 {
                 for (p, &(_, end)) in PERIOD_HOURS.iter().enumerate() {
@@ -105,12 +114,16 @@ impl Costs {
                         .unwrap();
                     if api.line_tph_on(id, row, PERIOD_LEVEL[next] as u32) == 0. {
                         let tph = f64::from(api.line_tph_on(id, row, PERIOD_LEVEL[p] as u32));
-                        group.tail[row as usize][p] += tph * per_tph * lead / 3600.;
+                        let cost = tph * per_tph * lead / 3600.;
+                        group.tail[row as usize][p] += cost;
+                        line.tail[row as usize][p] = cost;
                     }
                 }
             }
+            line_groups.insert(id, line);
         }
         Self {
+            lines: line_groups,
             lag: if weight > 0. {
                 (weighted_time / weight).min(7200.)
             } else {
@@ -120,6 +133,17 @@ impl Costs {
         }
     }
 
+    pub(super) fn line_hour(&self, id: u32, start: f64, country: &str) -> f64 {
+        self.lines.get(&id).map_or(0., |g| {
+            (0..6)
+                .map(|j| {
+                    let t = start + g.shift + self.lag * (0.5 - (j as f64 + 0.5) / 6.);
+                    g.between(t, t + 3600., country)
+                })
+                .sum::<f64>()
+                / 6.
+        })
+    }
     pub(super) fn per_hour(&self, start: f64) -> f64 {
         self.groups
             .iter()
@@ -127,7 +151,7 @@ impl Costs {
                 (0..6)
                     .map(|sample| {
                         let begin = start + g.shift + self.lag * (0.5 - (sample as f64 + 0.5) / 6.);
-                        g.between(begin, begin + 3600.)
+                        g.between(begin, begin + 3600., "")
                     })
                     .sum::<f64>()
                     / 6.
@@ -137,7 +161,7 @@ impl Costs {
 }
 
 impl Group {
-    fn between(&self, mut from: f64, to: f64) -> f64 {
+    fn between(&self, mut from: f64, to: f64, country: &str) -> f64 {
         let mut sum = 0.;
         while from < to {
             let day = (from / 86400.).floor();
@@ -146,7 +170,11 @@ impl Group {
                 .iter()
                 .position(|&(a, b)| hour >= a && hour < b)
                 .unwrap();
-            let row = row_of_day(day as i64);
+            let row = if country.is_empty() {
+                row_of_day(day as i64)
+            } else {
+                crate::calendar::kind_row(country, day as i64).1
+            };
             let (a, b) = PERIOD_HOURS[p];
             let end = to.min(day * 86400. + b * 3600.);
             let rate = self.rates[row * 3 + PERIOD_LEVEL[p]] + self.tail[row][p] / (b - a);

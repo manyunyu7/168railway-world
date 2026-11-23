@@ -13,17 +13,30 @@ fn main() {
     let usd = &incomes["usd"];
     let catalog = "android-lib/src/main/assets/world-native/cities.tsv";
     println!("cargo:rerun-if-changed={catalog}");
-    let ids: std::collections::HashSet<_> = fs::read_to_string(catalog).unwrap().lines()
-        .filter_map(|line| line.split_once('\t').map(|(id, _)| id.to_string())).collect();
+    let ids: std::collections::HashSet<_> = fs::read_to_string(catalog)
+        .unwrap()
+        .lines()
+        .filter_map(|line| line.split_once('\t').map(|(id, _)| id.to_string()))
+        .collect();
     let mut countries = String::from("const STARTING_COUNTRIES: &[(&str,&str)] = &[");
     for city in registry["cities"].as_array().unwrap() {
         let id = city["id"].as_str().unwrap();
         if ids.contains(id) {
-            writeln!(countries,"({:?},{:?}),",id,city["country"].as_str().unwrap()).unwrap();
+            writeln!(
+                countries,
+                "({:?},{:?}),",
+                id,
+                city["country"].as_str().unwrap()
+            )
+            .unwrap();
         }
     }
     countries.push_str("];");
-    fs::write(PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("starting_countries.rs"),countries).unwrap();
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("starting_countries.rs"),
+        countries,
+    )
+    .unwrap();
     // Only coordinates and annual visits enter the native solver.
     const SITES: &str = "../app/src/game/attractions.json";
     println!("cargo:rerun-if-changed={SITES}");
@@ -36,6 +49,20 @@ fn main() {
     }
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out_dir.join("attractions.bin"), binary).unwrap();
+    build_calendar(&out_dir);
+    let mut places = String::from("const PLACES: &[(&str, usize, &str)] = &[\n");
+    for city in registry["cities"].as_array().unwrap() {
+        writeln!(
+            places,
+            "({:?}, {}, {:?}),",
+            city["id"].as_str().unwrap(),
+            city["place"].as_u64().unwrap(),
+            city["country"].as_str().unwrap_or("")
+        )
+        .unwrap();
+    }
+    places.push_str("];");
+    fs::write(out_dir.join("places.rs"), places).unwrap();
     let mut boxes = String::from("const ZONE_BOXES: &[(&str, [f64; 4])] = &[\n");
     for city in registry["cities"].as_array().unwrap() {
         let bounds: [f64; 4] = std::array::from_fn(|i| city["box"][i].as_f64().unwrap());
@@ -73,4 +100,77 @@ fn main() {
         output,
     )
     .unwrap();
+}
+
+fn build_calendar(dir: &std::path::Path) {
+    const SOURCE: &str = "../app/src/game/holidays.json";
+    println!("cargo:rerun-if-changed={SOURCE}");
+    let h: Value = serde_json::from_slice(&fs::read(SOURCE).unwrap()).unwrap();
+    let mut countries = h["countries"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect::<Vec<_>>();
+    countries.sort();
+    let mut bytes = Vec::new();
+    for country in &countries {
+        let c = country.as_str();
+        let mut days = vec![0u8; 7 * 365];
+        for w in 0..7 {
+            let key = w.to_string();
+            for d in 0..365 {
+                let wd = (w + d) % 7;
+                let k = h["weeks"][c][wd].as_u64().map_or(
+                    if wd == 5 {
+                        1
+                    } else if wd == 6 {
+                        2
+                    } else {
+                        0
+                    },
+                    |v| v as u8,
+                );
+                days[w * 365 + d] = k + 8 * u8::from(k != 0);
+            }
+            for v in h["workdays"][c][&key].as_array().into_iter().flatten() {
+                days[w * 365 + v.as_u64().unwrap() as usize] = 0;
+            }
+            for row in h["countries"][c][&key].as_array().into_iter().flatten() {
+                if !h["working"][c]
+                    .as_array()
+                    .is_some_and(|a| a.contains(&row[1]))
+                {
+                    days[w * 365 + row[0].as_u64().unwrap() as usize] = 2 + 8;
+                }
+            }
+        }
+        for w in 0..7i64 {
+            for r in h["supers"][c][w.to_string()]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                let start = r[0].as_i64().unwrap();
+                let out = r[1].as_i64().unwrap();
+                let away = r[2].as_i64().unwrap();
+                for d in start..start + out + away + r[3].as_i64().unwrap() {
+                    let dow = (w + d.div_euclid(365)).rem_euclid(7) as usize;
+                    days[dow * 365 + d.rem_euclid(365) as usize] = if d < start + out {
+                        4
+                    } else if d < start + out + away {
+                        3
+                    } else {
+                        5
+                    };
+                }
+            }
+        }
+        bytes.extend(days);
+    }
+    fs::write(
+        dir.join("calendar_ids.rs"),
+        format!("const COUNTRIES:&[&str]=&{countries:?};"),
+    )
+    .unwrap();
+    fs::write(dir.join("calendar.bin"), bytes).unwrap();
 }

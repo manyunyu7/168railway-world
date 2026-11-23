@@ -31,7 +31,7 @@ fn clear(h: &mut Value) {
     }
 }
 // Keep rows sorted even when an imported save already has entries after its clock.
-fn entry<'a>(header: &'a mut Value, key: &str, index: &str, at: i64) -> &'a mut Value {
+pub(super) fn entry<'a>(header: &'a mut Value, key: &str, index: &str, at: i64) -> &'a mut Value {
     if !header[key].is_array() {
         header[key] = json!([]);
     }
@@ -51,7 +51,7 @@ fn entry<'a>(header: &'a mut Value, key: &str, index: &str, at: i64) -> &'a mut 
     &mut rows[i]
 }
 
-fn add(row: &mut Value, field: &str, v: f64) {
+pub(super) fn add(row: &mut Value, field: &str, v: f64) {
     row[field] = (row[field].as_f64().unwrap_or(0.) + v).into();
 }
 
@@ -71,10 +71,158 @@ pub(super) fn book_charge(header: &mut Value, clock: f64, charge: f64, trains: f
         }
     }
 }
-pub(super) fn tick(w: &mut World, now: f64) {
-    tick_with_account(w,now,None)
+fn value(row: &Value, key: &str) -> f64 {
+    row[key].as_f64().unwrap_or(0.)
 }
-pub(super) fn tick_with_account(w: &mut World, now: f64, mut account: Option<&mut crate::timed_account::Account>) {
+
+fn trim_future(header: &mut Value, day: i64, hour: i64, shift: f64) -> f64 {
+    let mut fares = 0.;
+    let mut subtract = [0.; 5];
+    let fields = ["fares", "running", "upkeep", "rides", "points"];
+    for (key, index, at) in [("hours", "hour", hour), ("ledger", "day", day)] {
+        let Some(rows) = header[key].as_array_mut() else {
+            continue;
+        };
+        let mut trains = 0.;
+        let mut build = 0.;
+        rows.retain(|row| {
+            let n = row[index].as_i64().unwrap_or(at);
+            if n <= at {
+                return true;
+            }
+            trains += value(row, "trains");
+            build += value(row, "build");
+            if key == "ledger" {
+                fares += value(row, "fares");
+            } else if ((n as f64 * 3600. + shift) / 86400.).floor() == day as f64 {
+                for (amount, field) in subtract.iter_mut().zip(fields) {
+                    *amount += value(row, field);
+                }
+                fares += value(row, "fares");
+            }
+            false
+        });
+        if key == "ledger" {
+            if let Some(today) = rows.iter_mut().find(|r| r[index].as_i64() == Some(at)) {
+                for (field, amount) in fields.into_iter().zip(subtract) {
+                    add(today, field, -amount);
+                }
+            }
+        }
+        if trains != 0. || build != 0. {
+            let row = entry(header, key, index, at);
+            add(row, "trains", trains);
+            add(row, "build", build);
+        }
+    }
+    fares
+}
+
+pub(super) fn prepare_session(w: &mut World) {
+    let net = &w.api.world().net;
+    if w.header["start"].is_null() && w.header["dayShift"].as_f64().is_none() {
+        if let Some(i) = (0..net.node_count())
+            .find(|&i| net.node_ok(i as u32) && net.node_platform[i] > 0 && net.node_built[i])
+        {
+            let ll = w.api.to_lonlat(net.node_x[i], net.node_y[i]);
+            w.header["dayShift"] = net.time_zones.shift_at(ll[0], ll[1]).into();
+        }
+    }
+    let clock = value(&w.header, "clock");
+    let shift = super::local_time::day_shift(&w.header);
+    let hour = (clock / 3600.).floor() as i64;
+    let day = ((clock + shift) / 86400.).floor() as i64;
+    if let Some(lines) = w.header["lineDays"].as_object_mut() {
+        lines.retain(|_, v| {
+            let Some(rows) = v.as_array_mut() else {
+                return false;
+            };
+            let kept = rows
+                .chunks_exact(3)
+                .filter(|r| r[0].as_i64().is_some_and(|d| d <= day))
+                .rev()
+                .take(31)
+                .collect::<Vec<_>>();
+            *rows = kept.into_iter().rev().flatten().cloned().collect();
+            !rows.is_empty()
+        });
+    }
+    let Some(last) = w.header["hours"].as_array().and_then(|r| r.last()) else {
+        return;
+    };
+    let last_hour = last["hour"].as_i64().unwrap_or(hour);
+    if last_hour <= hour {
+        return;
+    }
+    let last_start = last_hour as f64 * 3600.;
+    let last_day = ((last_start + shift) / 86400.).floor() as i64;
+    let up_hour = w.api.upkeep()[0] / 24.;
+    let costs = w
+        .operating
+        .get_or_insert_with(|| super::operating::Costs::new(&mut w.api));
+    let replay = |mut t: f64, end: f64| {
+        let mut sum = 0.;
+        while t < end {
+            let h = (t / 3600.).floor() * 3600.;
+            let finish = end.min(h + 3600.);
+            if finish <= t {
+                break;
+            }
+            sum += costs.per_hour(h) * (finish - t) / 3600.;
+            t = finish;
+        }
+        sum
+    };
+    let mut kept = 0.;
+    let mut again = 0.;
+    for row in w.header["ledger"].as_array().into_iter().flatten() {
+        let d = row["day"].as_i64().unwrap_or(day);
+        if d > day && d < last_day {
+            let start = d as f64 * 86400. - shift;
+            kept += value(row, "running");
+            again += replay(start, start + 86400.);
+        }
+    }
+    let times = if kept > 0. && again > 0. {
+        kept / again
+    } else {
+        1.
+    };
+    let full = times * costs.per_hour(last_start);
+    let end = last_start
+        + 3600.
+            * if full > 0. {
+                (value(last, "running") / full).min(1.)
+            } else {
+                1.
+            };
+    let back = times * replay(clock.max(end - 366. * 86400.), end);
+    let up_end = last_start
+        + 3600.
+            * if up_hour > 0. {
+                (value(last, "upkeep") / up_hour).min(1.)
+            } else {
+                0.
+            };
+    let up_back = up_hour * ((up_end - clock) / 3600.).clamp(0., 366. * 24.);
+    let fares = trim_future(&mut w.header, day, hour, shift);
+    if let Some(zones) = w.header["regions"].as_object_mut() {
+        for z in zones.values_mut() {
+            trim_future(z, day, hour, shift);
+        }
+    }
+    let cash = w.header["cash"].as_f64().unwrap_or(w.api.cash()) + back + up_back - fares;
+    w.header["cash"] = cash.into();
+    w.api.set_cash(cash);
+}
+pub(super) fn tick(w: &mut World, now: f64) {
+    tick_with_account(w, now, None)
+}
+pub(super) fn tick_with_account(
+    w: &mut World,
+    now: f64,
+    mut account: Option<&mut crate::timed_account::Account>,
+) {
     let start = w.header["clock"].as_f64().unwrap_or(now);
     if !now.is_finite() || now <= start {
         return;
@@ -113,18 +261,33 @@ pub(super) fn tick_with_account(w: &mut World, now: f64, mut account: Option<&mu
                 w.header["loanPay"] = pay.into();
             }
         }
-        let (fares,rides)=account.as_deref_mut().map_or((0.,0.),|a|a.settle(&mut w.api,hour,end));
+        let [fares, rides, running, points] =
+            account.as_deref_mut().map_or([0., 0., running, 0.], |a| {
+                a.settle(
+                    &mut w.api,
+                    &mut w.header,
+                    hour,
+                    day,
+                    end,
+                    (end - t) / 3600.,
+                    upkeep,
+                    costs,
+                )
+            });
         cash += fares - (owed + upkeep + running);
         for (key, index, at) in [("ledger", "day", day), ("hours", "hour", hour)] {
             let row = entry(&mut w.header, key, index, at);
-            add(row,"fares",fares);
-            add(row,"rides",rides);
+            add(row, "fares", fares);
+            add(row, "rides", rides);
+            if points > 0. {
+                add(row, "points", points);
+            }
             add(row, "upkeep", upkeep);
             add(row, "running", running);
             if owed > 0. {
                 add(row, "loan", owed);
             }
-            if upkeep > 0. || running > 0. {
+            if account.is_none() && (upkeep > 0. || running > 0.) {
                 // Same unallocated bucket as Studio until geographic shares are available.
                 let regional = entry(&mut w.header["regions"][""], key, index, at);
                 add(regional, "upkeep", upkeep);
@@ -215,6 +378,30 @@ pub extern "system" fn Java_world_nativegame_NativeFinance_query(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn replay_reverses_future_fares_and_preserves_construction_once() {
+        let mut world = World::workshop();
+        let today = json!({"day":0,"fares":10,"running":0,"upkeep":0,"build":0,"trains":0});
+        let tomorrow = json!({"day":1,"fares":7,"build":2,"trains":3});
+        let later = json!({"hour":2,"fares":4,"build":0,"trains":0});
+        let last = json!({"hour":24,"fares":7,"build":2,"trains":3});
+        let history = json!({"ledger":[today,tomorrow],"hours":[later,last]});
+        world.header = json!({"clock":3600,"cash":100,"lineDays":{"3":[0,10,0,1,7,0]},
+            "regions":{"jak":history},"ledger":history["ledger"],"hours":history["hours"]});
+        prepare_session(&mut world);
+        assert_eq!(world.api.cash(), 89.);
+        assert_eq!(world.header["ledger"][0]["fares"].as_f64(), Some(6.));
+        assert_eq!(world.header["ledger"][0]["trains"].as_f64(), Some(3.));
+        assert_eq!(world.header["hours"][0]["build"].as_f64(), Some(2.));
+        assert_eq!(
+            world.header["ledger"],
+            world.header["regions"]["jak"]["ledger"]
+        );
+        assert_eq!(world.header["lineDays"]["3"], json!([0, 10, 0]));
+        let before = world.header.clone();
+        prepare_session(&mut world);
+        assert_eq!(world.header, before);
+    }
     #[test]
     fn borrow_overnight_and_repay() {
         let mut w = World::open(include_bytes!("../../T-007-real-nyc.save")).unwrap();

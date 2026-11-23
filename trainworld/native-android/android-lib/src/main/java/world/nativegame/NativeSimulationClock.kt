@@ -20,6 +20,8 @@ internal object SimulationEngine {
     init { System.loadLibrary("world_native") }
     external fun supportsEditor(editor: Long): Boolean
     external fun open(snapshot: ByteArray, ms: Long): Long
+    external fun openNetwork(snapshot: ByteArray, manifest: String, ms: Long): Long
+    external fun loads(id: Long, time: Double): IntArray?
     external fun play(id: Long, ms: Long, rate: Double): Boolean
     external fun pause(id: Long, ms: Long): Boolean
     external fun state(id: Long, ms: Long): DoubleArray?
@@ -28,59 +30,82 @@ internal object SimulationEngine {
 }
 
 internal class NativeSimulationClock(
+    private val manifest: ((ByteArray) -> String)?,
     private val onClock: (Double) -> Unit,
     private val onFailure: (String) -> Unit,
 ) : SimulationClock {
     private val main = Handler(Looper.getMainLooper())
+    // Each Rust session owns thread-local TrackApi state. Open, tick, snapshot and close
+    // all use this executor, including when the activity is paused during loading.
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var id = 0L
+    @Volatile private var closed = false
     private var playing = false
-    override val isReady get() = id != 0L
+    override var isReady = false
+        private set
     override var onCash: ((Double) -> Unit)? = null
     override var onTrainLoads: ((Long, JSONArray) -> Unit)? = null
-
+    private fun submit(action: () -> Unit) {
+        if (closed) return
+        worker.execute {
+            if (!closed) try { action() } catch (e: Exception) {
+                main.post { if (!closed) onFailure(e.localizedMessage ?: "Simulasi gagal dimuat.") }
+            }
+        }
+    }
     private val tick = object : Runnable {
         override fun run() {
-            if (!playing) return
-            val state = SimulationEngine.state(id, SystemClock.elapsedRealtime())
-            if (state == null) {
-                close()
-                onFailure("Jam simulasi tidak tersedia.")
-                return
+            if (!playing || closed) return
+            submit {
+                val s = checkNotNull(SimulationEngine.state(id,SystemClock.elapsedRealtime()))
+                val rows = SimulationEngine.loads(id,s[0])
+                main.post {
+                    if (playing && !closed) {
+                        onCash?.invoke(s[1])
+                        if (rows != null) onTrainLoads?.invoke(kotlin.math.floor(s[0]/3600).toLong()*3600,JSONArray(rows))
+                        onClock(s[0])
+                        if (playing && !closed) main.postDelayed(this,500)
+                    }
+                }
             }
-            onCash?.invoke(state[1])
-            onClock(state[0])
-            if (playing) main.postDelayed(this, 500)
         }
     }
-
     override fun open(snapshot: ByteArray, ready: () -> Unit) {
-        check(Looper.myLooper() == Looper.getMainLooper() && id == 0L)
-        id = SimulationEngine.open(snapshot, SystemClock.elapsedRealtime())
-        if (isReady) ready() else onFailure("Simpanan simulasi tidak dapat dibuka.")
+        submit {
+            val spec=manifest?.invoke(snapshot)
+            if (closed) return@submit
+            val now=SystemClock.elapsedRealtime()
+            id=if(spec==null) SimulationEngine.open(snapshot,now) else SimulationEngine.openNetwork(snapshot,spec,now)
+            check(id!=0L) { "Simpanan simulasi tidak dapat dibuka." }
+            main.post { if (!closed) { isReady=true; ready() } }
+        }
     }
     override fun play(rate: Double) {
-        if (!SimulationEngine.play(id, SystemClock.elapsedRealtime(), rate)) {
-            close()
-            onFailure("Laju simulasi tidak valid.")
-            return
-        }
-        playing = true
+        playing=true
+        val now=SystemClock.elapsedRealtime()
+        submit { check(SimulationEngine.play(id,now,rate)) { "Laju simulasi tidak valid." } }
         main.removeCallbacks(tick)
         tick.run()
     }
     override fun snapshot(done: (Result<ByteArray>) -> Unit) {
-        playing = false
+        playing=false
         main.removeCallbacks(tick)
-        val ms = SystemClock.elapsedRealtime()
-        done(runCatching {
-            check(SimulationEngine.pause(id, ms)) { "Simulasi belum siap disimpan." }
-            checkNotNull(SimulationEngine.snapshot(id, ms)) { "Simpanan simulasi tidak tersedia." }
-        })
+        val now=SystemClock.elapsedRealtime()
+        submit {
+            val result=runCatching {
+                check(SimulationEngine.pause(id,now))
+                checkNotNull(SimulationEngine.snapshot(id,now)) { "Simpanan simulasi tidak tersedia." }
+            }
+            main.post { if (!closed) done(result) }
+        }
     }
     override fun close() {
-        playing = false
+        if (closed) return
+        closed=true
+        isReady=false
+        playing=false
         main.removeCallbacks(tick)
-        if (id != 0L) SimulationEngine.close(id)
-        id = 0L
+        worker.execute { if(id!=0L) { SimulationEngine.close(id);id=0L } }
+        worker.shutdown()
     }
 }

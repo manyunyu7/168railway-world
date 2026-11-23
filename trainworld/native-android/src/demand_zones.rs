@@ -40,7 +40,11 @@ impl Boundary {
         Ok(Self(rings))
     }
     fn reaches(&self, lon: f64, lat: f64, dx: f64) -> bool {
+        self.distance(lon, lat, dx, LOCAL * LOCAL) <= LOCAL * LOCAL
+    }
+    fn distance(&self, lon: f64, lat: f64, dx: f64, stop: f64) -> f64 {
         let mut inside = false;
+        let mut best = f64::INFINITY;
         for ring in &self.0 {
             let mut prev = ring.last().unwrap();
             for next in ring {
@@ -56,16 +60,120 @@ impl Boundary {
                 } else {
                     0.
                 };
-                if (ax + t * x).powi(2) + (ay + t * y).powi(2) <= LOCAL * LOCAL {
-                    return true;
+                best = best.min((ax + t * x).powi(2) + (ay + t * y).powi(2));
+                if best <= stop {
+                    return best;
                 }
                 prev = next;
             }
         }
-        inside
+        if inside {
+            0.
+        } else {
+            best
+        }
     }
 }
 
+#[derive(Default)]
+pub(super) struct Geography(Vec<(&'static str, [f64; 4], Boundary)>);
+impl Geography {
+    pub(super) fn read(dir: &Path, ids: &[String]) -> Result<Self, String> {
+        let mut areas = Vec::new();
+        for &(id, b) in ZONE_BOXES {
+            if !ids.iter().any(|s| s == id) {
+                continue;
+            }
+            let file = dir.join(format!("{id}.boundary.geojson"));
+            if file.exists() {
+                areas.push((id, b, Boundary::read(&file)?));
+            }
+        }
+        Ok(Self(areas))
+    }
+    pub(super) fn upkeep(
+        &self,
+        api: &mut trainworld_sim::track::wasm::TrackApi,
+    ) -> crate::passenger_account::Regions {
+        use trainworld_sim::track::params::{ECONOMY, UPKEEP_BUS_KM};
+        let mut totals = crate::passenger_account::Regions::new();
+        let mut add = |lon, lat, v| *totals.entry(self.zone(lon, lat).to_owned()).or_default() += v;
+        for (x, y, v) in api.infrastructure_upkeep() {
+            add(x, y, v);
+        }
+        for row in api.lines_info().chunks_exact(22) {
+            let id = row[0] as u32;
+            if !api.is_bus(id) || api.is_ferry(id) {
+                continue;
+            }
+            let route = api.bus_route(id);
+            if route.first() != Some(&1.) {
+                continue;
+            }
+            let pts: Vec<_> = route[1..].chunks_exact(3).collect();
+            if pts.len() < 2 {
+                continue;
+            }
+            let frame = api.world().net.frame();
+            let mut pieces = Vec::new();
+            let mut start = 0;
+            let mut acc = 0.;
+            let mut length = 0.;
+            for i in 1..pts.len() {
+                let (a, b) = (pts[i - 1], pts[i]);
+                let km = (b[0] - a[0]).hypot(b[1] - a[1])
+                    / if frame.scaled() {
+                        trainworld_sim::track::frame::merc_k((a[1] + b[1]) / 2.)
+                    } else {
+                        1.
+                    };
+                acc += km;
+                length += km;
+                if acc >= 200. || i + 1 == pts.len() {
+                    let (ax, ay) = frame.to_lonlat(pts[start][0], pts[start][1]);
+                    let (bx, by) = frame.to_lonlat(b[0], b[1]);
+                    pieces.push(((ax + bx) / 2., (ay + by) / 2., acc));
+                    acc = 0.;
+                    start = i;
+                }
+            }
+            if length > 0. {
+                let rate = api.bus_road_m(id) / 1000. * UPKEEP_BUS_KM * ECONOMY / 1e6 / length;
+                for (x, y, d) in pieces {
+                    add(x, y, d * rate);
+                }
+            }
+        }
+        let total: f64 = totals.values().sum();
+        if total > 0. {
+            for x in totals.values_mut() {
+                *x /= total;
+            }
+        }
+        totals
+    }
+    pub(super) fn zone(&self, lon: f64, lat: f64) -> &'static str {
+        let dx = DEG * lat.to_radians().cos();
+        let mut best = 40000_f64.powi(2);
+        let mut zone = "";
+        for (id, [w, s, e, n], boundary) in &self.0 {
+            let bx = (w - lon).max(lon - e).max(0.) * dx;
+            let by = (s - lat).max(lat - n).max(0.) * DEG;
+            if bx * bx + by * by > best {
+                continue;
+            }
+            let d = boundary.distance(lon, lat, dx, 0.);
+            if d < best {
+                best = d;
+                zone = id;
+                if d == 0. {
+                    break;
+                }
+            }
+        }
+        zone
+    }
+}
 pub(super) fn plan(bytes: &[u8], dir: &Path) -> Result<Value, String> {
     let mut world = World::open(bytes).ok_or("Simpanan tidak dapat dibaca")?;
     let api = &mut world.api;

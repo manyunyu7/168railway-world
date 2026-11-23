@@ -44,6 +44,7 @@ object NativeRidership {
             } finally { tmp.delete() }
         }
         if (missing.isNotEmpty()) zones = coverage()
+        files.put("boundaries",reference.path)
         val home = JSONObject(cityHeader.readText()).getString("city")
         for (id in ids(zones,"local")) {
             if (id != home) local.put(JSONArray().put(store.demandAsset(id,"header.json").path).put(store.demandAsset(id,"cells.bin").path))

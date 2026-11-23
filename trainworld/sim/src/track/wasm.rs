@@ -2067,6 +2067,29 @@ impl RouteTrace {
 }
 
 impl TrackApi {
+    /// Constructed infrastructure's daily upkeep, located by the Android regional ledger.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn infrastructure_upkeep(&self) -> Vec<(f64, f64, f64)> {
+        let n = &self.w.net;
+        let frame = n.frame();
+        let mut out = Vec::new();
+        for e in 0..n.edge_count() {
+            if let Some(u) = edge_upkeep(n,e) {
+                let a=n.edge_a[e] as usize;
+                let b=n.edge_b[e] as usize;
+                let (ax,ay)=frame.to_lonlat(n.node_x[a],n.node_y[a]);
+                let (bx,by)=frame.to_lonlat(n.node_x[b],n.node_y[b]);
+                out.push(((ax+bx)/2.,(ay+by)/2.,u));
+            }
+        }
+        for i in 0..n.node_count() {
+            let u = if upkept_port(n,i) { port_upkeep() } else if upkept_station(n,i) { station_upkeep(n,i) } else { continue };
+            let (x,y)=frame.to_lonlat(n.node_x[i],n.node_y[i]);
+            out.push((x,y,u));
+        }
+        out
+    }
+
     /// City pack coverage and wetness at a point in the active network frame.
     pub fn native_pack_water_at(&self, x: f64, y: f64) -> Option<bool> {
         self.rasters.iter().find_map(|r| r.seen.0.covers(x,y).then(|| r.seen.0.is_water(x,y)))

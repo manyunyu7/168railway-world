@@ -1,5 +1,7 @@
 //! Timing of the passenger account, from Studio's moneyTiming.ts and clock.worker.ts.
-use crate::passenger_account::{Forecast, LineIncome};
+use crate::operating::Costs;
+use crate::passenger_account::{Forecast, LineIncome, Regions};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use trainworld_sim::track::{
     boarding::{shape_cum, shape_strength, SHAPE},
@@ -13,9 +15,13 @@ pub(super) struct Account {
     shares: Vec<f32>,
     previous: f64,
     lag: f64,
-    totals: (f64, f64),
+    totals: [f64; 4],
+    regions: BTreeMap<String, [f64; 4]>,
+    rates: BTreeMap<u32, [f64; 2]>,
+    upkeep: Regions,
+    calendar_day: i64,
 }
-fn between(table: &[[f64; 5]; 6], mut start: f64, end: f64) -> f64 {
+fn between(table: &[[f64; 5]; 6], mut start: f64, end: f64, country: &str) -> f64 {
     let mut total = 0.;
     while start < end {
         let midnight = (start / 86400.).floor() * 86400.;
@@ -33,19 +39,21 @@ fn between(table: &[[f64; 5]; 6], mut start: f64, end: f64) -> f64 {
         let c = shape_strength(SHAPE[p], b - a, PEAK_HOUR_FACTOR[p].into());
         let share = shape_cum(SHAPE[p], c, (stop - base) / len)
             - shape_cum(SHAPE[p], c, (start - base) / len);
-        total += table[day_kind_at(start)][p] * (b - a) * share;
+        total += table[crate::calendar::kind_row(country, (start / 86400.).floor() as i64).0][p]
+            * (b - a)
+            * share;
         start = stop;
     }
     total
 }
-fn fare_hour(table: &[[f64; 5]; 6], start: f64, lag: f64) -> f64 {
+fn fare_hour(table: &[[f64; 5]; 6], start: f64, lag: f64, country: &str) -> f64 {
     if lag <= 0. {
-        return between(table, start, start + 3600.);
+        return between(table, start, start + 3600., country);
     }
     (0..6)
         .map(|j| {
             let a = start - lag * (j as f64 + 0.5) / 6.;
-            between(table, a, a + 3600.)
+            between(table, a, a + 3600., country)
         })
         .sum::<f64>()
         / 6.
@@ -108,7 +116,13 @@ fn hour_shares(board: &[f32]) -> Vec<f32> {
     c
 }
 impl Account {
-    pub(super) fn new(forecast: &Forecast, api: &mut TrackApi, clock: f64, lag: f64) -> Self {
+    pub(super) fn new(
+        forecast: &Forecast,
+        api: &mut TrackApi,
+        clock: f64,
+        costs: &Costs,
+        upkeep: Regions,
+    ) -> Self {
         for d in 0..6 {
             let (riders, arrivals) = forecast.riders(d);
             api.set_riders(riders, d as u32);
@@ -127,36 +141,167 @@ impl Account {
             hour: i64::MIN,
             previous: 0.,
             shares: vec![],
-            lag,
-            totals: (0., 0.),
+            lag: costs.lag,
+            totals: [0.; 4],
+            regions: BTreeMap::new(),
+            rates: BTreeMap::new(),
+            upkeep,
+            calendar_day: i64::MIN,
         };
-        account.prepare(api, hour);
+        account.prepare(api, hour, costs);
         account.previous = clock.rem_euclid(3600.) / 3600.;
         account
     }
-    fn prepare(&mut self, api: &mut TrackApi, hour: i64) {
+    fn prepare(&mut self, api: &mut TrackApi, hour: i64, costs: &Costs) {
         if self.hour == hour {
             return;
         }
         self.hour = hour;
         self.previous = 0.;
         let epoch = hour as f64 * 3600.;
+        if self.calendar_day != hour.div_euclid(24) {
+            self.calendar_day = hour.div_euclid(24);
+            let mut specials = Vec::new();
+            let mut schedule = Vec::new();
+            for (&id, (shift, line)) in &self.lines {
+                let day = ((epoch + shift) / 86400.).floor() as i64;
+                let mut holidays = Vec::new();
+                let mut rows = Vec::new();
+                let mut own = false;
+                for d in day - 1..=day + 8 {
+                    let (k, r) = crate::calendar::kind_row(line.country, d);
+                    let week = day_kind_at(d as f64 * 86400.);
+                    if k != week {
+                        holidays.extend([d as f64, k as f64]);
+                    }
+                    own |= r != usize::from(week != 0);
+                    rows.extend([d as f64, r as f64]);
+                }
+                if !holidays.is_empty() {
+                    specials.extend([id as f64, (holidays.len() / 2) as f64]);
+                    specials.extend(holidays);
+                }
+                if own {
+                    schedule.extend([id as f64, 10.]);
+                    schedule.extend(rows);
+                }
+            }
+            api.set_line_holidays(specials);
+            api.set_line_rows(schedule);
+        }
         self.shares = hour_shares(&api.boarding_hour(epoch));
-        self.totals = (0., 0.);
-        for (shift, money) in self.lines.values() {
-            self.totals.0 += fare_hour(&money.fares, epoch + shift, self.lag);
-            self.totals.1 += between(&money.rides, epoch + shift, epoch + shift + 3600.);
+        self.totals = [0.; 4];
+        self.regions.clear();
+        self.rates.clear();
+        for (&id, (shift, money)) in &self.lines {
+            let start = epoch + shift;
+            let fare = fare_hour(&money.fares, start, self.lag, money.country);
+            let rides = between(&money.rides, start, start + 3600., money.country);
+            let cost = costs.line_hour(id, epoch, money.country);
+            self.rates.insert(id, [fare, cost]);
+            for (k, value, shares) in [
+                (0, fare, &money.fare_shares),
+                (1, rides, &money.ride_shares),
+                (2, cost, &money.run_shares),
+            ] {
+                self.totals[k] += value;
+                if shares.is_empty() {
+                    self.regions.entry(String::new()).or_default()[k] += value;
+                }
+                for (z, &f) in shares {
+                    self.regions.entry(z.clone()).or_default()[k] += f * value;
+                }
+            }
+            for (z, points) in &money.points {
+                let v = fare_hour(points, start, self.lag, money.country);
+                self.totals[3] += v;
+                self.regions.entry(z.clone()).or_default()[3] += v;
+            }
         }
     }
-    pub(super) fn settle(&mut self, api: &mut TrackApi, hour: i64, end: f64) -> (f64, f64) {
-        self.prepare(api, hour);
+    pub(super) fn settle(
+        &mut self,
+        api: &mut TrackApi,
+        h: &mut Value,
+        hour: i64,
+        day: i64,
+        end: f64,
+        dc: f64,
+        up: f64,
+        costs: &Costs,
+    ) -> [f64; 4] {
+        use crate::finance::{add, entry};
+        self.prepare(api, hour, costs);
         let secs = (end - hour as f64 * 3600.).clamp(0., 3600.);
         let share = self
             .shares
             .get(secs.floor() as usize)
             .map_or(secs / 3600., |&s| s.into());
-        let delta = (share - self.previous).max(0.);
+        let df = (share - self.previous).max(0.);
         self.previous = self.previous.max(share);
-        (self.totals.0 * delta, self.totals.1 * delta)
+        for (id, [fare, cost]) in &self.rates {
+            let (f, c) = (fare * df, cost * dc);
+            if f == 0. && c == 0. {
+                continue;
+            }
+            let hist = &mut h["lineDays"][id.to_string()];
+            if !hist.is_array() {
+                *hist = serde_json::json!([]);
+            }
+            let flat = hist.as_array_mut().unwrap();
+            let i = flat
+                .chunks_exact(3)
+                .position(|row| row[0].as_i64() == Some(day))
+                .map(|i| 3 * i)
+                .unwrap_or_else(|| {
+                    flat.extend([day.into(), 0.into(), 0.into()]);
+                    if flat.len() > 93 {
+                        flat.drain(..flat.len() - 93);
+                    }
+                    flat.len() - 3
+                });
+            flat[i + 1] = (flat[i + 1].as_f64().unwrap_or(0.) + f).into();
+            flat[i + 2] = (flat[i + 2].as_f64().unwrap_or(0.) + c).into();
+        }
+        for (key, index, at) in [("ledger", "day", day), ("hours", "hour", hour)] {
+            for (zone, values) in &self.regions {
+                let vals = [
+                    values[0] * df,
+                    values[1] * df,
+                    values[2] * dc,
+                    values[3] * df,
+                ];
+                if vals.iter().all(|&v| v == 0.) {
+                    continue;
+                }
+                let row = entry(&mut h["regions"][zone], key, index, at);
+                for (k, v) in ["fares", "rides", "running", "points"]
+                    .into_iter()
+                    .zip(vals)
+                {
+                    if v != 0. {
+                        add(row, k, v);
+                    }
+                }
+            }
+            if up > 0. {
+                if self.upkeep.is_empty() {
+                    add(entry(&mut h["regions"][""], key, index, at), "upkeep", up);
+                }
+                for (z, f) in &self.upkeep {
+                    add(
+                        entry(&mut h["regions"][z], key, index, at),
+                        "upkeep",
+                        up * f,
+                    );
+                }
+            }
+        }
+        [
+            self.totals[0] * df,
+            self.totals[1] * df,
+            self.totals[2] * dc,
+            self.totals[3] * df,
+        ]
     }
 }

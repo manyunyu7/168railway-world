@@ -2,7 +2,7 @@
 //! network or balance until the activity has validated and persisted the complete TWG1.
 use crate::{finance, World};
 use jni::{
-    objects::{JByteArray, JClass},
+    objects::{JByteArray, JClass, JString},
     sys::{jboolean, jbyteArray, jdouble, jdoubleArray, jlong},
     JNIEnv,
 };
@@ -10,16 +10,21 @@ use std::{cell::RefCell, collections::HashMap};
 
 struct Session {
     world: World,
+    passengers: Option<crate::timed_account::Account>,
+    loads: Option<crate::train_loads::Loads>,
     anchor: f64,
     wall_ms: i64,
     rate: f64,
 }
 
 impl Session {
-    fn new(world: World, wall_ms: i64) -> Option<Self> {
+    fn new(mut world: World, wall_ms: i64) -> Option<Self> {
+        finance::prepare_session(&mut world);
         let anchor = world.header["clock"].as_f64()?;
         (anchor.is_finite() && anchor >= 0. && wall_ms >= 0).then_some(Self {
             world,
+            passengers: None,
+            loads: None,
             anchor,
             wall_ms,
             rate: 0.,
@@ -28,8 +33,9 @@ impl Session {
 
     fn settle(&mut self, wall_ms: i64) -> f64 {
         let elapsed = wall_ms.saturating_sub(self.wall_ms).max(0);
-        let now = self.anchor + elapsed as f64 * self.rate / 1000.;
-        finance::tick(&mut self.world, now);
+        let now = (self.anchor + elapsed as f64 * self.rate / 1000.)
+            .max(self.world.header["clock"].as_f64().unwrap_or(self.anchor));
+        finance::tick_with_account(&mut self.world, now, self.passengers.as_mut());
         now
     }
 
@@ -55,16 +61,7 @@ thread_local! { static SESSIONS: RefCell<Sessions> = RefCell::new(Sessions::defa
 
 fn supported(world: &World) -> bool {
     let net = &world.api.world().net;
-    // These worlds have no infrastructure costs, passenger revenue or regional allocation.
-    // Existing financial history is kept on the original clock until replay is supported.
-    net.node_count() == 0
-        && net.edge_count() == 0
-        && net.line_count() == 0
-        && world.header["hours"].as_array().is_none_or(|rows| {
-            let hour = (world.header["clock"].as_f64().unwrap_or(0.) / 3600.).floor() as i64;
-            rows.iter()
-                .all(|r| r["hour"].as_i64().is_some_and(|h| h <= hour))
-        })
+    net.node_count() == 0 && net.edge_count() == 0 && net.line_count() == 0
 }
 
 #[no_mangle]
@@ -95,6 +92,10 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_open(
     else {
         return 0;
     };
+    register(session)
+}
+
+fn register(session: Session) -> jlong {
     SESSIONS.with_borrow_mut(|s| {
         let Some(id) = s.next.checked_add(1) else {
             return 0;
@@ -105,6 +106,56 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_open(
     })
 }
 
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_openNetwork(
+    mut env: JNIEnv,
+    _: JClass,
+    bytes: JByteArray,
+    manifest: JString,
+    ms: jlong,
+) -> jlong {
+    let open = || -> Result<Session, String> {
+        let archive = env.convert_byte_array(bytes).map_err(|e| e.to_string())?;
+        let text: String = env.get_string(&manifest).map_err(|e| e.to_string())?.into();
+        let files: crate::demand::DemandFiles =
+            serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let mut world = World::open(&archive).ok_or("Simpanan tidak dapat dibaca")?;
+        let account = files.read()?.account(&archive, &mut world)?;
+        let mut session = Session::new(world, ms).ok_or("Jam simpanan tidak valid")?;
+        session.passengers = Some(account);
+        Ok(session)
+    };
+    match open() {
+        Ok(session) => register(session),
+        Err(e) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", e);
+            0
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_loads(
+    env: JNIEnv,
+    _: JClass,
+    id: jlong,
+    time: f64,
+) -> jni::sys::jintArray {
+    let rows = SESSIONS.with_borrow_mut(|s| {
+        let clock = s.active.get_mut(&id)?;
+        clock.passengers.as_ref()?;
+        if !clock.loads.as_ref().is_some_and(|l| l.current(time)) {
+            clock.loads = crate::train_loads::Loads::new(&mut clock.world, time);
+        }
+        Some(clock.loads.as_ref()?.rows(&clock.world, time))
+    });
+    rows.and_then(|r| {
+        let a = env.new_int_array(i32::try_from(r.len()).ok()?).ok()?;
+        env.set_int_array_region(&a, 0, &r).ok()?;
+        Some(a.into_raw())
+    })
+    .unwrap_or(std::ptr::null_mut())
+}
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_SimulationEngine_play(
     _: JNIEnv,

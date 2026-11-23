@@ -12,18 +12,34 @@ use trainworld_sim::{
     track::params::{ECONOMY, PEAK_HOUR_FACTOR, PERIOD_HOURS},
 };
 
+include!(concat!(env!("OUT_DIR"), "/places.rs"));
+pub(super) type Regions = BTreeMap<String, f64>;
+fn add(map: &mut Regions, id: &str, value: f64) {
+    *map.entry(id.to_owned()).or_default() += value;
+}
+fn normalized(map: &Regions) -> Regions {
+    let total: f64 = map.values().sum();
+    map.iter()
+        .filter(|(_, v)| **v > 0.)
+        .map(|(k, v)| (k.clone(), v / total))
+        .collect()
+}
 #[derive(Default)]
 struct Period {
     board: Vec<f32>,
     alight: Vec<f32>,
     arrive: Vec<f32>,
     km: f64,
+    regional_board: Regions,
+    regional_km: Regions,
     extra: f64,
     base_extra: f64,
 }
 #[derive(Default)]
 struct Line {
     days: [[Period; 5]; 6],
+    zones: Vec<&'static str>,
+    run: Regions,
     own: f64,
     rate_multiple: f64,
     base: f64,
@@ -34,6 +50,8 @@ struct Line {
 pub(super) struct Forecast {
     lines: BTreeMap<u32, Line>,
     trips: [f64; 6],
+    city_ids: Vec<String>,
+    regional_trips: [Regions; 6],
     transfers: BTreeMap<([u32; 3], [u32; 3]), f64>,
 }
 
@@ -44,6 +62,13 @@ fn accumulate(target: &mut [f32], src: &[f32]) {
 }
 
 impl Forecast {
+    pub(super) fn set_layout(&mut self, cities: &[String]) {
+        self.city_ids = cities.to_vec();
+    }
+    pub(super) fn line_zones(&mut self, id: u32, zones: Vec<&'static str>) {
+        self.lines.entry(id).or_default().zones = zones;
+    }
+
     pub(super) fn add_period(
         &mut self,
         q: usize,
@@ -65,7 +90,15 @@ impl Forecast {
         let mut base_x = vec![0.; n];
         let mut raw = vec![0.; 3 * n];
         let mut lean = Vec::new();
-        for (s, e) in cities {
+        for (city, (s, e)) in cities.iter().enumerate() {
+            let totals = e.kind_totals(q);
+            for d in 0..6 {
+                let mut rail = s.summary(q)[2] * f64::from(days::load_factor(d, WORK, q));
+                for (k, t) in totals.chunks_exact(3).enumerate() {
+                    rail += t[1] * f64::from(days::load_factor(d, days::everyday(k), q));
+                }
+                add(&mut self.regional_trips[d], &self.city_ids[city], rail);
+            }
             let work = [s.seg(q), s.board(q), s.alight(q)].concat();
             let everyday = [e.seg(q), e.board(q), e.alight(q)].concat();
             if work.len() != raw.len() || everyday.len() != raw.len() {
@@ -89,6 +122,39 @@ impl Forecast {
             accumulate(&mut base_x, &e.base_extra(q));
         }
         if let Some(m) = market {
+            let nplaces = PLACES.iter().map(|v| v.1).max().unwrap() + 1;
+            let tri = |i: usize| i * (2 * nplaces - i + 1) / 2;
+            let by_place: BTreeMap<_, Vec<_>> =
+                PLACES.iter().fold(BTreeMap::new(), |mut map, &(id, k, _)| {
+                    map.entry(k).or_default().push(id);
+                    map
+                });
+            for r in m.corridor_rail(q).chunks_exact(3) {
+                let key = r[0] as usize;
+                let mut lo = 0;
+                let mut hi = nplaces;
+                while lo + 1 < hi {
+                    let mid = (lo + hi) / 2;
+                    if tri(mid) <= key {
+                        lo = mid
+                    } else {
+                        hi = mid
+                    }
+                }
+                let dest = lo + key - tri(lo);
+                for place in [lo, dest] {
+                    if let Some(zones) = by_place.get(&place) {
+                        for d in 0..6 {
+                            let count = (r[1] * f64::from(days::load_factor(d, LONGER, q))
+                                + r[2] * f64::from(days::load_factor(d, WORK, q)))
+                                / (2 * zones.len()) as f64;
+                            for z in zones {
+                                add(&mut self.regional_trips[d], z, count);
+                            }
+                        }
+                    }
+                }
+            }
             let regional = [m.seg(q), m.board(q), m.alight(q)].concat();
             accumulate(&mut raw, &regional);
             accumulate(&mut parts[LONGER], &regional);
@@ -172,7 +238,25 @@ impl Forecast {
                     } else {
                         0.
                     };
-                    period.km += f64::from(loads[j]) * f64::from(hop[j]);
+                    let km = f64::from(loads[j]) * f64::from(hop[j]);
+                    period.km += km;
+                    let k = j - offset;
+                    let count = stops as usize;
+                    let at = if k < count { k } else { 2 * count - 1 - k };
+                    let next = if k < count {
+                        (at + 1).min(count - 1)
+                    } else {
+                        at.saturating_sub(1)
+                    };
+                    let zone = line.zones.get(at).copied().unwrap_or("");
+                    let other = line.zones.get(next).copied().unwrap_or("");
+                    add(&mut period.regional_board, zone, loads[n + j].into());
+                    add(&mut period.regional_km, zone, km / 2.);
+                    add(&mut period.regional_km, other, km / 2.);
+                    if d == 0 && q == 0 && k < count {
+                        add(&mut line.run, zone, f64::from(hop[j]) / 2.);
+                        add(&mut line.run, other, f64::from(hop[j]) / 2.);
+                    }
                     period.extra += scale * f64::from(fare_x[j]);
                     period.base_extra += scale * f64::from(base_x[j]);
                     let a = if raw[n + j] < 0.999 * rounds[j] {
@@ -219,6 +303,14 @@ impl Forecast {
     pub(super) fn income(&self) -> BTreeMap<u32, LineIncome> {
         let mut result = BTreeMap::<u32, LineIncome>::new();
         for d in 0..6 {
+            let mut region_board = Regions::new();
+            for line in self.lines.values() {
+                for p in &line.days[d] {
+                    for (z, v) in &p.regional_board {
+                        add(&mut region_board, z, *v);
+                    }
+                }
+            }
             let boarded: Vec<f64> = self
                 .lines
                 .values()
@@ -257,6 +349,36 @@ impl Forecast {
             for (i, (&id, l)) in self.lines.iter().enumerate() {
                 let total: f64 = l.days[d].iter().map(|p| p.km).sum();
                 let out = result.entry(id).or_default();
+                if d == 0 {
+                    let mut board = Regions::new();
+                    let mut km = Regions::new();
+                    for p in &l.days[d] {
+                        for (z, v) in &p.regional_board {
+                            add(&mut board, z, *v);
+                        }
+                        for (z, v) in &p.regional_km {
+                            add(&mut km, z, *v);
+                        }
+                    }
+                    out.run_shares = normalized(&l.run);
+                    out.ride_shares = normalized(&board);
+                    let base = l.base * shares[i];
+                    let distance = (l.rate_multiple * l.rate * total
+                        + l.days[d].iter().map(|p| p.extra).sum::<f64>())
+                    .max(0.);
+                    let mut fare = Regions::new();
+                    for (z, v) in &out.ride_shares {
+                        add(&mut fare, z, v * base);
+                    }
+                    for (z, v) in normalized(&km) {
+                        add(&mut fare, &z, v * distance);
+                    }
+                    out.fare_shares = normalized(&fare);
+                    out.country = PLACES
+                        .iter()
+                        .find(|x| Some(&x.0) == l.zones.first())
+                        .map_or("", |x| x.2);
+                }
                 for (q, p) in l.days[d].iter().enumerate() {
                     let share = if total > 0. { p.km / total } else { 0. };
                     let (a, b) = PERIOD_HOURS[q];
@@ -266,6 +388,19 @@ impl Forecast {
                             * ECONOMY
                             / (hours * 1e6);
                     out.rides[d][q] = boarded[i] * per * share / hours;
+                    let all: f64 = p.regional_board.values().sum();
+                    if all > 0. {
+                        for (z, &b) in &p.regional_board {
+                            let region = region_board[z];
+                            if b <= 0. || region <= 0. {
+                                continue;
+                            }
+                            let trips =
+                                self.regional_trips[d].get(z).copied().unwrap_or(0.) / region;
+                            out.points.entry(z.clone()).or_insert([[0.; 5]; 6])[d][q] =
+                                b * (20. * trips + p.km / all) / hours;
+                        }
+                    }
                 }
             }
         }
@@ -275,6 +410,11 @@ impl Forecast {
 
 #[derive(Default, serde::Serialize)]
 pub(super) struct LineIncome {
+    pub country: &'static str,
+    pub fare_shares: Regions,
+    pub ride_shares: Regions,
+    pub run_shares: Regions,
+    pub points: BTreeMap<String, [[f64; 5]; 6]>,
     pub fares: [[f64; 5]; 6],
     pub rides: [[f64; 5]; 6],
 }

@@ -1367,8 +1367,13 @@ class NativeWorldActivity : Activity() {
                 referenceUnavailable(reason)
             }
         }
-        runtime = if (SimulationEngine.supportsEditor(handle)) NativeSimulationClock(onClock, onFailure)
-            else StudioReferenceClock(this, onClock, onFailure)
+        val pack = activePack
+        val cityId = city.id
+        val inputs: ((ByteArray) -> String)? = if (SimulationEngine.supportsEditor(handle)) null else { archive ->
+            val local = pack ?: cityStore.load(cityId)
+            NativeRidership.inputs(this,archive,local.header,local.cells,true).toString()
+        }
+        runtime = NativeSimulationClock(inputs,onClock,onFailure)
         runtime.onTrainLoads = { epoch, rows -> if (reference === runtime && !closed) map.trainLoads(epoch,rows) }
         runtime.onCash = { cash -> if (reference === runtime && !closed) showBalance(cash) }
         reference = runtime
