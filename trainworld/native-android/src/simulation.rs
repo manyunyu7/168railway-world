@@ -41,6 +41,22 @@ impl Session {
         now
     }
 
+    /// Hot swap after an edit: this runtime was opened from the edited world at the edit's
+    /// clock while the old runtime kept the trains moving. It takes over at the old one's game
+    /// time `time`; the hours in between are settled here, once, with the edited network and its
+    /// riders (the old runtime's ledger is dropped, never saved), so nothing is counted twice and
+    /// no hour is skipped. A `time` behind this runtime's own clock changes nothing.
+    fn catch_up(&mut self, wall_ms: i64, time: f64) -> bool {
+        if !time.is_finite() || wall_ms < self.wall_ms {
+            return false;
+        }
+        let now = self.settle(wall_ms);
+        self.anchor = now.max(time);
+        self.wall_ms = wall_ms;
+        self.settle(wall_ms);
+        true
+    }
+
     fn set_rate(&mut self, wall_ms: i64, rate: f64) -> bool {
         if !rate.is_finite() || !(0. ..=60000.).contains(&rate) || wall_ms < self.wall_ms {
             return false;
@@ -171,6 +187,22 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_play(
         s.active
             .get_mut(&id)
             .is_some_and(|clock| clock.set_rate(ms, rate))
+    }) as jboolean
+}
+
+/// See `Session::catch_up`.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_catchUp(
+    _: JNIEnv,
+    _: JClass,
+    id: jlong,
+    ms: jlong,
+    time: jdouble,
+) -> jboolean {
+    SESSIONS.with_borrow_mut(|s| {
+        s.active
+            .get_mut(&id)
+            .is_some_and(|clock| clock.catch_up(ms, time))
     }) as jboolean
 }
 
@@ -379,5 +411,52 @@ mod tests {
         assert_eq!(reopened.header["clock"], t + 20.);
         assert!((reopened.api.cash() - (6000. - 20. / 3600.)).abs() < 1e-9);
         assert_eq!(reopened.header["hours"].as_array().unwrap().len(), 2);
+    }
+
+    fn running_world() -> World {
+        let mut world = World::workshop();
+        let t = 111600.;
+        world
+            .build_service([0., 0.], [3500., 600.], "Hudson", t)
+            .unwrap();
+        world.header["mode"] = "normal".into();
+        world.header["clock"] = t.into();
+        world.header["cash"] = 50_000.into();
+        world
+    }
+
+    #[test]
+    fn hot_swap_settles_the_gap_once_with_the_edited_world() {
+        let edited = running_world();
+        let t1 = edited.header["clock"].as_f64().unwrap();
+        let bytes = edited.save(t1).unwrap();
+        // the runtime that ran on without a swap: the reference ledger
+        let mut steady = Session::new(World::open(&bytes).unwrap(), 0).unwrap();
+        assert!(steady.set_rate(0, 240.));
+        let t2 = steady.settle(60_000); // 4 game hours later
+        assert_eq!(t2, t1 + 4. * 3600.);
+        // the new runtime opened (paused) at the edit's clock, ready after a 20 s warm
+        let mut fresh = Session::new(World::open(&bytes).unwrap(), 20_000).unwrap();
+        assert_eq!(fresh.settle(60_000), t1);
+        let started = std::time::Instant::now();
+        assert!(fresh.catch_up(60_000, t2));
+        assert!(fresh.set_rate(60_000, 240.));
+        let took = started.elapsed();
+        println!("swap with a 4 h catch-up took {took:?}");
+        assert!(took.as_millis() < 50, "swap blocked for {took:?}");
+        assert_eq!(fresh.settle(60_000), t2);
+        let (a, b) = (steady.world.api.cash(), fresh.world.api.cash());
+        assert!(a < 50_000., "the gap's running costs are charged");
+        assert!((a - b).abs() < 1e-6, "ledger {a} vs {b}");
+        assert_eq!(steady.world.header["hours"], fresh.world.header["hours"]);
+        // both run on in step afterwards
+        assert_eq!(steady.settle(61_000), fresh.settle(61_000));
+        // a stale target behind the runtime's clock rewinds nothing and charges nothing more
+        let cash = fresh.world.api.cash();
+        assert!(fresh.catch_up(61_000, t1));
+        assert_eq!(fresh.settle(61_000), t2 + 240.);
+        assert_eq!(fresh.world.api.cash(), cash);
+        assert!(!fresh.catch_up(500, t2 + 9999.));
+        assert!(!fresh.catch_up(62_000, f64::NAN));
     }
 }
