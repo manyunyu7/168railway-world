@@ -67,8 +67,7 @@ internal object ServicePanel {
                     orientation = LinearLayout.VERTICAL
                     isFocusable = true
                     isClickable = true
-                    background = StudioUi.card(host, 22, 0xf2ffffff.toInt())
-                    clipToOutline = true
+                    background = StudioUi.card(host, 18, 0xf2ffffff.toInt())
                     contentDescription = "$name, ${group.size} layanan, ${if (anyRunning) "beroperasi" else "belum beroperasi"}"
                     setOnClickListener {
                         if (group.size == 1) {
@@ -86,34 +85,19 @@ internal object ServicePanel {
                         }
                     }
                 }
-                val head = android.widget.FrameLayout(host).apply {
-                    background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(color)
-                        cornerRadii = floatArrayOf(dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), 0f, 0f, 0f, 0f)
-                    }
-                }
-                head.addView(StudioUi.text(host, code(name), 15f, color = color).apply {
-                    typeface = StudioUi.heavy(host)
-                    gravity = android.view.Gravity.CENTER
-                    background = StudioUi.pill(host, StudioUi.WHITE, 10)
-                }, android.widget.FrameLayout.LayoutParams(dp(30), dp(30)).apply { setMargins(dp(10), dp(10), 0, 0) })
-                head.addView(StudioDepot.symbol(host, StudioUi.Icon.TRAIN, 34f, 0xe6ffffff.toInt()),
-                    android.widget.FrameLayout.LayoutParams(-2, -2, android.view.Gravity.END or android.view.Gravity.BOTTOM).apply { setMargins(0, 0, dp(10), dp(4)) })
-                card.addView(head, LinearLayout.LayoutParams(-1, dp(66)))
-                val body = LinearLayout(host).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(12), dp(8), dp(12), dp(12))
-                }
-                body.addView(StudioUi.text(host, name, 14f, color = StudioUi.INK).apply {
-                    typeface = StudioUi.heavy(host); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+                // A compact row (web LinesTab): code badge, name and state, so a 28-line city fits on two screens.
+                card.orientation = LinearLayout.HORIZONTAL
+                card.gravity = android.view.Gravity.CENTER_VERTICAL
+                card.minimumHeight = dp(64)
+                card.setPadding(dp(10), dp(8), dp(12), dp(8))
+                card.addView(StudioUi.badge(host, code(name), color, 40), LinearLayout.LayoutParams(dp(40), dp(40)))
+                val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
+                body.addView(StudioUi.text(host, name, 15f, color = StudioUi.INK).apply {
+                    typeface = StudioUi.heavy(host); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
                 })
-                val chips = LinearLayout(host).apply { setPadding(0, dp(6), 0, 0) }
-                chips.addView(StudioUi.chip(host, "${group.size} layanan", StudioUi.TINT_ORANGE, 0xff9a3a0b.toInt()).apply { textSize = 11f })
-                chips.addView(StudioUi.chip(host, if (anyRunning) "Jalan" else "Diam",
-                    if (anyRunning) StudioUi.TINT_GREEN else StudioUi.TINT_GREY, if (anyRunning) StudioUi.GOOD else StudioUi.MUTED).apply { textSize = 11f },
-                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(5) })
-                body.addView(chips)
-                card.addView(body)
+                body.addView(StudioUi.text(host, (if (group.size > 1) "${group.size} layanan · " else "") +
+                    if (anyRunning) "Beroperasi" else "Belum beroperasi", 12.5f, true, if (anyRunning) StudioUi.GOOD else StudioUi.MUTED))
+                card.addView(body, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
                 return card
             }
             fun render(query: String) {
@@ -125,14 +109,7 @@ internal object ServicePanel {
                 }
                 // Services sharing a name (both directions, variants) form one collectible card.
                 val groups = found.groupBy { it.getString("name").trim().lowercase() }.values.toList()
-                groups.chunked(2).forEach { pair ->
-                    val line = LinearLayout(host)
-                    pair.forEachIndexed { i, group ->
-                        line.addView(card(group), LinearLayout.LayoutParams(0, -2, 1f).apply { if (i == 1) marginStart = dp(10) })
-                    }
-                    if (pair.size == 1) line.addView(View(host), LinearLayout.LayoutParams(0, 1, 1f).apply { marginStart = dp(10) })
-                    rows.addView(line, lp(10, host))
-                }
+                groups.forEach { group -> rows.addView(card(group), lp(6, host)) }
             }
             if (items.size > 6) {
                 search = EditText(host).apply {
