@@ -52,7 +52,7 @@ fn tiles(points: &[[f64; 2]]) -> Result<BTreeSet<(i32, i32)>, String> {
     Ok(keys)
 }
 
-fn resolve(
+pub(super) fn resolve(
     api: &TrackApi,
     points: &[[f64; 2]],
     dir: &Path,
