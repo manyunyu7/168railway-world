@@ -212,11 +212,12 @@ internal object StudioUi {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(heading, LinearLayout.LayoutParams(0,-2,1f))
                 addView(iconButton(activity, "Tutup", Icon.CLOSE) { dialog.cancel() }.apply {
-                    background = pill(activity, 0xffefedf5.toInt(), 20)
+                    // a 36 dp grey disc inside a 44 dp target
+                    background = android.graphics.drawable.InsetDrawable(pill(activity, 0xffefedf5.toInt(), 20), dp(activity,4))
                     setPadding(0,0,0,0)
                     textSize = 16f
                     minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
-                }, LinearLayout.LayoutParams(dp(activity,36),dp(activity,36)).apply { marginStart = dp(activity,8) })
+                }, LinearLayout.LayoutParams(dp(activity,44),dp(activity,44)).apply { marginStart = dp(activity,4) })
             }, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(activity,6) })
         }
         root.addView(body,LinearLayout.LayoutParams(-1,-2,1f))
