@@ -159,6 +159,8 @@ class NativeWorldActivity : Activity() {
     private var previewGeneration = 0L
     private var resumeOnPanelClose = false
     private var checkpointInFlight = false
+    /** A station tapped while a checkpoint was in flight; opened once it lands instead of being dropped. */
+    private var afterCheckpoint: (() -> Unit)? = null
     private var foreground = false
     // A replacement activity must read the completed checkpoint after a rotation.
     private companion object {
@@ -464,7 +466,8 @@ class NativeWorldActivity : Activity() {
             if (!drawing && !removingTrack && !restoringEdit && handle != 0L) {
                 selectingInfrastructure=false
                 updateControls()
-                withCommittedWorld(pause = false) { openStation(station) }
+                if (checkpointInFlight) afterCheckpoint = { openStation(station) }
+                else withCommittedWorld(pause = false) { openStation(station) }
                 true
             } else false
         }
@@ -1123,6 +1126,7 @@ class NativeWorldActivity : Activity() {
             }
         }
         map.isDrafting = drawing
+        map.placingStation = drawing && !railMode && plan.tool == BuildTool.STATION
         if (::lensLegend.isInitialized && lensLegend.childCount > 0) lensLegend.visibility = if (drawing || removingTrack) View.GONE else View.VISIBLE
         // Demolition mode reads as a red banner; everything else is the frosted status pill.
         val danger = removingTrack
@@ -1790,6 +1794,10 @@ class NativeWorldActivity : Activity() {
             if (closed) executor.shutdown()
             else if (error != null) referenceUnavailable(error)
             else if (foreground && !isFinishing) action?.invoke()
+            val queued = afterCheckpoint
+            afterCheckpoint = null
+            if (queued != null && action == null && error == null && !closed && foreground && !isFinishing && !drawing && !removingTrack && !restoringEdit)
+                withCommittedWorld(pause = false, queued)
         }
         runtime.snapshot(pause) { result ->
             result.onFailure { done(it.localizedMessage ?: "Snapshot simulasi tidak tersedia.") }
@@ -2510,6 +2518,9 @@ internal class NetworkView(context: Context):View(context) {
     var onBend: ((PointF) -> Unit)? = null
     val bends = mutableListOf<Pair<Int,PointF>>()
     var onStationTap: ((Int) -> Boolean)? = null
+    /** Station tool armed: rings 1 and 2 km round the chosen spot, as the web's T-312 `stationRings`. */
+    var placingStation = false
+        set(value) { if (field != value) { field = value; invalidate() } }
     var lastTrackEnd:PointF?=null
         private set
     fun railPreviewLabels(result:JSONObject) {
@@ -3009,7 +3020,40 @@ internal class NetworkView(context: Context):View(context) {
         }
     }
 
+    /** Screen radius of [metres] of ground at plane y: local frames are in metres, the Mercator frame
+     *  (`frame_kind` 2) stretches ground by cosh(y/R) (sim `merc_k`), about 1 for small local y. */
+    private fun groundPx(metres: Float, y: Float) = metres * kotlin.math.cosh(y / 6371008.8f) * scale
+
+    private fun ring(c: Canvas, x: Float, y: Float, metres: Float, label: String, fill: Int) {
+        val r = groundPx(metres, y)
+        val cx = sx(x); val cy = sy(y)
+        if (r < 6 * density || cx + r < 0 || cx - r > width || cy + r < 0 || cy - r > height) return
+        if (fill != 0) { paint.style = Paint.Style.FILL; paint.color = fill; c.drawCircle(cx, cy, r, paint) }
+        paint.style = Paint.Style.STROKE; paint.strokeWidth = 1.5f * density; paint.color = 0x8c163f44.toInt()
+        c.drawCircle(cx, cy, r, paint)
+        paint.textSize = 11 * density
+        val tx = cx - paint.measureText(label) / 2; val ty = cy - r - 4 * density
+        paint.strokeWidth = 3 * density; paint.color = 0xccf7f5e9.toInt(); c.drawText(label, tx, ty, paint)
+        paint.style = Paint.Style.FILL; paint.color = 0xb3163f44.toInt(); c.drawText(label, tx, ty, paint)
+    }
+
+    /** The web draws reach on the map, not only in panels: the inspected station's 1 km (passage and
+     *  platform links, `LINK_MAX_M`) and the 1 and 2 km rings round a station being placed. */
+    private fun drawStationReach(c: Canvas) {
+        if (isDrafting) {
+            val spot = if (placingStation) draft.lastOrNull() else null
+            if (spot != null) {
+                ring(c, spot.x, spot.y, 2000f, "2 km", 0)
+                ring(c, spot.x, spot.y, 1000f, "1 km", 0x142f6fe0)
+            }
+            return
+        }
+        val s = inspectingStation ?: return
+        ring(c, s.x + (s.platform?.midX ?: 0f), s.y + (s.platform?.midY ?: 0f), 1000f, "1 km", 0x1a2f6fe0)
+    }
+
     private fun drawDynamic(c:Canvas){
+        drawStationReach(c)
         paint.style=Paint.Style.FILL
         val frameTime=SystemClock.elapsedRealtime()
         trainPainter.time = trainTime(frameTime)
@@ -3123,28 +3167,38 @@ internal class NetworkView(context: Context):View(context) {
         }
     }).apply { isQuickScaleEnabled = false }
 
-    private fun selectAt(x: Float, y: Float) {
-        if (!isDrafting && overlay.inspect(x,y,stops){ id -> onStationTap?.invoke(id) }) return
+    /** The station under a finger at screen x/y: the drawn platform at z14+, else its dot, within a
+     *  24 dp reach (a 48 dp target). Null below z9, where stations are not drawn. */
+    private fun stationAt(x: Float, y: Float): Station? {
         val range = 24f * density
         val zoom=stationZoom()
-        if (!isDrafting && zoom >= 9f) {
-            var nearest: Station? = null
-            var closest = range
-            for (station in stops) {
-                if (station.id < 0) continue
-                val dx = x-sx(station.x); val dy = sy(station.y)-y
-                val platform=station.platform
-                val distance = if (platform != null && zoom >= 14f) {
-                    val margin=platform.reach*scale+range+12*density
-                    if (kotlin.math.abs(dx)>margin || kotlin.math.abs(dy)>margin) continue
-                    platform.distance(dx/scale,dy/scale,scale,density,trainPainter.mercatorPerFrame)
-                } else kotlin.math.hypot(dx-(platform?.midX ?: 0f)*scale,dy-(platform?.midY ?: 0f)*scale)
-                if (distance <= closest) {
-                    nearest = station
-                    closest = distance
-                }
+        if (zoom < 9f) return null
+        var nearest: Station? = null
+        var closest = range
+        for (station in stops) {
+            if (station.id < 0) continue
+            val dx = x-sx(station.x); val dy = sy(station.y)-y
+            val platform=station.platform
+            val distance = if (platform != null && zoom >= 14f) {
+                val margin=platform.reach*scale+range+12*density
+                if (kotlin.math.abs(dx)>margin || kotlin.math.abs(dy)>margin) continue
+                platform.distance(dx/scale,dy/scale,scale,density,trainPainter.mercatorPerFrame)
+            } else kotlin.math.hypot(dx-(platform?.midX ?: 0f)*scale,dy-(platform?.midY ?: 0f)*scale)
+            if (distance <= closest) {
+                nearest = station
+                closest = distance
             }
-            if (nearest != null && onStationTap?.invoke(nearest.id) == true) return
+        }
+        return nearest
+    }
+
+    private fun selectAt(x: Float, y: Float) {
+        if (!isDrafting) {
+            // A station beats the lens discs drawn over it (station riders up to 42 dp, homes and
+            // destinations up to 24 dp): those used to swallow the tap with a ridership sheet.
+            val station = stationAt(x, y)
+            if (station != null && onStationTap?.invoke(station.id) == true) return
+            if (overlay.inspect(x,y,stops){ id -> onStationTap?.invoke(id) }) return
         }
         onLocation?.invoke(PointF(centerX + (x-width/2f)/scale, centerY - (y-height/2f)/scale))
     }
