@@ -2180,7 +2180,7 @@ impl TrackApi {
     }
     /// What constructing these would cost now, US$M (junctions and crossings they complete
     /// included).
-    fn construct_cost(&mut self, edges: &[u32], stations: &[u32], buses: &[u32]) -> f64 {
+    pub fn construct_cost(&mut self, edges: &[u32], stations: &[u32], buses: &[u32]) -> f64 {
         let ops = self.construct_ops(edges, stations, buses);
         if ops.is_empty() {
             return 0.0;

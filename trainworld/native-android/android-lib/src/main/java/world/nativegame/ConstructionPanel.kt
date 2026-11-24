@@ -11,8 +11,10 @@ import android.widget.EditText
 import android.widget.LinearLayout
 
 internal object NativeConstruction {
-    @JvmStatic external fun rail(handle: Long, points: DoubleArray, level: Int, kind: Int, tracks: Int, clock: Double, commit: Boolean, designSpeed: Double, flyoverSpeed: Double, autoRamp: Boolean, flying: Boolean): String
-    @JvmStatic external fun station(handle: Long, x: Double, y: Double, radius: Double, name: String, platform: Int, clock: Double, commit: Boolean): String
+    @JvmStatic external fun rail(handle: Long, points: DoubleArray, level: Int, kind: Int, tracks: Int, clock: Double, commit: Boolean, designSpeed: Double, flyoverSpeed: Double, autoRamp: Boolean, flying: Boolean, radius: Double, deferred: Boolean, previewOnly: Boolean, profile: DoubleArray): String
+    @JvmStatic external fun station(handle: Long, x: Double, y: Double, radius: Double, name: String, platform: Int, clock: Double, commit: Boolean, deferred: Boolean): String
+    @JvmStatic external fun buildPlans(handle: Long, clock: Double, commit: Boolean): String
+    @JvmStatic external fun platformPoint(handle: Long,x:Double,y:Double,radius:Double,plans:Boolean):String
 }
 
 internal enum class BuildTool(val key: String,val label: String,val review: String,val action: String) {
@@ -27,7 +29,7 @@ internal enum class BuildTool(val key: String,val label: String,val review: Stri
 internal data class ConstructionPlan(
     val tool: BuildTool, val name: String = "", val level: Int = 1, val kind: Int = 0,
     val tracks: Int = 2, val platform: Int = 160, val vehicle: Int = -1,
-    val speed: Double = 160.0, val flySpeed: Double = 80.0, val autoRamp: Boolean = true, val flying: Boolean = false, val snapRoad: Boolean = false
+    val speed: Double = 160.0, val flySpeed: Double = 80.0, val autoRamp: Boolean = true, val flying: Boolean = false, val snapRoad: Boolean = false, val radius: Double = 0.0, val deferred: Boolean = false, val connect: Boolean = true
 ) {
     val wireKind get() = if(snapRoad && kind in 0..1) kind+10 else kind
     val grade get() = when { level > 0 -> "Viaduk +$level"; level < 0 -> "Terowongan $level"; else -> "Permukaan" }
@@ -37,6 +39,7 @@ internal data class ConstructionPlan(
         else -> name
     }
     fun save(out: Bundle) {
+        out.putBoolean("connectRail",connect); out.putDouble("curveRadius",radius); out.putBoolean("deferBuild",deferred)
         out.putString("constructionTool",tool.name)
         out.putString("constructionName",name)
         out.putInt("constructionLevel",level)
@@ -52,7 +55,7 @@ internal data class ConstructionPlan(
             val tool = BuildTool.values().find { it.name == state.getString("constructionTool") } ?: return null
             return ConstructionPlan(tool,state.getString("constructionName").orEmpty(),state.getInt("constructionLevel"),
                 state.getInt("railKind"),state.getInt("railTracks",2),state.getInt("platformLength",160),state.getInt("lineVehicle",-1),
-                state.getDouble("designSpeed",160.0),state.getDouble("flySpeed",80.0),state.getBoolean("autoRamp",true),state.getBoolean("flying",false),state.getBoolean("snapRoad",false))
+                state.getDouble("designSpeed",160.0),state.getDouble("flySpeed",80.0),state.getBoolean("autoRamp",true),state.getBoolean("flying",false),state.getBoolean("snapRoad",false),state.getDouble("curveRadius"),state.getBoolean("deferBuild"),state.getBoolean("connectRail",true))
         }
     }
 }
@@ -105,12 +108,15 @@ internal object ConstructionPanel {
                 label(if(tool==BuildTool.STATION) "Nama stasiun" else "Nama layanan")
                 EditText(host).apply {
                     setSingleLine(); filters=arrayOf(InputFilter.LengthFilter(48))
+                    if(tool==BuildTool.STATION) hint="Otomatis dari lokasi"
                     setText(plan.name); setSelectAllOnFocus(true); textSize=17f; typeface=StudioUi.face(host)
                     setTextColor(StudioUi.INK); setPadding(dp(18),dp(4),dp(18),dp(4)); minHeight=dp(52)
                     background=StudioUi.pill(host,StudioUi.WHITE,26)
                     body.addView(this,LinearLayout.LayoutParams(-1,-2))
                 }
             } else null
+            if(tool in setOf(BuildTool.RAIL,BuildTool.STATION)) choices("Pembangunan",listOf(0 to "Bangun sekarang",1 to "Simpan rencana"),if(plan.deferred) 1 else 0,2) { plan=plan.copy(deferred=it==1) }
+            var radiusField:EditText?=null
             var designField:EditText?=null
             var flyField:EditText?=null
             fun speedInput(title:String, value:Double, parent:LinearLayout): EditText {
@@ -124,6 +130,7 @@ internal object ConstructionPanel {
             }
             when(tool) {
                 BuildTool.RAIL -> {
+                    choices("Sambungan ujung",listOf(1 to "Sambung ke rel",0 to "Ujung bebas"),if(plan.connect) 1 else 0,2) { plan=plan.copy(connect=it==1) }
                     var levelControl: (Int,Boolean)->Unit = { _,_ -> }
                     var trackControl: (Int,Boolean)->Unit = { _,_ -> }
                     var roadOption:android.widget.CheckBox?=null
@@ -136,7 +143,7 @@ internal object ConstructionPanel {
                         levelControl(plan.level,next!=2)
                         trackControl(plan.tracks,next!=2)
                     }
-                    levelControl=choices("Elevasi",listOf(0 to "Permukaan",1 to "Viaduk +1",2 to "Viaduk +2",3 to "Viaduk +3",
+                    levelControl=choices("Elevasi",listOf(0 to "Permukaan",1 to "Jembatan +1",2 to "Viaduk +2",3 to "Viaduk +3",
                         -1 to "Terowongan −1",-2 to "Terowongan −2",-3 to "Terowongan −3"),plan.level, 2) { plan=plan.copy(level=it) }
                     trackControl=choices("Jumlah sepur",listOf(1 to "Tunggal",2 to "Ganda",4 to "Empat"),plan.tracks,3) { plan=plan.copy(tracks=it) }
                     levelControl(plan.level,plan.kind!=2)
@@ -146,6 +153,7 @@ internal object ConstructionPanel {
                         advanced.visibility=if(advanced.visibility==android.view.View.GONE) android.view.View.VISIBLE else android.view.View.GONE
                     })
                     body.addView(advanced)
+                    radiusField=speedInput("Radius lengkung (m, 0 = otomatis)",plan.radius,advanced)
                     designField=speedInput("Kecepatan desain (km/jam)",plan.speed,advanced)
                     flyField=speedInput("Kecepatan persilangan (km/jam)",plan.flySpeed,advanced)
                     fun toggle(text:String, checked:Boolean, change:(Boolean)->Unit): android.widget.CheckBox {
@@ -195,10 +203,12 @@ internal object ConstructionPanel {
                 if(tool==BuildTool.RAIL) {
                     val design=speed(requireNotNull(designField)) ?: return@button
                     val fly=speed(requireNotNull(flyField)) ?: return@button
-                    plan=plan.copy(speed=design,flySpeed=fly)
+                    val radius=radiusField?.text.toString().replace(',','.').toDoubleOrNull()
+                    if(radius==null || radius !in 0.0..100000.0) { radiusField?.let { (it.parent as android.view.View).visibility=android.view.View.VISIBLE; it.error="Masukkan radius 0–100.000 m."; it.requestFocus() }; return@button }
+                    plan=plan.copy(speed=design,flySpeed=fly,radius=radius)
                 }
                 val n=name?.text?.toString()?.trim().orEmpty()
-                if(name!=null && n.isEmpty()) { name.error="Isi nama terlebih dahulu."; name.requestFocus() }
+                if(name!=null && n.isEmpty() && tool!=BuildTool.STATION) { name.error="Isi nama terlebih dahulu."; name.requestFocus() }
                 else { dialog.dismiss(); selected(plan.copy(name=n)) }
             }
         }

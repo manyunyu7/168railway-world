@@ -114,7 +114,8 @@ impl World {
         {
             api.set_line_weekend_share(id, share as u32);
         }
-        let result = json!({"id":id, "line":id, "name":name, "stations":stops.len(), "cost":cash_before-api.cash()});
+        let mut result = json!({"id":id, "line":id, "name":name, "stations":stops.len(), "cost":cash_before-api.cash()});
+        result["path"] = json!(api.run_polyline(id, 0, 70.));
         if commit {
             next.book_service_edit(self, clock);
             next.roads_dir = self.roads_dir.clone();
@@ -209,6 +210,33 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Jabodetabek 2026 via WORLD_ROUTE_FIXTURE"]
+    fn distant_stations_can_use_a_headshunt_on_the_way() {
+        let bytes = std::fs::read(std::env::var("WORLD_ROUTE_FIXTURE").unwrap()).unwrap();
+        let mut world = World::open(&bytes).unwrap();
+        let find = |name: &str| {
+            world
+                .api
+                .nodes_info()
+                .chunks_exact(10)
+                .find(|r| r[7] > 0. && r[8] > 0. && world.api.node_name(r[0] as u32) == name)
+                .unwrap()[0] as i32
+        };
+        let stops = [find("Poris"), find("Tanah Abang")];
+        let preview = world
+            .line_on_existing_track(&stops, "Uji", 111600., -1, false)
+            .unwrap();
+        let created = world
+            .line_on_existing_track(&stops, "Uji", 111600., -1, true)
+            .unwrap();
+        assert_eq!(preview["path"], created["path"]);
+        assert!(preview["path"].as_array().unwrap().len() > 200);
+        let id = created["id"].as_u64().unwrap() as u32;
+        let net = &world.api.world().net;
+        assert!(!net.path_reversals(net.line_path(id)).is_empty());
+    }
+
+    #[test]
     fn preview_then_make_an_unscheduled_line_without_changing_infrastructure() {
         let mut world = World::workshop();
         let now = 111600.;
@@ -229,6 +257,15 @@ mod tests {
             .line_on_existing_track(&selected, "Sore", now, 0, false)
             .unwrap();
         assert_eq!(preview["cost"], 0.);
+        let path = preview["path"].as_array().unwrap();
+        assert!(
+            path.len() > 4,
+            "an unscheduled service still needs its track highlight"
+        );
+        assert!(
+            path[0].as_f64().unwrap() > path[path.len() - 2].as_f64().unwrap(),
+            "reverse selection follows the track back to the first station"
+        );
         assert_eq!(world.save(now).unwrap(), before);
         assert!(world
             .line_on_existing_track(&[stations[0], -1], "Gagal", now, 0, true)

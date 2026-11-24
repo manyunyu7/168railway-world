@@ -18,13 +18,20 @@ struct Target {
 
 /// Respect the layer and track family when extending rail. For stations the user taps
 /// the visible network and the platform inherits the selected piece's elevation.
-fn snap(api: &TrackApi, x: f64, y: f64, radius: f64, rail: Option<(i8, u8)>) -> Option<Target> {
+fn snap(
+    api: &TrackApi,
+    x: f64,
+    y: f64,
+    radius: f64,
+    rail: Option<(i8, u8)>,
+    include_plans: bool,
+) -> Option<Target> {
     let net = &api.world().net;
     let mut edge = None;
     let mut nearest = radius;
     for i in 0..net.edge_count() {
         let e = i as u32;
-        if !net.edge_ok(e) || !net.edge_built[i] || net.edge_crossover[i] {
+        if !net.edge_ok(e) || (!include_plans && !net.edge_built[i]) || net.edge_crossover[i] {
             continue;
         }
         if rail.is_some_and(|(_, kind)| (api.edge_kind(e) >= 2) != (kind >= 2)) {
@@ -101,11 +108,15 @@ fn finish(
 }
 
 #[derive(Clone, Copy)]
-struct TrackDesign {
+struct TrackDesign<'a> {
+    profile: &'a [f64],
     speed: f64,
     flyover_speed: f64,
     auto_ramp: bool,
     flying: bool,
+    radius: f64,
+    deferred: bool,
+    preview_only: bool,
 }
 
 impl World {
@@ -117,7 +128,7 @@ impl World {
         tracks: i32,
         clock: f64,
         commit: bool,
-        design: TrackDesign,
+        design: TrackDesign<'_>,
     ) -> Result<Value, String> {
         if !(4..=256).contains(&points.len())
             || points.len() % 2 != 0
@@ -126,6 +137,26 @@ impl World {
         {
             return Err("Pilih titik awal dan akhir rel di peta.".into());
         }
+        // Each tap retains its own elevation, corner radius and endpoint attachment choice.
+        if !design.profile.is_empty()
+            && (design.profile.len() != points.len() / 2 * 3
+                || design.profile.chunks_exact(3).any(|p| {
+                    !(-3.0..=3.0).contains(&p[0])
+                        || p[0].fract() != 0.
+                        || !(0.0..=100000.).contains(&p[1])
+                        || !matches!(p[2], 0. | 1.)
+                        || (kind == 2 && p[0] != 0.)
+                }))
+        {
+            return Err("Periksa elevasi, radius dan sambungan titik rel.".into());
+        }
+        let at = |i: usize| {
+            design
+                .profile
+                .get(3 * i..3 * i + 3)
+                .map(|v| (v[0] as i8, v[1], v[2] != 0.))
+                .unwrap_or((level as i8, design.radius, true))
+        };
         let follows_roads = matches!(kind, 2 | 10 | 11);
         let kind = match kind {
             10 => 0,
@@ -155,6 +186,7 @@ impl World {
             return Err("Kecepatan rancangan harus 20–320 km/jam.".into());
         }
         api.set_design_speed(design.speed);
+        api.set_route_tangent(true);
         api.set_flyover_speed(design.flyover_speed);
         api.set_route_ramp(kind < 2 && design.auto_ramp);
         let mut endpoints = [
@@ -204,23 +236,32 @@ impl World {
             if kind == 2 {
                 api.set_route_street(&street)
             }
-            api.set_route_tangent(true);
             fit.ok_or("Tikungan terlalu rapat untuk jenis rel ini. Pilih jalan lain.")?
         } else {
             points[2..points.len() - 2]
                 .chunks_exact(2)
-                .flat_map(|p| [p[0], p[1], 0., level as f64])
+                .enumerate()
+                .flat_map(|(i, p)| {
+                    let (z, r, _) = at(i + 1);
+                    [p[0], p[1], r, z as f64]
+                })
                 .collect()
         };
         let mut ends = Vec::with_capacity(10);
-        for p in endpoints.chunks_exact(2) {
-            let t = snap(api, p[0], p[1], 30., Some((level as i8, kind as u8))).unwrap_or(Target {
+        for (i, p) in endpoints.chunks_exact(2).enumerate() {
+            let (z, _, connect) = at(if i == 0 { 0 } else { points.len() / 2 - 1 });
+            let t = if connect {
+                snap(api, p[0], p[1], 30., Some((z, kind as u8)), design.deferred)
+            } else {
+                None
+            }
+            .unwrap_or(Target {
                 kind: 0,
                 id: 0,
                 x: p[0],
                 y: p[1],
             });
-            ends.extend_from_slice(&[t.kind as f64, t.id as f64, t.x, t.y, level as f64]);
+            ends.extend_from_slice(&[t.kind as f64, t.id as f64, t.x, t.y, z as f64]);
         }
         let flying = kind < 2 && design.flying;
         let preview = api.preview_route(&ends, &corners, tracks as u8, flying);
@@ -230,6 +271,39 @@ impl World {
             .chunks_exact(3)
             .flat_map(|p| [p[0], p[1]])
             .collect::<Vec<_>>();
+        let curve = preview
+            .get(5..5 + 4 * preview[3] as usize)
+            .unwrap_or_default()
+            .chunks_exact(4)
+            .filter(|v| v[2] > 0.)
+            .min_by(|a, b| a[2].total_cmp(&b[2]));
+        if design.preview_only {
+            let vertices = &preview[5..5 + 4 * preview[3] as usize];
+            let tags: Vec<_> = vertices.chunks_exact(4).filter(|v| v[2] > 0.).collect();
+            let tips: Vec<_> = ends
+                .chunks_exact(5)
+                .map(|e| json!([e[2], e[3], e[0]]))
+                .collect();
+            let heights = &preview[5 + 4 * preview[3] as usize..];
+            let mut max_grade: f64 = 0.;
+            let mut grade_mark = None;
+            for segment in heights.windows(6).step_by(3) {
+                let run = (segment[3] - segment[0]).hypot(segment[4] - segment[1]);
+                if run > 0.01 {
+                    let grade = (segment[5] - segment[2]) / run * 100.;
+                    if grade.abs() > max_grade {
+                        max_grade = grade.abs();
+                        grade_mark = Some([segment[3], segment[4], grade]);
+                    }
+                }
+            }
+            let issue =
+                (preview[0] == 0.).then(|| format!("Rancangan rel ditolak: {}", api.issue_kinds()));
+            return Ok(
+                json!({"path":path,"marks":api.preview_marks(),"issue":issue,"length":preview[2],"cost":preview[1],
+                "tags":tags,"tips":tips,"arc":api.route_arc(),"ramp":grade_mark,"grade":max_grade,"radius":curve.map(|v|v[2]),"speed":curve.map(|v|v[3])}),
+            );
+        }
         if api.add_route(&ends, &corners, tracks as u8, flying) != 0 {
             return Err(format!("Rancangan rel ditolak: {}", api.issue_kinds()));
         }
@@ -242,13 +316,16 @@ impl World {
                 n.edge_ok(e) && !n.edge_built[e as usize]
             })
             .collect();
-        if edges.is_empty() || api.construct(&edges, &[]) != 0 {
+        if edges.is_empty() || (!design.deferred && api.construct(&edges, &[]) != 0) {
             return Err(format!("Rel gagal dibangun: {}", api.issue_kinds()));
         }
         let length = edges
             .iter()
             .map(|&e| api.world().net.edge_len[e as usize])
             .sum::<f64>();
+        if let [.., x, y] = path.as_slice() {
+            next.header["androidTrackEnd"] = json!([x, y, level, kind, tracks]);
+        }
         Ok(finish(
             self,
             next,
@@ -267,6 +344,7 @@ impl World {
         length: i32,
         clock: f64,
         commit: bool,
+        deferred: bool,
     ) -> Result<Value, String> {
         let name = name.trim();
         if !is_point(x, y)
@@ -286,7 +364,7 @@ impl World {
             .ok_or("Salinan dunia belum tersedia.")?;
         let api = &mut next.api;
         api.set_now(clock);
-        let t = snap(api, x, y, radius, None)
+        let t = snap(api, x, y, radius, None, deferred)
             .ok_or("Tidak ada rel di titik ini. Ketuk lebih dekat ke rel.")?;
         let old = api.world().net.node_platform.clone();
         if api.add_station(t.kind, t.id, t.x, t.y, length as u16, name.into()) != 0 {
@@ -301,7 +379,7 @@ impl World {
             })
             .ok_or("Peron baru tidak ditemukan.")?;
         let info = json!({"node":node,"x":n.node_x[node],"y":n.node_y[node]});
-        if api.construct(&[], &[node as u32]) != 0 {
+        if !deferred && api.construct(&[], &[node as u32]) != 0 {
             return Err(format!("Stasiun gagal dibangun: {}", api.issue_kinds()));
         }
         Ok(finish(self, next, clock, commit, info))
@@ -332,6 +410,10 @@ pub extern "system" fn Java_world_nativegame_NativeConstruction_rail(
     flyover_speed: jdouble,
     auto_ramp: jboolean,
     flying: jboolean,
+    radius: jdouble,
+    deferred: jboolean,
+    preview_only: jboolean,
+    profile: JDoubleArray,
 ) -> jstring {
     let result = (|| {
         let world = unsafe { (h as *mut World).as_mut() }.ok_or("Dunia belum siap.")?;
@@ -344,6 +426,15 @@ pub extern "system" fn Java_world_nativegame_NativeConstruction_rail(
         let mut values = vec![0.; count as usize];
         env.get_double_array_region(&points, 0, &mut values)
             .map_err(|_| "Titik rel belum tersedia.")?;
+        let n = env
+            .get_array_length(&profile)
+            .map_err(|_| "Profil rel tidak valid.")?;
+        if n != count / 2 * 3 {
+            return Err("Profil titik rel tidak lengkap.".into());
+        }
+        let mut profile_values = vec![0.; n as usize];
+        env.get_double_array_region(&profile, 0, &mut profile_values)
+            .map_err(|_| "Profil titik rel belum tersedia.")?;
         world.lay_track(
             &values,
             level,
@@ -352,10 +443,14 @@ pub extern "system" fn Java_world_nativegame_NativeConstruction_rail(
             clock,
             commit != 0,
             TrackDesign {
+                profile: &profile_values,
                 speed,
                 flyover_speed,
                 auto_ramp: auto_ramp != 0,
                 flying: flying != 0,
+                radius,
+                deferred: deferred != 0,
+                preview_only: preview_only != 0,
             },
         )
     })();
@@ -373,6 +468,7 @@ pub extern "system" fn Java_world_nativegame_NativeConstruction_station(
     length: jint,
     clock: jdouble,
     commit: jboolean,
+    deferred: jboolean,
 ) -> jstring {
     let result = (|| {
         let world = unsafe { (h as *mut World).as_mut() }.ok_or("Dunia belum siap.")?;
@@ -380,19 +476,91 @@ pub extern "system" fn Java_world_nativegame_NativeConstruction_station(
             .get_string(&name)
             .map_err(|_| "Nama belum tersedia.")?
             .into();
-        world.place_platform(x, y, radius, &name, length, clock, commit != 0)
+        world.place_platform(
+            x,
+            y,
+            radius,
+            &name,
+            length,
+            clock,
+            commit != 0,
+            deferred != 0,
+        )
     })();
     response(env, result)
 }
 
+impl World {
+    fn build_rail_plans(&mut self, clock: f64, commit: bool) -> Result<Value, String> {
+        let clock = self.native_clock(clock);
+        let mut next = self.edit_candidate(clock).ok_or("Dunia belum siap.")?;
+        let n = &next.api.world().net;
+        let edges: Vec<_> = (0..n.edge_count() as u32)
+            .filter(|&e| n.edge_ok(e) && !n.edge_built[e as usize] && !n.edge_off[e as usize])
+            .collect();
+        let stations: Vec<_> = (0..n.node_count() as u32)
+            .filter(|&s| {
+                n.node_ok(s)
+                    && n.is_station(s)
+                    && !n.node_built[s as usize]
+                    && !n.node_off[s as usize]
+            })
+            .collect();
+        let quote = next.api.construct_cost(&edges, &stations, &[]);
+        let summary = json!({"edges":edges.len(),"stations":stations.len(),"cost":quote});
+        if !commit {
+            return Ok(summary);
+        }
+        if next.api.construct(&edges, &stations) != 0 {
+            return Err(format!(
+                "Rencana gagal dibangun: {}",
+                next.api.issue_kinds()
+            ));
+        }
+        Ok(finish(self, next, clock, true, summary))
+    }
+}
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_NativeConstruction_buildPlans(
+    env: JNIEnv,
+    _: JClass,
+    h: jlong,
+    clock: jdouble,
+    commit: jboolean,
+) -> jstring {
+    let result = unsafe { (h as *mut World).as_mut() }
+        .ok_or_else(|| "Dunia belum siap.".to_string())
+        .and_then(|w| w.build_rail_plans(clock, commit != 0));
+    response(env, result)
+}
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_NativeConstruction_platformPoint(
+    env: JNIEnv,
+    _: JClass,
+    h: jlong,
+    x: jdouble,
+    y: jdouble,
+    radius: jdouble,
+    plans: jboolean,
+) -> jstring {
+    let result = unsafe { (h as *const World).as_ref() }
+        .and_then(|w| snap(&w.api, x, y, radius, None, plans != 0))
+        .map(|t| json!({"x":t.x,"y":t.y}))
+        .ok_or_else(|| "Ketuk lebih dekat ke rel.".to_string());
+    response(env, result)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
-    const DESIGN: TrackDesign = TrackDesign {
+    const DESIGN: TrackDesign<'static> = TrackDesign {
+        profile: &[],
         speed: 160.,
         flyover_speed: 80.,
         auto_ramp: true,
         flying: false,
+        radius: 0.,
+        deferred: false,
+        preview_only: false,
     };
     #[test]
     fn viaduct_then_station_preserves_stage_and_quotes() {
@@ -414,11 +582,11 @@ mod tests {
         let saved = w.save(clock).unwrap();
         let mut w = World::open(&saved).unwrap();
         let quote = w
-            .place_platform(2500., 13., 65., "Stasiun Viaduk", 160, clock, false)
+            .place_platform(2500., 13., 65., "Stasiun Viaduk", 160, clock, false, false)
             .unwrap();
         assert_eq!(saved, w.save(clock).unwrap());
         let placed = w
-            .place_platform(2500., 13., 65., "Stasiun Viaduk", 160, clock, true)
+            .place_platform(2500., 13., 65., "Stasiun Viaduk", 160, clock, true, false)
             .unwrap();
         assert_eq!(quote, placed);
         let mut w = World::open(&w.save(clock).unwrap()).unwrap();
@@ -429,9 +597,100 @@ mod tests {
         assert!(w.api.lines_info().is_empty());
         let saved = w.save(clock).unwrap();
         assert!(w
-            .place_platform(0., 3000., 100., "Jauh", 160, clock, true)
+            .place_platform(0., 3000., 100., "Jauh", 160, clock, true, false)
             .is_err());
         assert_eq!(saved, w.save(clock).unwrap());
+    }
+    #[test]
+    fn curved_plan_survives_reopen_and_is_charged_only_when_built() {
+        let mut w = World::workshop();
+        let clock = 111600.;
+        let cash = w.api.cash();
+        let design = TrackDesign {
+            deferred: true,
+            radius: 800.,
+            ..DESIGN
+        };
+        let points = [0., 0., 4000., 0., 8000., 2000.];
+        let preview = w
+            .lay_track(
+                &points,
+                1,
+                0,
+                2,
+                clock,
+                false,
+                TrackDesign {
+                    preview_only: true,
+                    ..design
+                },
+            )
+            .unwrap();
+        assert!(preview["radius"].as_f64().unwrap() > 0.);
+        assert!(w.api.edges_info().is_empty());
+        let planned = w.lay_track(&points, 1, 0, 2, clock, true, design).unwrap();
+        assert_eq!(planned["path"], preview["path"]);
+        w.place_platform(2000., 8., 30., "Pusat", 160, clock, true, true)
+            .unwrap();
+        let mut reopened = World::open(&w.save(clock).unwrap()).unwrap();
+        assert_eq!(cash, reopened.api.cash());
+        let quote = reopened.build_rail_plans(clock, false).unwrap();
+        assert_eq!(quote["stations"], 1);
+        assert!(quote["cost"].as_f64().unwrap() > 0.);
+        let built = reopened.build_rail_plans(clock, true).unwrap();
+        assert_eq!(
+            reopened
+                .api
+                .edges_info()
+                .chunks_exact(10)
+                .filter(|e| e[4] == 0.)
+                .count(),
+            0
+        );
+        assert!((built["cost"].as_f64().unwrap() - quote["cost"].as_f64().unwrap()).abs() < 1e-6);
+        assert!(reopened.build_rail_plans(clock, true).is_err());
+    }
+    #[test]
+    fn per_point_levels_build_a_ramp_and_preserve_endpoint_choice() {
+        let mut world = World::workshop();
+        let time = 111600.;
+        let baseline = [0., 0., 5000., 0.];
+        world
+            .lay_track(&baseline, 0, 0, 2, time, true, DESIGN)
+            .unwrap();
+        for connect in [false, true] {
+            let mut copy = World::open(&world.save(time).unwrap()).unwrap();
+            let profile = [0., 0., if connect { 1. } else { 0. }, 1., 0., 0.];
+            let design = TrackDesign {
+                profile: &profile,
+                ..DESIGN
+            };
+            let points = [5000., 8., 10000., 1000.];
+            let preview = copy
+                .lay_track(
+                    &points,
+                    1,
+                    0,
+                    2,
+                    time,
+                    false,
+                    TrackDesign {
+                        preview_only: true,
+                        ..design
+                    },
+                )
+                .unwrap();
+            assert!(preview["grade"].as_f64().unwrap() > 0.);
+            copy.lay_track(&points, 1, 0, 2, time, true, design)
+                .unwrap();
+            let joints = copy
+                .api
+                .nodes_info()
+                .chunks_exact(10)
+                .filter(|r| r[4] > 1.)
+                .count();
+            assert_eq!(joints > 0, connect);
+        }
     }
     #[test]
     fn separate_blueprints_and_refused_charge_leave_the_rest_intact() {

@@ -434,14 +434,15 @@ impl World {
         }
         // Infrastructure belongs to the map even before a passenger service uses it.
         let tracks: Vec<_> = self.api.edges_info().chunks_exact(10)
-            .filter(|row| row[4] == 1.0)
-            .map(|row| {
+             .map(|row| {
                 let id = row[0] as u32;
                 let points: Vec<i32> = self.api.edge_polyline(id, 0.0).into_iter()
                     .map(|coordinate| coordinate.round() as i32).collect();
                 json!({"id":id,"points": points, "kind": self.api.edge_kind(id),
-                       "level": row[8] as i32, "topLevel": row[9] as i32, "length":row[5], "speed":row[7], "tracks": row[3] as u8})
+                       "level": row[8] as i32, "built":row[4] == 1.0, "topLevel": row[9] as i32, "length":row[5], "speed":row[7], "tracks": row[3] as u8})
             }).collect();
+        let planned_stations:Vec<_> = self.api.nodes_info().chunks_exact(10)
+            .filter(|r|r[7] > 0. && r[8] == 0.).map(|r|json!([r[1],r[2],self.api.node_name(r[0] as u32)])).collect();
         let edge_use = station_map::edge_use(&self.api, &lines);
         let mut stops = Vec::new();
         for (packed,row) in self
@@ -484,7 +485,7 @@ impl World {
             .from_lonlat(b[2].as_f64().unwrap(), b[3].as_f64().unwrap());
         let origin = self.api.frame_origin();
         let home = self.api.from_lonlat(origin[0], origin[1]);
-        json!({"mercatorPerFrame":if self.api.frame_kind() == 2 { 1. } else {1. / origin[1].to_radians().cos().max(0.01)},"cash":self.api.cash(),"requiresStudioClock":self.requires_studio_clock(),"homePoint":home,"waterBox":[sw[0],sw[1],ne[0],ne[1]],"routes":routes,"tracks":tracks,"stations":stops,"clock":self.header["clock"],"city":self.header["city"]})
+        json!({"mercatorPerFrame":if self.api.frame_kind() == 2 { 1. } else {1. / origin[1].to_radians().cos().max(0.01)},"cash":self.api.cash(),"requiresStudioClock":self.requires_studio_clock(),"homePoint":home,"waterBox":[sw[0],sw[1],ne[0],ne[1]],"lastTrackEnd":self.header["androidTrackEnd"],"plannedStations":planned_stations,"routes":routes,"tracks":tracks,"stations":stops,"clock":self.header["clock"],"city":self.header["city"]})
     }
     fn load_trip_hour(&mut self, time: f64) -> f64 {
         let hour = (time / 3600.).floor() as i64;
