@@ -16,6 +16,8 @@ internal object ServicePanel {
     @JvmStatic private external fun update(handle: Long, id: Int, now: Double, params: String): String
 
     /** Line colour from the archive (0xRRGGBB); falls back to the Studio purple. */
+    /** What the last edit from a line's panel changed, for its undo entry. */
+    var editLabel = "Jadwal layanan"
     fun color(service: JSONObject?): Int {
         val raw = service?.optDouble("color", Double.NaN) ?: Double.NaN
         return if (raw.isFinite() && raw > 0) (raw.toLong().toInt() and 0xffffff) or 0xff000000.toInt() else StudioUi.BLUE
@@ -261,6 +263,11 @@ internal object ServicePanel {
             } else {
                 column.addView(StudioUi.text(host,"Belum ada pemberhentian pada rute ini.",15f,true,StudioUi.MUTED), lp(12, host))
             }
+            // web LineFare: the line's own fare multiple, above its money
+            column.addView(LineFare.row(host, handle, id, editable, transaction) {
+                editLabel = "Kelipatan tarif"
+                changed(service.getString("name"))
+            }, lp(14, host))
             // web LineMoney: the line's last 30 whole days of fares and running cost
             FinanceHistory.lineMoney(host, service.optJSONArray("lineDays"), service.optInt("today"), StudioCurrency.current(host))?.let {
                 column.addView(it, lp(14, host))
@@ -283,7 +290,7 @@ internal object ServicePanel {
     private fun edit(host: Activity, handle: Long, id: Int, clock: Double, service: JSONObject, transaction: PanelEdit, changed: (String) -> Unit) {
         ScheduleEditor(host, service,
             showTimetable = { StudioTimetable.show(host, handle, id, clock, service, null) },
-            applySchedule = { values, reply -> transaction { now -> reply(JSONObject(update(handle, id, now, values.toString()))) } },
+            applySchedule = { values, reply -> transaction { now -> editLabel = "Jadwal layanan"; reply(JSONObject(update(handle, id, now, values.toString()))) } },
             onApplied = { updated ->
                 changed(updated.getString("name"))
                 details(host, handle, id, clock, true, transaction, changed)

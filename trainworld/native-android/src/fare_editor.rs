@@ -9,6 +9,10 @@ use jni::{
 };
 use serde_json::{json, Value};
 
+/// The fares a header without any starts from when one is first set.
+pub(super) fn fresh() -> Value {
+    json!({"base":0.0862,"perKm":0.006895,"nodes":[[0,0.0862],[20,0.2241],[100,0.7757]],"baseline":"IN","basis":"usd","scales":{}})
+}
 fn update(raw: &Value, patch: &Value) -> Result<Value, String> {
     let fields = patch.as_object().ok_or("Format tarif salah.")?;
     if fields.is_empty() {
@@ -26,7 +30,7 @@ fn update(raw: &Value, patch: &Value) -> Result<Value, String> {
     }
     let mut next = raw.clone();
     if next.is_null() {
-        next = json!({"base":0.0862,"perKm":0.006895,"nodes":[[0,0.0862],[20,0.2241],[100,0.7757]],"baseline":"IN","basis":"usd","scales":{}})
+        next = fresh()
     }
     if fields.contains_key("base") || fields.contains_key("perKm") {
         let old = Fares::read(raw, "ID");

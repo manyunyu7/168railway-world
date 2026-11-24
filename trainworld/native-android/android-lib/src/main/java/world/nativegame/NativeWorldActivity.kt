@@ -700,12 +700,12 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openServiceDetails(id: Int) {
-        ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange("Jadwal layanan"); lastStatus = -1; troubleKey = ""; refresh() }
+        ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange(ServicePanel.editLabel); lastStatus = -1; troubleKey = ""; refresh() }
     }
 
     private fun openServices() {
         ServicePanel.open(this, handle, clock, true, ::editPanel) { name ->
-            recordPanelChange("Jadwal layanan")
+            recordPanelChange(ServicePanel.editLabel)
             lastService = name
             lastStatus = -1
             refresh()
