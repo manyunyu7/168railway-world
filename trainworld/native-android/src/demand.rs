@@ -739,6 +739,73 @@ mod tests {
     /// cells and totals in the first eight counts, and the seven purposes never above them (the
     /// longer trips make the rest). WORLD_CITY_DATA holds `<city>.json/.bin/.market.json` and
     /// `market-drives.bin`; WORLD_MARKET_INDEX the regional index; WORLD_SAVE a network save.
+    /// The Traffic view's riders per map filter purpose (`purpose_spans`) against every purpose's
+    /// (`spans`, unchanged): one row of seven a span, none negative, together never above the
+    /// span's riders (the longer trips make the rest), on rail and bus lines both. Inputs as in
+    /// `purpose_cells`, the boundaries in WORLD_CITY_DATA too.
+    #[test]
+    #[ignore = "requires the pinned city pack and an original network save"]
+    fn purpose_traffic() {
+        let dir = std::env::var("WORLD_CITY_DATA").unwrap();
+        let id = std::env::var("WORLD_CITY").unwrap();
+        let save = std::fs::read(std::env::var("WORLD_SAVE").unwrap()).unwrap();
+        let spec = json!({
+            "local": [[format!("{dir}/{id}.json"), format!("{dir}/{id}.bin")]],
+            "markets": [format!("{dir}/{id}.market.json")],
+            "index": std::env::var("WORLD_MARKET_INDEX").unwrap(),
+            "drives": format!("{dir}/market-drives.bin"),
+            "boundaries": dir,
+        });
+        let files: DemandFiles = serde_json::from_value(spec).unwrap();
+        let mut world = World::open(&save).unwrap();
+        let forecast = files.read().unwrap().forecast(&save, &mut world).unwrap();
+        crate::operating::Costs::with_prices(&mut world.api, &forecast.run_prices());
+        let layers = serde_json::to_value(crate::network_layers::build(
+            &world.api,
+            &forecast.map_lines(),
+        ))
+        .unwrap();
+        let col = |k: &str| -> Vec<f64> {
+            layers[k]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_f64().unwrap())
+                .collect()
+        };
+        let (spans, parts) = (col("spans"), col("purpose_spans"));
+        let np = crate::trip_cells::PURPOSES.len();
+        assert!(!spans.is_empty());
+        assert_eq!(spans.len() / 5 * np, parts.len());
+        let (mut all, mut filtered, mut bus) = (0., vec![0.; np], 0.);
+        for (s, p) in spans.chunks_exact(5).zip(parts.chunks_exact(np)) {
+            assert!(p.iter().all(|v| *v >= 0.), "negative riders {p:?}");
+            let sum: f64 = p.iter().sum();
+            assert!(
+                sum <= s[3] * 1.0001 + 0.01,
+                "purposes {sum} above the span's {}",
+                s[3]
+            );
+            all += s[3];
+            for (f, v) in filtered.iter_mut().zip(p) {
+                *f += v;
+            }
+            if world.api.is_bus(s[0] as u32) {
+                bus += sum;
+            }
+        }
+        let shares: Vec<_> = crate::trip_cells::PURPOSES
+            .iter()
+            .zip(&filtered)
+            .map(|((n, _), v)| format!("{n} {:.1}%", 100. * v / all))
+            .collect();
+        eprintln!(
+            "spans {}, riders-km rows {all:.0}, bus by purpose {bus:.0}: {}",
+            spans.len() / 5,
+            shares.join(", ")
+        );
+        assert!(filtered[0] > 0., "no work riders");
+    }
     #[test]
     #[ignore = "requires the pinned city pack and an original network save"]
     fn purpose_cells() {

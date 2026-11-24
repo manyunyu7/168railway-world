@@ -6,6 +6,8 @@ pub(super) struct Traffic {
     pub incoming: Vec<f64>,
     pub rate_scales: Vec<f64>,
     pub segments: Vec<f64>,
+    /// `segments` per map filter purpose (`trip_cells::PURPOSES`), empty when not worked out
+    pub purposes: Vec<Vec<f64>>,
     pub fares: f64,
 }
 #[derive(Default, serde::Serialize)]
@@ -14,6 +16,10 @@ pub(super) struct Layers {
     rail: Vec<f64>,
     edges: Vec<f64>,
     spans: Vec<f64>,
+    /// per `spans` row, its riders a day under each map filter purpose (`trip_cells::PURPOSES`
+    /// order): the Traffic widths under the purpose filter, bus and ferry lines too (web
+    /// demandLayers.ts `stretchDay`); the money stays every purpose's
+    purpose_spans: Vec<f64>,
     road: Vec<f64>,
 }
 type Pieces = Vec<Vec<(usize, f64)>>;
@@ -201,6 +207,10 @@ pub(super) fn build(api: &TrackApi, traffic: &BTreeMap<u32, Traffic>) -> Layers 
             }
             out.spans
                 .extend([id.into(), x / total, y / total, rides, -1.]);
+            for p in 0..crate::trip_cells::PURPOSES.len() {
+                let seg = t.purposes.get(p).filter(|v| v.len() == t.segments.len());
+                out.purpose_spans.push(seg.map_or(0., |v| v[k] + v[n + j]));
+            }
         }
         if road {
             road_money.insert(id, road_rows);

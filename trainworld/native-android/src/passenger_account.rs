@@ -41,6 +41,9 @@ struct Period {
 struct Line {
     days: [[Period; 5]; 7],
     segments: Vec<f64>,
+    /// `segments` of each map filter purpose (`trip_cells::PURPOSES` order): the Traffic view's
+    /// widths under the purpose filter (web `lineLoadsFor`, `purposeDemand`)
+    purpose_segments: Vec<Vec<f64>>,
     incoming: Vec<f64>,
     zones: Vec<&'static str>,
     scales: Vec<[f64; 2]>,
@@ -292,6 +295,28 @@ impl Forecast {
                         line.segments[j - offset] += f64::from(loads[j]);
                         line.incoming[j - offset] += incoming[j];
                     }
+                    // each filter purpose's riders, its model purposes' parts times their factors
+                    // (school counts university, T-192); the longer trips have no filter
+                    line.purpose_segments
+                        .resize(crate::trip_cells::PURPOSES.len(), vec![]);
+                    for (out, (_, kinds)) in line
+                        .purpose_segments
+                        .iter_mut()
+                        .zip(crate::trip_cells::PURPOSES)
+                    {
+                        out.resize(end - offset, 0.);
+                        let members: Vec<usize> = if kinds.is_empty() {
+                            vec![WORK]
+                        } else {
+                            kinds.iter().map(|&k| days::everyday(k as usize)).collect()
+                        };
+                        for &p in &members {
+                            let f = f64::from(days::load_factor(d, p, q));
+                            for j in offset..end {
+                                out[j - offset] += f64::from(parts[p][j]) * f;
+                            }
+                        }
+                    }
                 }
                 let period = &mut line.days[d][q];
                 period.board.extend_from_slice(&loads[n + offset..n + end]);
@@ -420,6 +445,7 @@ impl Forecast {
                     board,
                     rate_scales: l.scales.iter().map(|s| s[1]).collect(),
                     segments: l.segments.clone(),
+                    purposes: l.purpose_segments.clone(),
                     incoming: l.incoming.clone(),
                     fares: (ps.iter().map(|p| p.paid_km).sum::<f64>() * l.rate_multiple * l.rate
                         + ps.iter().map(|p| p.extra).sum::<f64>())

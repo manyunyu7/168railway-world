@@ -68,11 +68,14 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         return hit[2].toInt() to hit[2] / top
     }
     private val edgeProfit = mutableMapOf<Int,Float>()
-    private data class Span(val path: Path, val riders: Float, val profit: Float, val color: Int)
+    /** `purposes`: the span's riders under each filter purpose after "every purpose" (Rust `purpose_spans`). */
+    private class Span(val path: Path, val riders: Float, val profit: Float, val color: Int, val purposes: FloatArray)
     private val spans = mutableListOf<Span>()
     private val bySpeed = mutableMapOf<Int,Path>()
     private val byHeight = mutableMapOf<Int,Path>()
-    private var busiest = 0f
+    /** The busiest span's riders under each `PURPOSES` entry: Traffic widths are against the purpose shown (web `busiestDay`). */
+    private val busiest = FloatArray(PURPOSES.size)
+    private fun purposeIndex() = PURPOSES.indexOfFirst { it.first == purpose }.coerceAtLeast(0)
     private val routes = mutableMapOf<Int,Pair<Int,PathMeasure>>()
     fun route(id: Int, color: Int, path: Path) { routes[id] = color to PathMeasure(path,false) }
 
@@ -96,7 +99,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         error = null
         cells.clear(); stations.clear(); edgeProfit.clear(); spans.clear(); routes.clear(); loaded.clear(); discs.clear()
         bySpeed.clear(); byHeight.clear()
-        busiest = 0f
+        busiest.fill(0f)
         gridKey = ""
     }
     fun startNeeded() {
@@ -143,8 +146,8 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         nativeTask = executor.submit {
             val result = runCatching {
                 val data = org.json.JSONObject(NativeRidership.networkLayers(bytes,inputs(bytes)))
-                mapOf("stops" to 4, "edges" to 2, "spans" to 5, "rail" to 6, "road" to 4).mapValues { (name,stride) ->
-                    val packed = data.getJSONArray(name)
+                mapOf("stops" to 4, "edges" to 2, "spans" to 5, "rail" to 6, "road" to 4, "purpose_spans" to PURPOSES.size - 1).mapValues { (name,stride) ->
+                    val packed = data.optJSONArray(name) ?: org.json.JSONArray()
                     require(packed.length() % stride == 0)
                     List(packed.length()/stride) { i -> FloatArray(stride) { j -> packed.getDouble(i*stride+j).toFloat() } }
                 }
@@ -154,13 +157,17 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 val pending = result.getOrElse { failure(it.localizedMessage ?: "Lapisan jaringan belum tersedia."); return@post }
                 stations.addAll(pending["stops"].orEmpty())
                 for (edge in pending["edges"].orEmpty()) edgeProfit[edge[0].toInt()] = edge[1]
-                for (s in pending["spans"].orEmpty()) {
+                // one row of purpose riders a span, in the spans' order (rail, bus and ferry alike)
+                val byPurpose = pending["purpose_spans"].orEmpty()
+                for ((i, s) in pending["spans"].orEmpty().withIndex()) {
                     val route = routes[s[0].toInt()] ?: continue
                     val measure = route.second
                     val path = Path()
                     if (measure.getSegment(s[1]*measure.length,s[2]*measure.length,path,true)) {
-                        spans.add(Span(path,s[3],s[4],route.first))
-                        busiest = max(busiest,s[3])
+                        val purposes = byPurpose.getOrNull(i) ?: FloatArray(PURPOSES.size - 1)
+                        spans.add(Span(path,s[3],s[4],route.first,purposes))
+                        busiest[0] = max(busiest[0],s[3])
+                        for (p in purposes.indices) busiest[p+1] = max(busiest[p+1],purposes[p])
                     }
                 }
                 fun line(paths:MutableMap<Int,Path>,color:Int,row:FloatArray) {
@@ -222,9 +229,13 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             }
             return
         }
+        val shown = purposeIndex()
         for(s in spans) {
             if(track == "traffic") {
-                paint.strokeWidth=width*(.5f + 4.2f*(if(busiest>0) s.riders/busiest else 0f))
+                // the purpose filter's riders against its busiest span; train loads and money stay every purpose's
+                val riders = if (shown == 0) s.riders else s.purposes.getOrElse(shown-1) { 0f }
+                val top = busiest[shown]
+                paint.strokeWidth=width*(.5f + 4.2f*(if(top>0) riders/top else 0f))
                 paint.color=s.color
             } else if(track == "profit" && s.profit >= 0) {
                 paint.strokeWidth=width
@@ -335,7 +346,8 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         if(selection[0]!="none") parts.add(if(cells.isEmpty()) "Belum ada perjalanan" else when(selection[0]){"work"->"Destinasi";"home"->"Rumah";else->"Rumah + destinasi"} +
             if(purpose!="all") " · "+purposeName() else "")
         if(selection[1]!="none") parts.add(if(stations.none { if(selection[1]=="transfers") it[3]>0 else if(selection[1]=="origins") it[2]>it[3] else it[2]>0 }) "Belum ada penumpang" else when(selection[1]){"transfers"->"Penumpang pindah";"origins"->"Asal penumpang";else->"Total penumpang"})
-        if(track!="line") parts.add(when(track){"height"->"Ketinggian";"speed"->"Kecepatan";"profit"->"Laba";else->"Lalu lintas"})
+        if(track!="line") parts.add(when(track){"height"->"Ketinggian";"speed"->"Kecepatan";"profit"->"Laba";else->"Lalu lintas" +
+            if(purpose!="all" && selection[0]=="none") " · "+purposeName() else ""})
         return parts.joinToString(" · ")
     }
 }

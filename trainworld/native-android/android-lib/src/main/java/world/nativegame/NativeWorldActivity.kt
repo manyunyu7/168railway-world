@@ -2020,7 +2020,8 @@ class NativeWorldActivity : Activity() {
         if (lens == Lens.NORMAL || drawing) { lensLegend.visibility = View.GONE; return }
         lensLegend.visibility = View.VISIBLE
         val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val purpose = if (map.overlay.selection[0] != "none" && map.overlay.purpose != "all") " · " + map.overlay.purposeName() else ""
+        val filtered = map.overlay.selection[0] != "none" || map.overlay.track == "traffic"
+        val purpose = if (filtered && map.overlay.purpose != "all") " · " + map.overlay.purposeName() else ""
         text.addView(StudioUi.text(this, (lens?.label ?: "Lensa campuran") + purpose, 15f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) })
         if (lens != null) {
             text.addView(LinearLayout(this).apply {
@@ -2040,8 +2041,9 @@ class NativeWorldActivity : Activity() {
         }, LinearLayout.LayoutParams(dp(36), dp(36)))
     }
 
-    /** The web's purpose filter (`PurposeSelect`): every purpose or one, for the trip bubbles. A pick
-     * with no bubbles shown turns on Total perjalanan, so it is never a choice without effect. */
+    /** The web's purpose filter (`PurposeSelect`): every purpose or one, for the trip bubbles and the
+     * Traffic widths (station circles stay every purpose's, as on the web). A pick with neither shown
+     * turns on Total perjalanan, so it is never a choice without effect. */
     private fun purposeChips(done: () -> Unit) = WrapRow(this).apply {
         StudioPassengerOverlay.PURPOSES.forEach { (key, label, colour) ->
             val selected = map.overlay.purpose == key
@@ -2056,7 +2058,8 @@ class NativeWorldActivity : Activity() {
                 setOnClickListener {
                     done()
                     map.overlay.choosePurpose(key)
-                    if (map.overlay.selection[0] == "none") applyLens(Lens.TRIPS) else updateLensLegend()
+                    // the filter narrows the trip bubbles and the Traffic widths (web demandLayers.ts)
+                    if (map.overlay.selection[0] == "none" && map.overlay.track != "traffic") applyLens(Lens.TRIPS) else updateLensLegend()
                     map.announceForAccessibility("Tujuan perjalanan · $label")
                 }
             })
