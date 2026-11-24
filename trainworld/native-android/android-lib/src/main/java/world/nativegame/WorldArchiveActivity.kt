@@ -21,7 +21,13 @@ class WorldArchiveActivity : Activity() {
     private lateinit var menu: LinearLayout
     private lateinit var feedback: TextView
     private var busy=false
+    /** The world whose file is being written (web `exportSlot`), kept across a recreate while the picker is open. */
+    private var exporting: String? = null
+    override fun onSaveInstanceState(out: Bundle) { super.onSaveInstanceState(out); out.putString("exporting", exporting) }
+    /** A file name from a world's name: "Jakarta 2026.save". */
+    private fun fileName(title: String) = title.replace(Regex("[\\\\/:*?\"<>|]"), " ").trim().ifEmpty { "dunia" }.take(80) + ".save"
     override fun onCreate(state: Bundle?) {
+        exporting = state?.getString("exporting")
         super.onCreate(state)
         val d=resources.displayMetrics.density
         menu=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding((18*d).toInt(),(14*d).toInt(),(18*d).toInt(),(28*d).toInt()) }
@@ -110,10 +116,16 @@ class WorldArchiveActivity : Activity() {
         }
         item(StudioUi.Icon.ROUTE,StudioUi.TINT_GREEN,"Ekspor dunia aktif","Simpan sebagai berkas .save",source()?.isFile==true) {
             startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,"${intent.getStringExtra("city") ?: "dunia"}.save"),2)
+                .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,
+                    WorldDocuments.list(this).firstOrNull { WorldDocuments.path(this,it.id).canonicalPath == source()?.canonicalPath }?.let { fileName(it.title) }
+                        ?: "${intent.getStringExtra("city") ?: "dunia"}.save"),2)
         }
         val slots=WorldDocuments.list(this)
-        if (slots.isNotEmpty()) menu.addView(StudioUi.section(this,"Dunia di HP"))
+        menu.addView(StudioUi.section(this,"Dunia di HP"))
+        // an empty list says so, rather than the section going missing
+        if (slots.isEmpty()) menu.addView(StudioUi.text(this,"Belum ada simpanan di HP ini. Impor berkas di atas, atau mulai dunia baru dari menu.",14f,true,StudioUi.MUTED).apply {
+            setPadding(dp(4),dp(6),dp(4),dp(6))
+        })
         val playing = source()?.canonicalPath
         slots.forEach { slot ->
             // web SlotFacts: the city's name, lines and stations, and when it was saved
@@ -138,6 +150,12 @@ class WorldArchiveActivity : Activity() {
                 column.addView(StudioUi.row(this, icon, tint, label, detail) { sheet.dismiss(); go() },
                     LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             action(StudioUi.Icon.MENU, StudioUi.TINT_BLUE, "Ganti nama", null) { askRename(slot) }
+            // web exportSlot: "Unduh sebagai file", any world, named after it
+            action(StudioUi.Icon.ROUTE, StudioUi.TINT_GREEN, "Unduh sebagai file", fileName(slot.title)) {
+                exporting = slot.id
+                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, fileName(slot.title)), 3)
+            }
             action(StudioUi.Icon.FOLDER, StudioUi.TINT_YELLOW, "Buat salinan", "Salinan ${slot.title}") {
                 job({ WorldDocuments.copy(this, slot) }) { feedback.text = "${it.title} dibuat di HP ini." }
             }
@@ -193,6 +211,14 @@ class WorldArchiveActivity : Activity() {
             val bytes=sourceBytes()
             checkNotNull(contentResolver.openOutputStream(uri,"wt")).use { it.write(bytes) }
         }) { feedback.text="Dunia berhasil diekspor." }
+        else if(request==3) {
+            val id = exporting ?: return
+            exporting = null
+            job({
+                val bytes = android.util.AtomicFile(WorldDocuments.path(this,id)).openRead().use { WorldDocuments.read(it) }
+                checkNotNull(contentResolver.openOutputStream(uri,"wt")).use { it.write(bytes) }
+            }) { feedback.text="Dunia berhasil diunduh sebagai file." }
+        }
     }
     private fun chooseCity(bytes: ByteArray, name: String) {
         val city = WorldDocuments.startingCity(WorldDocuments.header(bytes),store.cities().toList())

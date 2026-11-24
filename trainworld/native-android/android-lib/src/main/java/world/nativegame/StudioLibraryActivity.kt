@@ -169,6 +169,8 @@ class StudioLibraryActivity : Activity() {
                 if (cover.cash.isFinite()) chip(StudioFormat.cash(cover.cash * 1e6, StudioCurrency.current(this)),StudioUi.TINT_YELLOW,0xff7a5600.toInt())
                 chip(WorldDocuments.savedWhen(slot.at),StudioUi.TINT_BLUE,StudioUi.INK)
             } else cities.firstOrNull { it.id == slot.city }?.name?.let { chip(it,StudioUi.TINT_ORANGE,0xff9a3a0b.toInt()) }
+            // web savesPanel.playing: the world open in the game is marked
+            if (active != null) chip("Dimainkan",StudioUi.TINT_GREEN,StudioUi.GOOD)
             val sync = syncLabel(slot,link)
             if (sync.startsWith("Tersinkron")) chip(sync,StudioUi.TINT_GREEN,StudioUi.GOOD)
             else if (cover == null) chip(sync,StudioUi.TINT_PURPLE,0xff3f2aa8.toInt())
