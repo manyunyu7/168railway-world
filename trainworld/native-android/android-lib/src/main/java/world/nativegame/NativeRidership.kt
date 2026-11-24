@@ -59,11 +59,20 @@ object NativeRidership {
         if (missing.isNotEmpty()) zones = coverage()
         files.put("boundaries",reference.path)
         val home = JSONObject(cityHeader.readText()).getString("city")
-        val viewed = if (includeViewed) ids(zones,"viewed") else emptyList()
-        for (id in (ids(zones,"local") + viewed).distinct()) {
+        val solved = ids(zones,"local")
+        for (id in solved.distinct()) {
             if (id != home) local.put(JSONArray().put(store.demandAsset(id,"header.json").path).put(store.demandAsset(id,"cells.bin").path))
         }
-        for (id in (ids(zones,"markets") + viewed + home).distinct()) markets.put(store.demandAsset(id,"market.json").path)
+        for (id in (ids(zones,"markets") + home).distinct()) markets.put(store.demandAsset(id,"market.json").path)
+        // As the web (T-325): a zone in view that no station reaches stays out of the solve, so the
+        // trip lenses read the simulation's; each is solved bare on its own (walking and driving).
+        if (includeViewed) {
+            val bare = JSONArray()
+            for (id in ids(zones,"viewed").distinct()) {
+                if (id != home && id !in solved) bare.put(JSONArray().put(store.demandAsset(id,"header.json").path).put(store.demandAsset(id,"cells.bin").path))
+            }
+            if (bare.length() > 0) files.put("bare",bare)
+        }
         val global = RegionalData.load(context.filesDir)
         return files.put("index",global[0].path).put("drives",global[1].path)
     }

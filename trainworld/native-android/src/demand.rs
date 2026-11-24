@@ -694,9 +694,16 @@ pub(super) struct DemandFiles {
     index: Option<String>,
     drives: Option<String>,
     boundaries: Option<String>,
+    /// The trip lenses' zones in view that no station reaches (`NativeRidership.inputs`
+    /// includeViewed): each solved bare as the web's aux worker does (T-325), never part of the
+    /// solve, so the lenses and the clock share one.
+    #[serde(default)]
+    bare: Vec<[String; 2]>,
 }
 pub(super) struct Inputs {
+    /// the files of the solve (`bare` left out: those zones are not in it)
     files: DemandFiles,
+    bare: Vec<[String; 2]>,
     packs: Vec<LocalPack>,
     markets: Vec<String>,
     index: Vec<u8>,
@@ -753,7 +760,11 @@ impl DemandFiles {
             .transpose()?
             .unwrap_or_default();
         Ok(Inputs {
-            files: self.clone(),
+            files: DemandFiles {
+                bare: vec![],
+                ..self.clone()
+            },
+            bare: self.bare.clone(),
             geo,
             packs,
             markets,
@@ -761,6 +772,58 @@ impl DemandFiles {
             drives: read_optional(&self.drives)?,
         })
     }
+}
+/// Zones solved bare (`bare_rows`), by their files, most recent first: a bare zone's trips do not
+/// depend on the network, so each is solved once.
+#[allow(clippy::type_complexity)]
+static BARE: std::sync::Mutex<Vec<([String; 2], std::sync::Arc<(String, Vec<f64>)>)>> =
+    std::sync::Mutex::new(Vec::new());
+const KEPT_BARE: usize = 4;
+/// The trip rows (`trip_cells::purpose_rows`, longitude and latitude first) of a zone no station
+/// reaches, as the web's aux worker solves it (demand.worker.ts `openBare`, T-325): the zone alone,
+/// on an empty network and with no market, every period solved once. Kept in `BARE`.
+fn bare_rows(files: &[String; 2]) -> Result<std::sync::Arc<(String, Vec<f64>)>, String> {
+    let mut cache = BARE.lock().map_err(|_| "Perhitungan perjalanan terputus")?;
+    if let Some(i) = cache.iter().position(|(key, _)| key == files) {
+        let kept = cache.remove(i);
+        let rows = kept.1.clone();
+        cache.insert(0, kept);
+        return Ok(rows);
+    }
+    lens_stage(3);
+    let header = std::fs::read_to_string(&files[0]).map_err(|e| e.to_string())?;
+    let cells = std::fs::read(&files[1]).map_err(|e| e.to_string())?;
+    let rows = std::sync::Arc::new(solve_bare(&header, &cells)?);
+    cache.insert(0, (files.clone(), rows.clone()));
+    cache.truncate(KEPT_BARE);
+    Ok(rows)
+}
+/// `bare_rows`' solve of one zone's pack (`header`, `cells`): its id and trip rows.
+fn solve_bare(header: &str, cells: &[u8]) -> Result<(String, Vec<f64>), String> {
+    let city: Value = serde_json::from_str(header).map_err(|e| e.to_string())?;
+    let id = city["city"].as_str().unwrap_or("").to_owned();
+    let origin = &city["origin"];
+    let frame = Frame::new(
+        FrameKind::Equirect,
+        origin["lon"].as_f64().ok_or("Bujur tidak ada")?,
+        origin["lat"].as_f64().ok_or("Lintang tidak ada")?,
+    );
+    let mut work = DemandApi::new(header, cells)?;
+    let mut outings = trainworld_sim::demand::everyday::EverydayApi::beside_with(
+        &work,
+        header,
+        cells,
+        &attractions(&id, &frame),
+    )?;
+    work.set_network(&[], &[], &[], &[], &[], &[])?;
+    outings.set_network(&[], &[], &[], &[], &[], &[])?;
+    for period in 0..5 {
+        if !(work.solve(period) && outings.solve(period)) {
+            return Err("Periode perjalanan tidak tersedia".into());
+        }
+    }
+    let rows = crate::trip_cells::purpose_rows(&id, frame, &work, &outings, None)?;
+    Ok((id, rows))
 }
 // Preview, playback, network overlays and the trip lenses share an assignment for identical
 // track, fares and immutable release assets. Holding the lock during the solve coalesces
@@ -775,8 +838,8 @@ struct CachedForecast {
     /// Total trips lenses
     cells: std::sync::Arc<PendingRows>,
 }
-/// The last solves, most recent first. Two: the clock's inputs and the lenses' (which also carry
-/// the viewed zones, `NativeRidership.inputs` includeViewed) may differ.
+/// The last solves, most recent first: the network in hand and the one before (an edit undone
+/// reads its forecast again).
 static FORECAST: std::sync::Mutex<Vec<CachedForecast>> = std::sync::Mutex::new(Vec::new());
 const KEPT_SOLVES: usize = 2;
 impl Inputs {
@@ -808,7 +871,35 @@ impl Inputs {
                 lens_stage(2);
             }
             let cells = pending.wait()?;
-            zone_rows(&cells, zone).ok_or_else(|| "Zona perjalanan tidak tersedia".to_string())
+            if self.bare.is_empty() {
+                return zone_rows(&cells, zone)
+                    .ok_or_else(|| "Zona perjalanan tidak tersedia".to_string());
+            }
+            let frame = world.api.world().net.frame();
+            let mut parts: Vec<(&str, std::borrow::Cow<[f32]>)> = cells
+                .iter()
+                .map(|(id, rows)| (id.as_str(), std::borrow::Cow::Borrowed(&rows[..])))
+                .collect();
+            let mut bare = Vec::new();
+            for files in &self.bare {
+                bare.push(bare_rows(files)?);
+            }
+            for rows in &bare {
+                if !parts.iter().any(|(id, _)| *id == rows.0) {
+                    parts.push((&rows.0, std::borrow::Cow::Owned(pack_cells(frame, &rows.1))));
+                }
+            }
+            let mut out = Vec::new();
+            let mut found = false;
+            for (id, rows) in &parts {
+                if zone == ALL_ZONES || *id == zone {
+                    found = true;
+                    out.extend_from_slice(rows);
+                }
+            }
+            found
+                .then_some(out)
+                .ok_or_else(|| "Zona perjalanan tidak tersedia".to_string())
         })();
         lens_stage(0);
         packed
@@ -988,6 +1079,109 @@ mod tests {
             assert!(p[2..].iter().zip(&r[2..]).all(|(a, b)| *a == *b as f32));
         }
     }
+    /// A small synthetic zone pack `id` with its frame's origin at `lon`, `lat`: its header (with
+    /// the everyday layer's jobs) and cells.
+    fn zone_pack(id: &str, lon: f64, lat: f64) -> (String, Vec<u8>) {
+        use trainworld_sim::demand::pack;
+        let (mut x, mut y, mut pop, mut jobs, mut h3) = (vec![], vec![], vec![], vec![], vec![]);
+        for i in 0..15 {
+            for j in 0..15 {
+                let (dx, dy) = (i as f32 - 7., j as f32 - 7.);
+                x.push(324. * dx);
+                y.push(324. * dy);
+                let r = dx.hypot(dy);
+                pop.push(2000. / (1. + r));
+                jobs.push(if r < 3. { 3000. / (1. + r) } else { 50. });
+                h3.push(1 + (15 * i + j) as u64);
+            }
+        }
+        let city = pack::City { name: id.into(), h3, x, y, pop, jobs, region: vec![], gravity: None };
+        let (header, mut bin) = pack::write(&city);
+        let mut h: Value = serde_json::from_str(&header).unwrap();
+        for name in ["errand_jobs", "leisure_jobs"] {
+            let offset = bin.len();
+            bin.extend(city.jobs.iter().flat_map(|v| v.to_le_bytes()));
+            h["arrays"].as_array_mut().unwrap().push(json!({"name":name,"dtype":"f32","per":"cell","count":city.jobs.len(),"offset":offset}));
+        }
+        h["city"] = id.into();
+        h["origin"] = json!({"lon":lon,"lat":lat});
+        (h.to_string(), bin)
+    }
+    /// A workshop save with one running service.
+    fn served_save() -> Vec<u8> {
+        let mut w = World::workshop();
+        let t = w.header["clock"].as_f64().unwrap();
+        w.build_service([0., 0.], [3500., 600.], "Hudson", t).unwrap();
+        w.save(t).unwrap()
+    }
+    /// T-325: a zone no station reaches has, solved bare (the web aux worker's `openBare`), the
+    /// very trip rows a solve of the network gives it.
+    #[test]
+    fn bare_zone_is_what_a_solve_gives_a_zone_no_station_reaches() {
+        let save = served_save();
+        let (header, cells) = zone_pack("far", 120., -30.);
+        let packs = [LocalPack { header: header.clone(), cells: cells.clone(), country: String::new() }];
+        let mut rows = ZoneRows::new();
+        solve(&save, &packs, &[0, 1, 2, 3, 4], None, None, None, Some(TripRows::Into(ALL_ZONES, true, &mut rows))).unwrap();
+        let (id, bare) = solve_bare(&header, &cells).unwrap();
+        assert_eq!(id, "far");
+        assert_eq!(rows.len(), 1);
+        assert!(!bare.is_empty());
+        assert_eq!(rows[0].1.len(), bare.len());
+        let stride = crate::trip_cells::PURPOSE_STRIDE;
+        let mut bad = std::collections::BTreeMap::new();
+        for (k, (a, b)) in rows[0].1.iter().zip(&bare).enumerate() {
+            if (a - b).abs() > 1e-4 * a.abs().max(1.) {
+                let e = bad.entry(k % stride).or_insert((0, 0f64, 0f64));
+                e.0 += 1; e.1 += a; e.2 += b;
+            }
+        }
+        let tot: Vec<f64> = (0..10).map(|c| rows[0].1.chunks_exact(stride).map(|r| r[c]).sum::<f64>()).collect();
+        let totb: Vec<f64> = (0..10).map(|c| bare.chunks_exact(stride).map(|r| r[c]).sum::<f64>()).collect();
+        assert!(bad.is_empty(), "{bad:?}\n{tot:?}\n{totb:?}");
+    }
+    /// The lenses' manifest with zones in view (`bare`) reads the clock's solve of the same
+    /// manifest without them (one cache entry, the very rows), each bare zone's rows after.
+    #[test]
+    fn lens_with_zones_in_view_reads_the_clock_solve() {
+        let dir = std::env::temp_dir().join(format!("bare-lens-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |id: &str, lon: f64, lat: f64| -> [String; 2] {
+            let (h, c) = zone_pack(id, lon, lat);
+            let hp = dir.join(format!("{id}.json"));
+            let cp = dir.join(format!("{id}.bin"));
+            std::fs::write(&hp, h).unwrap();
+            std::fs::write(&cp, c).unwrap();
+            [hp.display().to_string(), cp.display().to_string()]
+        };
+        let home = write("nyx", -73.985, 40.758);
+        let viewed = write("far", 120., -30.);
+        let save = served_save();
+        let clock: DemandFiles = serde_json::from_value(json!({"local":[home],"markets":[]})).unwrap();
+        let lens: DemandFiles = serde_json::from_value(json!({"local":[home],"markets":[],"bare":[viewed]})).unwrap();
+        let (clock, lens) = (clock.read().unwrap(), lens.read().unwrap());
+        assert!(clock.files == lens.files, "one cache key");
+        let mut world = World::open(&save).unwrap();
+        clock.account_and_forecast(&save, &mut world).unwrap();
+        let rows = |inputs: &Inputs| {
+            let mut world = World::open(&save).unwrap();
+            inputs.solved(&save, &mut world, true).unwrap().unwrap().1
+        };
+        let solved = rows(&clock);
+        assert!(std::sync::Arc::ptr_eq(&solved, &rows(&lens)), "the lens solved again");
+        let own = clock.trip_cells(&save, ALL_ZONES).unwrap();
+        let all = lens.trip_cells(&save, ALL_ZONES).unwrap();
+        assert_eq!(lens.trip_cells(&save, "nyx").unwrap(), own);
+        let frame = world.api.world().net.frame();
+        let far = pack_cells(frame, &bare_rows(&viewed).unwrap().1);
+        assert!(!far.is_empty());
+        assert_eq!(lens.trip_cells(&save, "far").unwrap(), far);
+        assert_eq!(all, [own, far].concat());
+        // the bare zone is solved once
+        let kept = bare_rows(&viewed).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&kept, &bare_rows(&viewed).unwrap()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     /// The trip lenses read the clock's solve (`Inputs::trip_cells` after `account_and_forecast`)
     /// and draw exactly what their own solve gave (the old `tripCells`: every period kept, no
     /// forecast), and times both. Inputs as `NativeRidership.inputs` makes them, from
@@ -1142,6 +1336,45 @@ mod tests {
         assert_eq!(data.trip_cells(&save, ALL_ZONES).unwrap(), got);
         data.trip_cells(&other, ALL_ZONES).unwrap();
         eprintln!("both lenses again from the cache: {:?}", t.elapsed());
+        // WORLD_VIEWED: zones in view that no station reaches (a pan to a neighbour). The lens
+        // carries them bare, as the web does, and still reads the clock's solve; before, they joined
+        // the lens's own solve (local and market both) and the lens solved again.
+        let Ok(viewed) = std::env::var("WORLD_VIEWED") else {
+            return;
+        };
+        let viewed: Vec<_> = viewed.split(',').filter(|z| !local.iter().any(|l| l == z)).collect();
+        let pair = |z: &str| [format!("{dir}/{z}.json"), format!("{dir}/{z}.bin")];
+        let mut lens = serde_json::to_value(&spec_of(&local, &markets, &dir)).unwrap();
+        lens["bare"] = json!(viewed.iter().map(|z| pair(z)).collect::<Vec<_>>());
+        let lens: DemandFiles = serde_json::from_value(lens).unwrap();
+        let t = Instant::now();
+        let got = lens.read().unwrap().trip_cells(&save, ALL_ZONES).unwrap();
+        eprintln!("lens with {viewed:?} in view, first (bare solve): {:?}", t.elapsed());
+        let t = Instant::now();
+        assert_eq!(lens.read().unwrap().trip_cells(&save, ALL_ZONES).unwrap(), got);
+        eprintln!("lens with {viewed:?} in view, again: {:?}", t.elapsed());
+        assert_eq!(got[..expected.len()], expected[..], "the clock's zones as the clock solved them");
+        let mut old_local = local.clone();
+        let mut old_markets = markets.clone();
+        for z in &viewed {
+            old_local.push(z.to_string());
+            if !old_markets.iter().any(|m| m == z) {
+                old_markets.push(z.to_string());
+            }
+        }
+        let old: DemandFiles = serde_json::from_value(spec_of(&old_local, &old_markets, &dir)).unwrap();
+        let t = Instant::now();
+        old.read().unwrap().trip_cells(&save, ALL_ZONES).unwrap();
+        eprintln!("lens with {viewed:?} in its own solve (before): {:?}", t.elapsed());
+    }
+    fn spec_of(local: &[String], markets: &[String], dir: &str) -> Value {
+        json!({
+            "local": local.iter().map(|z| [format!("{dir}/{z}.json"), format!("{dir}/{z}.bin")]).collect::<Vec<_>>(),
+            "markets": markets.iter().map(|z| format!("{dir}/{z}.market.json")).collect::<Vec<_>>(),
+            "index": std::env::var("WORLD_MARKET_INDEX").unwrap(),
+            "drives": format!("{dir}/market-drives.bin"),
+            "boundaries": dir,
+        })
     }
     /// The purpose filter's rows (`trip_cells::purpose_rows`) against every purpose's: the same
     /// cells and totals in the first eight counts, and the seven purposes never above them (the
