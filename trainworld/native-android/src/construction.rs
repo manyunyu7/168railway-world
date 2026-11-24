@@ -867,3 +867,26 @@ mod tests {
         assert!(main.api.edges_info().chunks_exact(10).all(|r| r[8] == 1.));
     }
 }
+
+#[cfg(test)]
+mod snap_debug {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn what_is_under_patung_kuda() {
+        let bytes = std::fs::read(std::env::var("WORLD_DEBUG_SAVE").unwrap()).unwrap();
+        let w = World::open(&bytes).unwrap();
+        let net = &w.api.world().net;
+        // Patung Kuda, Jakarta: 106.8227 E, -6.1766
+        let p = net.frame().from_lonlat(106.8227, -6.1766);
+        println!("xy {:?}", p);
+        for unit in [0.5, 1., 2., 4.] {
+            println!("unit {unit}: {:?}", rail_touch_point(&w.api, p.0, p.1, unit, 0, 1));
+        }
+        let mut best: Vec<(f64, u32)> = (0..net.edge_count() as u32).filter(|&e| net.edge_ok(e)).map(|e| (net.project(e, p.0, p.1).1, e)).collect();
+        best.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (d, e) in best.iter().take(6) {
+            println!("edge {e} d {d:.1} kind {} crossover {} built {}", w.api.edge_kind(*e), net.edge_crossover[*e as usize], net.edge_built[*e as usize]);
+        }
+    }
+}

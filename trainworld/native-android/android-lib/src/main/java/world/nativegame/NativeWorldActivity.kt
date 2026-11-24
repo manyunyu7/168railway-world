@@ -1872,6 +1872,7 @@ class NativeWorldActivity : Activity() {
         val displayClock = referenceTime ?: clock
         if (::sunArc.isInitialized) sunArc.second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         updateProgress(displayClock)
+        map.trainRate = if (referenceState == ReferenceState.PLAYING) speedChip.rate else 0.0
         val trainCount = map.updateTrains(displayClock, referenceState == ReferenceState.PLAYING)
         val second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         if(second!=lastStatus) {
@@ -2981,15 +2982,24 @@ internal class NetworkView(context: Context):View(context) {
     private var trainTo = Double.NaN
     private var trainAt = 0L
     private var trainWindow = 0L
-    private fun trainTime(now:Long) = if (trainWindow > 0L)
-        trainFrom + (trainTo-trainFrom)*((now-trainAt).toDouble()/trainWindow).coerceIn(0.0,1.0) else trainTo
+    /** Game seconds per real second while the clock plays; the clock reports only every 0,5 s. */
+    var trainRate = 0.0
+    private var lastShown = Double.NaN
+    private fun trainTime(now:Long): Double {
+        if (trainWindow <= 0L || !trainTo.isFinite()) return trainTo
+        // Run on from the last report at the clock's rate, at most one report interval ahead, and
+        // never step back when the next report lands a little behind what is shown.
+        val ahead = (trainRate*(now-trainAt)/1000.0).coerceIn(0.0, trainRate*.75)
+        val t = trainTo + ahead
+        lastShown = if (lastShown.isFinite() && t < lastShown && lastShown - t < trainRate*.75) lastShown else t
+        return lastShown
+    }
     fun updateTrains(time:Double,interpolate:Boolean = false):Int {
         val now = SystemClock.elapsedRealtime()
         if (!interpolate || time != trainTo) {
-            val previous = trainTime(now)
-            trainWindow = if (interpolate && previous.isFinite() && time >= previous && time-previous <= 16.0)
-                (now-trainAt).coerceIn(0L,650L) else 0L
-            trainFrom = previous
+            trainWindow = if (interpolate && trainRate > 0.0) 1L else 0L
+            if (!interpolate) lastShown = Double.NaN
+            trainFrom = trainTo
             trainTo = time
             trainAt = now
         }
@@ -3418,7 +3428,8 @@ internal class NetworkView(context: Context):View(context) {
         val frameTime=SystemClock.elapsedRealtime()
         trainPainter.time = trainTime(frameTime)
         trainPainter.update(centerX,centerY,scale,width,height)
-        if (frameTime-trainAt < trainWindow) { removeCallbacks(redrawTask); postDelayed(redrawTask,50) }
+        // every display frame while the clock plays (was a 50 ms timer, 20 fps)
+        if (trainWindow > 0L) postInvalidateOnAnimation()
         if (displaySettings.trains) trainPainter.draw(c,scale,width,height,displaySettings)
         followed?.let { (profile,dep) ->
             val at = trainPainter.positionOf(profile,dep)
