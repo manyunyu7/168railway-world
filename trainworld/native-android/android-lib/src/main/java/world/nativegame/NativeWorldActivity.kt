@@ -1321,7 +1321,7 @@ class NativeWorldActivity : Activity() {
         if(placingRail || restoringEdit) return
         val step=railChain.lastOrNull()
         val target=history.next(true)
-        if(map.draft.size==2 || step==null || target==null || step.edit.get()!==target) { resetRailRun(); return }
+        if(step==null || target==null || step.edit.get()!==target) { resetRailRun(); return }
         restoreEdit(true,target) {
             railChain.removeAt(railChain.lastIndex)
             map.draft.clear(); map.railSnaps.clear(); pointProfile.clear()
