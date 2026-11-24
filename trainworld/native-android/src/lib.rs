@@ -225,7 +225,7 @@ impl World {
                 );
                 via.push(*stop);
             }
-            let line = bus_plan::build(api, &via, name, dir)?;
+            let line = bus_plan::build(api, &via, name, dir, bus_plan::roads())?;
             return self.accept_service(next, line, clock, name);
         }
         if mode == 4 {

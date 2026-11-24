@@ -984,8 +984,9 @@ var Roads = (() => {
   // roads/planner.ts
   var graph = new RoadGraph();
   graph.oneWay = true;
-  function addTile(x, y, bytes, rail = false) {
-    const streets = decodeRoads(bytes, (kind, _brunnel, _service, _access, subclass) => rail ? kind === "motorway" ? MOTORWAY : kind === "trunk" ? TRUNK : ["primary", "secondary", "tertiary"].includes(kind) ? 1 : 0 : kind === "trunk" ? TRUNK : DRIVE_CLASSES.has(kind) || kind === "path" && subclass === PEDESTRIAN ? 1 : kind === "motorway" ? MOTORWAY : 0);
+  function addTile(x, y, bytes, roads = 0) {
+    const main = roads === 1 || roads === true, motorways = roads !== 2;
+    const streets = decodeRoads(bytes, (kind, _brunnel, _service, _access, subclass) => main ? kind === "motorway" ? MOTORWAY : kind === "trunk" ? TRUNK : ["primary", "secondary", "tertiary"].includes(kind) ? 1 : 0 : kind === "trunk" ? TRUNK : DRIVE_CLASSES.has(kind) || kind === "path" && subclass === PEDESTRIAN ? 1 : kind === "motorway" && motorways ? MOTORWAY : 0);
     graph.addTile(x, y, joinRoads(streets, metresPerUnit((y + 0.5) * EXTENT)));
   }
   function plan(input) {

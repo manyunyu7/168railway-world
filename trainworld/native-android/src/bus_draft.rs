@@ -68,7 +68,7 @@ pub(super) fn unique(name: String, taken: &mut Vec<String>) -> String {
 impl World {
     /// The road route through `via` (x, y, kind: 1 a stop, 0 a bend) as `Engine.build` would lay
     /// it, read only: its polyline, length in km and each stop on the road with its name.
-    pub(super) fn bus_preview(&self, via: &[[f64; 3]]) -> Result<Value, String> {
+    pub(super) fn bus_preview(&self, via: &[[f64; 3]], roads: u8) -> Result<Value, String> {
         if !(2..=88).contains(&via.len()) || via.iter().flatten().any(|v| !v.is_finite()) {
             return Err("Titik rute tidak valid.".into());
         }
@@ -77,7 +77,7 @@ impl World {
             .as_deref()
             .ok_or("Data jalan belum tersedia.")?;
         let points: Vec<[f64; 2]> = via.iter().map(|p| [p[0], p[1]]).collect();
-        let output = bus_plan::resolve(&self.api, &points, dir, None)?;
+        let output = bus_plan::resolve(&self.api, &points, dir, None, roads)?;
         let rows: Vec<[f64; 3]> =
             serde_json::from_value(output["points"].clone()).map_err(|e| e.to_string())?;
         let mut path = Vec::with_capacity(rows.len() * 2);
@@ -134,7 +134,7 @@ pub extern "system" fn Java_world_nativegame_BusDraft_preview(
             .map_err(|e| e.to_string())?;
         let w = unsafe { (handle as *const World).as_ref() }.ok_or("Dunia belum tersedia.")?;
         let via: Vec<[f64; 3]> = raw.chunks_exact(3).map(|p| [p[0], p[1], p[2]]).collect();
-        w.bus_preview(&via)
+        w.bus_preview(&via, bus_plan::roads())
     })()
     .unwrap_or_else(|e| json!({"error": e}));
     reply(&env, result)
@@ -172,7 +172,7 @@ mod tests {
         let mut w = World::workshop();
         let via = [[0., 0., 1.], [2000., 0., 1.]];
         assert_eq!(
-            w.bus_preview(&via).unwrap_err(),
+            w.bus_preview(&via, bus_plan::ALL_ROADS).unwrap_err(),
             "Data jalan belum tersedia."
         );
         let empty = std::env::temp_dir().join("bus-draft-no-tiles");
@@ -180,10 +180,10 @@ mod tests {
         w.roads_dir = Some(empty);
         let before = w.save(111600.).unwrap();
         assert!(w
-            .bus_preview(&via)
+            .bus_preview(&via, bus_plan::ALL_ROADS)
             .unwrap_err()
             .contains("Unduh data jalan"));
-        assert!(w.bus_preview(&via[..1]).is_err());
+        assert!(w.bus_preview(&via[..1], bus_plan::ALL_ROADS).is_err());
         assert_eq!(before, w.save(111600.).unwrap());
     }
 
@@ -204,10 +204,7 @@ mod tests {
             stop_name(&w.api, ox + 200., oy + 150.).unwrap(),
             "Halte bus dekat Sudirman"
         );
-        assert_eq!(
-            stop_name(&w.api, ox + 9100., oy).unwrap(),
-            "Halte Menteng"
-        );
+        assert_eq!(stop_name(&w.api, ox + 9100., oy).unwrap(), "Halte Menteng");
         assert_eq!(stop_name(&w.api, ox + 20000., oy), None);
         let line = w.api.new_line_id();
         assert_eq!(
@@ -227,7 +224,10 @@ mod tests {
         let names = w.service_stop_names(line);
         assert!(names.len() >= 2);
         assert_eq!(names[0], "Halte Menteng");
-        assert!(names.iter().skip(1).all(|n| n.starts_with("Halte Menteng ")));
+        assert!(names
+            .iter()
+            .skip(1)
+            .all(|n| n.starts_with("Halte Menteng ")));
         let reopened = World::open(&w.save(111600.).unwrap()).unwrap();
         assert_eq!(reopened.service_stop_names(line), names);
     }
@@ -243,7 +243,7 @@ mod tests {
             via.push([p[0], p[1], 1.]);
         }
         let before = w.save(111600.).unwrap();
-        let v = w.bus_preview(&via).unwrap();
+        let v = w.bus_preview(&via, bus_plan::ALL_ROADS).unwrap();
         assert_eq!(before, w.save(111600.).unwrap());
         let path = v["path"].as_array().unwrap();
         assert!(path.len() > 12, "{v}");
@@ -262,6 +262,9 @@ mod tests {
         let route = w.api.bus_route(0);
         let n = (route.len() - 1) / 3;
         assert_eq!(path.len() / 2, n, "the preview is the built road");
-        eprintln!("preview {} points, {km:.2} km; build {n} points", path.len() / 2);
+        eprintln!(
+            "preview {} points, {km:.2} km; build {n} points",
+            path.len() / 2
+        );
     }
 }

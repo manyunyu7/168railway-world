@@ -814,6 +814,7 @@ class NativeWorldActivity : Activity() {
         if (drawing) {
             options.add("Pengaturan alat" to { configureTool(plan.tool) })
             options.add("Pilih titik di tengah peta" to { selectPoint(map.centerPoint()) })
+            if (plan.tool==BuildTool.BUS) options.add(BusRoads.menuLabel(this) to { BusRoads.choose(this) { previewDraft() } })
             if (plan.tool==BuildTool.LINE && stationOrder.size>=2) options.add("Putaran di stasiun tengah peta" to { map.onBend?.invoke(map.centerPoint()); Unit })
             if (plan.tool in setOf(BuildTool.BUS,BuildTool.FERRY) && map.draft.isNotEmpty() && map.draft.size < 24 && map.bends.size < 64) options.add("Tambah lengkung di tengah peta" to { map.onBend?.invoke(map.centerPoint()); Unit })
             options.add("Batalkan rancangan" to { discardDraft() })
