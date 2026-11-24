@@ -833,9 +833,18 @@ class NativeWorldActivity : Activity() {
                 if (commands.isNotEmpty()) section(if (q.isEmpty()) "Menu" else "Perintah")
                 commands.forEach { (label, click) -> val (icon, tint) = iconFor(label); row(label, null, icon, tint, click) }
                 if (q.length >= 2) {
+                    val cities = cityStore.cities().filter { it.name.contains(q,ignoreCase=true) }
+                        .sortedBy { !it.name.startsWith(q,ignoreCase=true) }.take(8)
+                    if (cities.isNotEmpty()) section("Kota")
+                    cities.forEach { city -> row(city.name,"Buka kota",StudioUi.Icon.PIN,StudioUi.TINT_BLUE) { locateCity(city.id) } }
                     val found = stations.filter { it.name.lowercase().contains(q) }.take(8)
                     if (found.isNotEmpty()) section("Stasiun")
                     found.forEach { st -> row(st.name, "Buka stasiun", StudioUi.Icon.PIN, 0xffe3edf9.toInt()) { openStation(st.id) } }
+                    val places = map.cityLayers.asSequence().flatMap { it.places.asSequence() }.filter { it.name.contains(q,ignoreCase=true) }
+                        .sortedWith(compareBy({ !it.name.startsWith(q,ignoreCase=true) },{ it.kind })).take(8).toList()
+                    if (places.isNotEmpty()) section("Tempat")
+                    places.forEach { place -> row(place.name,"Lihat di peta",StudioUi.Icon.PIN,StudioUi.TINT_BLUE) { map.locatePlace(place) } }
+
                 }
                 if (results.childCount == 0) results.addView(StudioUi.text(this, "Tidak ada yang cocok dengan “$query”.", 14f, true, StudioUi.MUTED).apply {
                     setPadding(dp(4), dp(16), dp(4), dp(16))
@@ -845,7 +854,7 @@ class NativeWorldActivity : Activity() {
                 setPadding(dp(4), 0, dp(4), dp(8))
             })
             column.addView(android.widget.EditText(this).apply {
-                hint = "Cari perintah, menu, atau stasiun"
+                hint = "Cari stasiun, kota, tempat, atau perintah"
                 typeface = StudioUi.face(context, true)
                 textSize = 16f
                 setTextColor(StudioUi.INK)
@@ -2793,6 +2802,18 @@ internal class NetworkView(context: Context):View(context) {
     }
 
     fun centerPoint() = PointF(centerX, centerY)
+    fun locatePlace(place: CitySurface.Place) {
+        val zoom = when (place.kind) {
+            0,2 -> 12.0
+            1 -> 12.5
+            3 -> 13.0
+            5 -> 13.5
+            6 -> 14.5
+            else -> 14.0
+        }
+        scale = scaleAtZoom(zoom)
+        focusAt(place.x,place.y)
+    }
     fun focusCity(x: Float, y: Float) {
         homeScale = width.coerceAtLeast(1) / 12000f
         scale = homeScale
