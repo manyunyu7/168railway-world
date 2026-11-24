@@ -68,6 +68,8 @@ class WorldArchiveActivity : Activity() {
             alpha = if (enabled) 1f else .5f
         }, LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
     }
+    private val localOnly get() = intent.getBooleanExtra("localOnly",false)
+
     private fun render() {
         menu.removeAllViews()
         menu.addView(LinearLayout(this).apply {
@@ -77,13 +79,49 @@ class WorldArchiveActivity : Activity() {
                 orientation=LinearLayout.VERTICAL
                 background=StudioUi.glass(context,25)
                 setPadding(dp(18),dp(6),dp(18),dp(8))
-                addView(StudioUi.title(context,"Arsip & akun",22f))
+                addView(StudioUi.title(context,if (localOnly) "Arsip di HP" else "Arsip & akun",22f))
                 intent.getStringExtra("city")?.let { addView(StudioUi.text(context,"Dunia aktif · ${it.uppercase()}",12f,true,StudioUi.MUTED)) }
             }
             addView(heading,LinearLayout.LayoutParams(-2,-2).apply { marginStart=dp(10) })
         })
         feedback=StudioUi.text(this,"",14f,true,StudioUi.MUTED).apply { setPadding(dp(4),dp(10),dp(4),0) }
         menu.addView(feedback)
+        if (!localOnly) accountActions()
+        menu.addView(StudioUi.section(this,"Berkas"))
+        item(StudioUi.Icon.FOLDER,StudioUi.TINT_YELLOW,"Impor berkas TWG1","Dari penyimpanan HP") {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),1)
+        }
+        item(StudioUi.Icon.ROUTE,StudioUi.TINT_GREEN,"Ekspor dunia aktif","Simpan sebagai berkas .save",source()?.isFile==true) {
+            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,
+                    WorldDocuments.list(this).firstOrNull { WorldDocuments.path(this,it.id).canonicalPath == source()?.canonicalPath }?.let { fileName(it.title) }
+                        ?: "${intent.getStringExtra("city") ?: "dunia"}.save"),2)
+        }
+        val slots=WorldDocuments.list(this)
+        menu.addView(StudioUi.section(this,"Dunia di HP"))
+        // an empty list says so, rather than the section going missing
+        if (slots.isEmpty()) menu.addView(StudioUi.text(this,"Belum ada simpanan di HP ini. Impor berkas di atas, atau mulai dunia baru dari menu.",14f,true,StudioUi.MUTED).apply {
+            setPadding(dp(4),dp(6),dp(4),dp(6))
+        })
+        val playing = source()?.canonicalPath
+        slots.forEach { slot ->
+            // web SlotFacts: the city's name, lines and stations, and when it was saved
+            val cover = WorldCovers.read(this,slot.id)
+            val city = runCatching { store.city(slot.city).name }.getOrDefault(slot.city.uppercase())
+            val facts = listOfNotNull(city, cover?.let { "${it.lines} lini · ${it.stations} stasiun" },
+                slot.at.takeIf { it > 0 }?.let { WorldDocuments.savedWhen(it) }).joinToString(" · ")
+            val here = WorldDocuments.path(this,slot.id).canonicalPath == playing
+            val row = StudioUi.row(this,StudioUi.Icon.TRAIN,StudioUi.TINT_ORANGE,slot.title,
+                if (here) "Dimainkan · $facts" else facts) { if (!busy) { if (localOnly) actions(slot,here) else open(slot) } }
+            // web SavesPanel card buttons: rename, copy and (not the game being played) delete
+            row.addView(StudioUi.iconButton(this,"Tindakan untuk ${slot.title}",StudioUi.Icon.MENU) {
+                if (!busy) actions(slot, here)
+            }, LinearLayout.LayoutParams(dp(48),dp(48)).apply { marginStart=dp(6) })
+            menu.addView(row, LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
+        }
+        button("Kembali") { finish() }
+    }
+    private fun accountActions() {
         val session=login.get("session")
         val account=LinearLayout(this).apply {
             gravity=android.view.Gravity.CENTER_VERTICAL
@@ -110,39 +148,6 @@ class WorldArchiveActivity : Activity() {
             item(StudioUi.Icon.UNDO,StudioUi.TINT_BLUE,"Pulihkan dari akun","Buka arsip sebagai dunia baru") { chooseRemote(session,false) }
             item(StudioUi.Icon.CLOSE,StudioUi.TINT_RED,"Putuskan akun",null) { job({ try { WorldCloud.logout(session) } finally { login.forget() } }) { render() } }
         }
-        menu.addView(StudioUi.section(this,"Berkas"))
-        item(StudioUi.Icon.FOLDER,StudioUi.TINT_YELLOW,"Impor berkas TWG1","Dari penyimpanan HP") {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),1)
-        }
-        item(StudioUi.Icon.ROUTE,StudioUi.TINT_GREEN,"Ekspor dunia aktif","Simpan sebagai berkas .save",source()?.isFile==true) {
-            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,
-                    WorldDocuments.list(this).firstOrNull { WorldDocuments.path(this,it.id).canonicalPath == source()?.canonicalPath }?.let { fileName(it.title) }
-                        ?: "${intent.getStringExtra("city") ?: "dunia"}.save"),2)
-        }
-        val slots=WorldDocuments.list(this)
-        menu.addView(StudioUi.section(this,"Dunia di HP"))
-        // an empty list says so, rather than the section going missing
-        if (slots.isEmpty()) menu.addView(StudioUi.text(this,"Belum ada simpanan di HP ini. Impor berkas di atas, atau mulai dunia baru dari menu.",14f,true,StudioUi.MUTED).apply {
-            setPadding(dp(4),dp(6),dp(4),dp(6))
-        })
-        val playing = source()?.canonicalPath
-        slots.forEach { slot ->
-            // web SlotFacts: the city's name, lines and stations, and when it was saved
-            val cover = WorldCovers.read(this,slot.id)
-            val city = runCatching { store.city(slot.city).name }.getOrDefault(slot.city.uppercase())
-            val facts = listOfNotNull(city, cover?.let { "${it.lines} lini · ${it.stations} stasiun" },
-                slot.at.takeIf { it > 0 }?.let { WorldDocuments.savedWhen(it) }).joinToString(" · ")
-            val here = WorldDocuments.path(this,slot.id).canonicalPath == playing
-            val row = StudioUi.row(this,StudioUi.Icon.TRAIN,StudioUi.TINT_ORANGE,slot.title,
-                if (here) "Dimainkan · $facts" else facts) { if (!busy) open(slot) }
-            // web SavesPanel card buttons: rename, copy and (not the game being played) delete
-            row.addView(StudioUi.iconButton(this,"Tindakan untuk ${slot.title}",StudioUi.Icon.MENU) {
-                if (!busy) actions(slot, here)
-            }, LinearLayout.LayoutParams(dp(48),dp(48)).apply { marginStart=dp(6) })
-            menu.addView(row, LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
-        }
-        button("Kembali") { finish() }
     }
     private fun actions(slot: WorldDocuments.Slot, playing: Boolean) {
         StudioUi.sheet(this, slot.title, .5f) { column, sheet ->

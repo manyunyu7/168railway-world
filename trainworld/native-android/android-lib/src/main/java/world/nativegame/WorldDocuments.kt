@@ -118,7 +118,9 @@ internal object WorldDocuments {
      */
     fun copy(context: Context, slot: Slot): Slot {
         val bytes = AtomicFile(path(context, slot.id)).openRead().use { read(it) }
-        val copy = import(context, bytes, "Salinan ${slot.title}", slot.city)
+        val meta = JSONObject(prefs(context).getString(slot.id,null) ?: error("Dunia tidak ditemukan."))
+        val owner = meta.optString("hostOwner").takeIf { it.isNotBlank() }
+        val copy = import(context, bytes, "Salinan ${slot.title}", slot.city, owner)
         WorldCovers.copy(context, slot.id, copy.id)
         return copy
     }

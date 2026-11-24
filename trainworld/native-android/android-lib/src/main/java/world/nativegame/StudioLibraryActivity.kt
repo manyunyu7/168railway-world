@@ -223,6 +223,10 @@ class StudioLibraryActivity : Activity() {
             allLocal = !allLocal
             refresh()
         }
+        action("Kelola arsip di HP",StudioUi.Icon.FOLDER) {
+            startActivity(Intent(this, WorldArchiveActivity::class.java)
+                .putExtra("localOnly",true).putExtra("archiveSource",source))
+        }
         val accountHeader = StudioUi.section(this,"Dunia di akun")
         append(accountHeader,20)
         append(status,3)
