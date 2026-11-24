@@ -334,6 +334,15 @@ class NativeWorldActivity : Activity() {
             }
         }
         rightTools.addView(mapSearch, LinearLayout.LayoutParams(dp(48),dp(48)))
+        // Lenses sit with the map tools (owner: under search); the dock's slot is the money tab now.
+        mapLens = android.widget.ImageButton(this).apply {
+            contentDescription = "Lensa peta"
+            setImageDrawable(StudioUi.glyph(context, StudioUi.Icon.LAYERS, StudioUi.INK))
+            background = StudioUi.glass(context,24)
+            elevation = dp(3).toFloat()
+            setOnClickListener { if (handle != 0L && !drawing) openLenses() }
+        }
+        rightTools.addView(mapLens, LinearLayout.LayoutParams(dp(48),dp(48)).apply { topMargin = dp(8) })
         // Web TroubleList: a red alert with a count, hidden while nothing is wrong.
         troubleButton = TextView(this).apply {
             // A compact red pill (web: alert icon + count), 48 dp tall to stay easy to hit.
@@ -483,7 +492,7 @@ class NativeWorldActivity : Activity() {
             }
         }
         lines = action { withCommittedWorld(pause = false) { openServices() } }
-        finance = action { openLenses() }
+        finance = action { withCommittedWorld(pause = false) { openFinance() } }
         cancel = action { if(railMode) resetRailRun() else discardDraft() }
         more = action { withCommittedWorld(pause = false) { if(railMode) { cancelDrawing(); chooseConstruction() } else manageWorld() } }
         speedChip = WorldSpeedChip(this, savedInstanceState?.getDouble("speed") ?: intent.getDoubleExtra("speed",1.0)) { start ->
@@ -1297,6 +1306,7 @@ class NativeWorldActivity : Activity() {
     }
 
     private lateinit var troubleButton: TextView
+    private lateinit var mapLens: android.widget.ImageButton
     private var troubles = org.json.JSONArray()
     private var troubleKey = ""
     private var troubleAt = 0L
@@ -1394,7 +1404,8 @@ class NativeWorldActivity : Activity() {
         render(build, if(railMode) "Konfirmasi" else if (drawing) (quoteLabel() ?: "Tinjau") else "Bangun", if(railMode) "Konfirmasi segmen rel" else if (drawing) plan.tool.review else "Bangun jalur",
             if (drawing) StudioUi.Icon.ROUTE else StudioUi.Icon.PLUS)
         render(lines,"Line","Daftar line",StudioUi.Icon.ROUTE)
-        render(finance,"Lensa","Lensa peta",StudioUi.Icon.LAYERS)
+        render(finance,"Keuangan","Keuangan",StudioUi.Icon.WALLET)
+        mapLens.visibility = mapSearch.visibility
         render(cancel,if(railMode) "Stop" else "Batal",if(railMode) "Akhiri rangkaian segmen" else "Batalkan rancangan",StudioUi.Icon.CLOSE)
         render(more,if (drawing) "Alat" else "Menu",if (drawing) "Alat rancangan" else "Cari dan menu",StudioUi.Icon.MENU)
         when {
