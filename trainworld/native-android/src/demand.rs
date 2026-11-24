@@ -86,6 +86,148 @@ fn advance(
 /// The trip rows' zone meaning every local zone of the solve (the opened cities of a world, each
 /// zone's rows in turn, all in the one world frame once packed).
 pub(super) const ALL_ZONES: &str = "*";
+/// Trip rows (`trip_cells::rows` or `purpose_rows`, longitude and latitude first) per local zone of
+/// a solve, in its zone order.
+pub(super) type ZoneRows = Vec<(String, Vec<f64>)>;
+/// `ZoneRows` packed for the map (`pack_cells`), per local zone.
+pub(super) type ZoneCells = Vec<(String, Vec<f32>)>;
+/// Which trip rows a solve also works out (`solve`'s `cells`).
+pub(super) enum TripRows<'a> {
+    /// zone `.0`'s rows (`ALL_ZONES`: every zone's), with each filter purpose's when `.1`, into
+    /// `.2` before the solve returns
+    Into(&'a str, bool, &'a mut ZoneRows),
+    /// every zone's filter purpose rows, worked out on a thread of their own once the periods
+    /// are in, so the forecast is not kept waiting for them
+    Later(std::sync::Arc<PendingRows>),
+}
+impl TripRows<'_> {
+    /// whether zone `zone`'s periods are kept for the rows
+    fn keeps(&self, zone: &str) -> bool {
+        match self {
+            TripRows::Into(id, _, _) => *id == ALL_ZONES || *id == zone,
+            TripRows::Later(_) => true,
+        }
+    }
+}
+/// `TripRows::Later`'s rows once in, each zone's packed for the map (`pack_cells`).
+#[derive(Default)]
+pub(super) struct PendingRows {
+    rows: std::sync::Mutex<Option<Result<std::sync::Arc<ZoneCells>, String>>>,
+    done: std::sync::Condvar,
+}
+impl PendingRows {
+    fn ready(&self) -> bool {
+        self.rows
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some()
+    }
+    /// whether their thread gave up (the next lens solves again)
+    fn failed(&self) -> bool {
+        self.rows
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(Result::is_err)
+    }
+    /// The rows, waiting for them while their thread works.
+    fn wait(&self) -> Result<std::sync::Arc<ZoneCells>, String> {
+        let mut rows = self
+            .rows
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if let Some(done) = rows.as_ref() {
+                return done.clone();
+            }
+            rows = self
+                .done
+                .wait(rows)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+/// The regional population handed to the rows' thread (`TripRows::Later`).
+struct Regional(Option<trainworld_sim::demand::intercity::IntercityApi>);
+// SAFETY: `IntercityApi` is not `Send` only for the `Rc`s of its market. Every one of them belongs
+// to this value: `regional::open` drops its pack store before it returns, `solve` clones none out
+// and no thread-local keeps one. Moving the sole owner moves the whole graph, so no count is ever
+// touched from two threads.
+unsafe impl Send for Regional {}
+/// Fills a `PendingRows` once; dropped unfilled (a panic, a failed spawn) it gives up, so no lens
+/// waits for ever.
+struct Fill(std::sync::Arc<PendingRows>);
+impl Fill {
+    fn put(&self, rows: Result<ZoneCells, String>) {
+        let mut slot = self
+            .0
+            .rows
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot.is_none() {
+            *slot = Some(rows.map(std::sync::Arc::new));
+        }
+        self.0.done.notify_all();
+    }
+}
+impl Drop for Fill {
+    fn drop(&mut self) {
+        self.put(Err("Perhitungan perjalanan terputus".into()));
+    }
+}
+/// The trip rows of zone `id` (`ALL_ZONES`: every zone of the solve) from the solved populations.
+fn zone_trip_rows(
+    id: &str,
+    by_purpose: bool,
+    frames: &[(String, Frame)],
+    cities: &[(DemandApi, trainworld_sim::demand::everyday::EverydayApi)],
+    market: Option<&trainworld_sim::demand::intercity::IntercityApi>,
+) -> Result<ZoneRows, String> {
+    let rows = if by_purpose {
+        crate::trip_cells::purpose_rows
+    } else {
+        crate::trip_cells::rows
+    };
+    let mut out = ZoneRows::new();
+    for ((zone, frame), (work, outings)) in frames.iter().zip(cities) {
+        if id == ALL_ZONES || zone == id {
+            out.push((zone.clone(), rows(zone, *frame, work, outings, market)?));
+        }
+    }
+    if out.is_empty() {
+        return Err("Zona perjalanan tidak tersedia".into());
+    }
+    Ok(out)
+}
+/// What the trip lenses' call (`Inputs::trip_cells`) is doing, for its progress line: 0 nothing,
+/// 1 reading the network, 2 waiting for a solve already running (the clock's), 3 solving.
+static LENS_STAGE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+fn lens_stage(stage: i32) {
+    LENS_STAGE.store(stage, std::sync::atomic::Ordering::Relaxed);
+}
+/// `rows`' zone `id` (`ALL_ZONES`: each zone's in turn) as one run of rows; None for no such zone.
+fn zone_rows<T: Copy>(rows: &[(String, Vec<T>)], id: &str) -> Option<Vec<T>> {
+    let mut out = Vec::new();
+    let mut found = false;
+    for (zone, part) in rows {
+        if id == ALL_ZONES || zone == id {
+            found = true;
+            out.extend_from_slice(part);
+        }
+    }
+    found.then_some(out)
+}
+/// Filter purpose rows as the map draws them: each row's position in the world frame `frame`
+/// instead of its longitude and latitude, its counts after it, as floats.
+fn pack_cells(frame: Frame, rows: &[f64]) -> Vec<f32> {
+    let mut packed = Vec::with_capacity(rows.len());
+    for row in rows.chunks_exact(crate::trip_cells::PURPOSE_STRIDE) {
+        let (x, y) = frame.from_lonlat(row[0], row[1]);
+        packed.extend([x as f32, y as f32]);
+        packed.extend(row[2..].iter().map(|v| *v as f32));
+    }
+    packed
+}
 fn solve(
     save: &[u8],
     packs: &[LocalPack],
@@ -94,7 +236,7 @@ fn solve(
     mut account: Option<&mut super::passenger_account::Forecast>,
     geo: Option<&crate::demand_zones::Geography>,
     // the zone whose trip rows to write, and whether with each filter purpose's (`trip_cells`)
-    cells: Option<(&str, bool, &mut Vec<f64>)>,
+    cells: Option<TripRows>,
 ) -> Result<Vec<Value>, String> {
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
     let first = packs.first().ok_or("Paket kota tidak tersedia")?;
@@ -507,10 +649,7 @@ fn solve(
             )?;
         }
         for (i, (work, other)) in cities.iter_mut().enumerate() {
-            if cells
-                .as_ref()
-                .is_some_and(|(id, _, _)| *id == ALL_ZONES || *id == frames[i].0)
-            {
+            if cells.as_ref().is_some_and(|c| c.keeps(&frames[i].0)) {
                 continue;
             }
             work.forget_period(period);
@@ -522,30 +661,29 @@ fn solve(
             }
         }
     }
-    if let Some((id, by_purpose, out)) = cells {
-        let rows = if by_purpose {
-            crate::trip_cells::purpose_rows
-        } else {
-            crate::trip_cells::rows
-        };
-        out.clear();
-        let mut found = false;
-        for (i, (zone, frame)) in frames.iter().enumerate() {
-            if id != ALL_ZONES && zone != id {
-                continue;
-            }
-            found = true;
-            out.extend(rows(
-                zone,
-                *frame,
-                &cities[i].0,
-                &cities[i].1,
-                market.as_ref(),
-            )?);
+    match cells {
+        Some(TripRows::Into(id, by_purpose, out)) => {
+            *out = zone_trip_rows(id, by_purpose, &frames, &cities, market.as_ref())?;
         }
-        if !found {
-            return Err("Zona perjalanan tidak tersedia".into());
+        Some(TripRows::Later(pending)) => {
+            let fill = Fill(pending);
+            let regional = Regional(market);
+            let world_frame = api.world().net.frame();
+            // a failed spawn drops `fill`, which tells the waiting lenses
+            let _ = std::thread::Builder::new()
+                .name("trip-rows".into())
+                .spawn(move || {
+                    let market = regional;
+                    let rows = zone_trip_rows(ALL_ZONES, true, &frames, &cities, market.0.as_ref());
+                    fill.put(rows.map(|zones| {
+                        zones
+                            .into_iter()
+                            .map(|(zone, rows)| (zone, pack_cells(world_frame, &rows)))
+                            .collect()
+                    }))
+                });
         }
+        None => {}
     }
     Ok(results)
 }
@@ -624,15 +762,23 @@ impl DemandFiles {
         })
     }
 }
-// Preview, playback and network overlays share an assignment for identical track, fares and
-// immutable release assets. Holding the lock during the solve coalesces overlapping callers.
+// Preview, playback, network overlays and the trip lenses share an assignment for identical
+// track, fares and immutable release assets. Holding the lock during the solve coalesces
+// overlapping callers: a lens opened while the clock is still warming waits for that solve.
 struct CachedForecast {
     track: Vec<u8>,
     fares: Value,
     files: DemandFiles,
-    forecast: std::sync::Arc<crate::passenger_account::Forecast>,
+    /// None for a network with no running service (nothing to forecast, trips still drawn)
+    forecast: Option<std::sync::Arc<crate::passenger_account::Forecast>>,
+    /// every zone's filter purpose rows (`trip_cells::purpose_rows`): the Home, Destination and
+    /// Total trips lenses
+    cells: std::sync::Arc<PendingRows>,
 }
-static FORECAST: std::sync::Mutex<Option<CachedForecast>> = std::sync::Mutex::new(None);
+/// The last solves, most recent first. Two: the clock's inputs and the lenses' (which also carry
+/// the viewed zones, `NativeRidership.inputs` includeViewed) may differ.
+static FORECAST: std::sync::Mutex<Vec<CachedForecast>> = std::sync::Mutex::new(Vec::new());
+const KEPT_SOLVES: usize = 2;
 impl Inputs {
     /// The zones of the boundaries read (`DemandFiles::boundaries`), for the all cities view.
     pub(super) fn geography(&self) -> &crate::demand_zones::Geography {
@@ -643,27 +789,84 @@ impl Inputs {
         save: &[u8],
         world: &mut World,
     ) -> Result<std::sync::Arc<crate::passenger_account::Forecast>, String> {
+        Ok(self
+            .solved(save, world, false)?
+            .and_then(|(f, _)| f)
+            .unwrap_or_default())
+    }
+    /// The trip lenses' cells of zone `zone` (`ALL_ZONES` for every one): per cell its x and y in
+    /// the world frame then `trip_cells::PURPOSE_STRIDE - 2` counts. Read from the clock's solve
+    /// when that is for the same network and files, otherwise solved once and kept.
+    pub(super) fn trip_cells(&self, save: &[u8], zone: &str) -> Result<Vec<f32>, String> {
+        lens_stage(1);
+        let packed = (|| {
+            let mut world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
+            let (_, pending) = self
+                .solved(save, &mut world, true)?
+                .ok_or("Data perjalanan belum tersedia")?;
+            if !pending.ready() {
+                lens_stage(2);
+            }
+            let cells = pending.wait()?;
+            zone_rows(&cells, zone).ok_or_else(|| "Zona perjalanan tidak tersedia".to_string())
+        })();
+        lens_stage(0);
+        packed
+    }
+    /// The five periods' solve for `world` (streets installed here), from the cache when the track,
+    /// fares and files match. With no running service there is nothing to forecast: None unless
+    /// `cells` asks for the trip rows anyway (everyone walks or drives).
+    #[allow(clippy::type_complexity)]
+    fn solved(
+        &self,
+        save: &[u8],
+        world: &mut World,
+        cells: bool,
+    ) -> Result<
+        Option<(
+            Option<std::sync::Arc<crate::passenger_account::Forecast>>,
+            std::sync::Arc<PendingRows>,
+        )>,
+        String,
+    > {
         for pack in &self.packs {
             let header: Value = serde_json::from_str(&pack.header).map_err(|e| e.to_string())?;
             super::city_surface::install_streets(&mut world.api, &header, &pack.cells);
         }
-        if !world.api.world().svc.lines.iter().any(|s| s.running) {
-            return Ok(std::sync::Arc::new(
-                crate::passenger_account::Forecast::default(),
-            ));
+        let running = world.api.world().svc.lines.iter().any(|s| s.running);
+        if !running && !cells {
+            return Ok(None);
         }
         let track = world.api.save();
         let fares = &world.header["fares"];
-        let mut cache = FORECAST
-            .lock()
-            .map_err(|_| "Perhitungan perjalanan terputus")?;
-        if let Some(saved) = cache
-            .as_ref()
-            .filter(|c| c.track == track && c.fares == *fares && c.files == self.files)
+        let mut cache = match FORECAST.try_lock() {
+            Ok(cache) => cache,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if cells {
+                    lens_stage(2);
+                }
+                FORECAST
+                    .lock()
+                    .map_err(|_| "Perhitungan perjalanan terputus")?
+            }
+            Err(_) => return Err("Perhitungan perjalanan terputus".into()),
+        };
+        // a solve whose rows were lost is solved again for a lens (its forecast still serves)
+        cache.retain(|c| !(cells && c.cells.failed()));
+        if let Some(i) = cache
+            .iter()
+            .position(|c| c.track == track && c.fares == *fares && c.files == self.files)
         {
-            return Ok(saved.forecast.clone());
+            let saved = cache.remove(i);
+            let found = (saved.forecast.clone(), saved.cells.clone());
+            cache.insert(0, saved);
+            return Ok(Some(found));
         }
-        let mut forecast = crate::passenger_account::Forecast::default();
+        if cells {
+            lens_stage(3);
+        }
+        let mut forecast = running.then(crate::passenger_account::Forecast::default);
+        let rows = std::sync::Arc::new(PendingRows::default());
         let zones: Vec<_> = self.markets.iter().map(String::as_str).collect();
         let market = (!zones.is_empty()).then_some((
             self.index.as_slice(),
@@ -675,18 +878,23 @@ impl Inputs {
             &self.packs,
             &[0, 1, 2, 3, 4],
             market,
-            Some(&mut forecast),
+            forecast.as_mut(),
             Some(&self.geo),
-            None,
+            Some(TripRows::Later(rows.clone())),
         )?;
-        let forecast = std::sync::Arc::new(forecast);
-        *cache = Some(CachedForecast {
-            track,
-            fares: fares.clone(),
-            files: self.files.clone(),
-            forecast: forecast.clone(),
-        });
-        Ok(forecast)
+        let forecast = forecast.map(std::sync::Arc::new);
+        cache.insert(
+            0,
+            CachedForecast {
+                track,
+                fares: fares.clone(),
+                files: self.files.clone(),
+                forecast: forecast.clone(),
+                cells: rows.clone(),
+            },
+        );
+        cache.truncate(KEPT_SOLVES);
+        Ok(Some((forecast, rows)))
     }
     pub(super) fn account(
         &self,
@@ -753,6 +961,188 @@ pub extern "system" fn Java_world_nativegame_NativeRidership_estimate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn zone_rows_join_zones_and_pack_projects_positions() {
+        let stride = crate::trip_cells::PURPOSE_STRIDE;
+        let row = |lon: f64, v: f64| {
+            let mut r = vec![lon, -6.2];
+            r.extend((2..stride).map(|k| v + k as f64));
+            r
+        };
+        let rows: ZoneRows = vec![
+            ("jak".into(), [row(106.8, 0.), row(106.9, 1.)].concat()),
+            ("bdg".into(), vec![]),
+            ("bgr".into(), row(106.7, 2.)),
+        ];
+        assert_eq!(zone_rows(&rows, ALL_ZONES).unwrap().len(), 3 * stride);
+        assert_eq!(zone_rows(&rows, "bgr").unwrap(), row(106.7, 2.));
+        assert_eq!(zone_rows(&rows, "bdg").unwrap(), Vec::<f64>::new());
+        assert!(zone_rows(&rows, "sby").is_none());
+        let world = World::workshop();
+        let all = zone_rows(&rows, ALL_ZONES).unwrap();
+        let packed = pack_cells(world.api.world().net.frame(), &all);
+        assert_eq!(packed.len(), all.len());
+        for (p, r) in packed.chunks_exact(stride).zip(all.chunks_exact(stride)) {
+            let xy = world.api.from_lonlat(r[0], r[1]);
+            assert_eq!(p[..2], [xy[0] as f32, xy[1] as f32]);
+            assert!(p[2..].iter().zip(&r[2..]).all(|(a, b)| *a == *b as f32));
+        }
+    }
+    /// The trip lenses read the clock's solve (`Inputs::trip_cells` after `account_and_forecast`)
+    /// and draw exactly what their own solve gave (the old `tripCells`: every period kept, no
+    /// forecast), and times both. Inputs as `NativeRidership.inputs` makes them, from
+    /// WORLD_CITY_DATA (packs, `market-drives.bin`, boundaries), WORLD_CITY, WORLD_MARKET_INDEX and
+    /// WORLD_SAVE. WORLD_LENS_PHASE=before|after runs only the clock's solve, before or after the
+    /// lenses joined it (peak memory per run).
+    #[test]
+    #[ignore = "requires the pinned city packs and a network save"]
+    fn trip_lens_from_clock_solve() {
+        use std::time::Instant;
+        let dir = std::env::var("WORLD_CITY_DATA").unwrap();
+        let home = std::env::var("WORLD_CITY").unwrap();
+        let save = std::fs::read(std::env::var("WORLD_SAVE").unwrap()).unwrap();
+        let zones = crate::demand_zones::plan(&save, std::path::Path::new(&dir)).unwrap();
+        let ids = |k: &str| -> Vec<String> {
+            zones[k]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect()
+        };
+        let mut local = vec![home.clone()];
+        local.extend(ids("local").into_iter().filter(|z| *z != home));
+        let mut markets = ids("markets");
+        if !markets.contains(&home) {
+            markets.push(home.clone());
+        }
+        let spec = json!({
+            "local": local.iter().map(|z| [format!("{dir}/{z}.json"), format!("{dir}/{z}.bin")]).collect::<Vec<_>>(),
+            "markets": markets.iter().map(|z| format!("{dir}/{z}.market.json")).collect::<Vec<_>>(),
+            "index": std::env::var("WORLD_MARKET_INDEX").unwrap(),
+            "drives": format!("{dir}/market-drives.bin"),
+            "boundaries": dir,
+        });
+        let files: DemandFiles = serde_json::from_value(spec).unwrap();
+        let world = World::open(&save).unwrap();
+        let lines = world
+            .api
+            .world()
+            .svc
+            .lines
+            .iter()
+            .filter(|s| s.running)
+            .count();
+        eprintln!("local {local:?}, markets {markets:?}, running lines {lines}");
+        let t = Instant::now();
+        let data = files.read().unwrap();
+        eprintln!("read inputs: {:?}", t.elapsed());
+        let zone_ids: Vec<_> = data.markets.iter().map(String::as_str).collect();
+        let market = Some((data.index.as_slice(), data.drives.as_slice(), &zone_ids[..]));
+        match std::env::var("WORLD_LENS_PHASE").as_deref() {
+            Ok("before") => {
+                let t = Instant::now();
+                let mut f = crate::passenger_account::Forecast::default();
+                solve(
+                    &save,
+                    &data.packs,
+                    &[0, 1, 2, 3, 4],
+                    market,
+                    Some(&mut f),
+                    Some(&data.geo),
+                    None,
+                )
+                .unwrap();
+                eprintln!("clock solve without the lenses' rows: {:?}", t.elapsed());
+                return;
+            }
+            Ok("after") => {
+                let t = Instant::now();
+                let mut world = World::open(&save).unwrap();
+                data.account_and_forecast(&save, &mut world).unwrap();
+                eprintln!("clock solve with the lenses' rows: {:?}", t.elapsed());
+                return;
+            }
+            _ => {}
+        }
+        // the old tripCells: its own solve, every period kept
+        let t = Instant::now();
+        let mut rows = ZoneRows::new();
+        solve(
+            &save,
+            &data.packs,
+            &[0, 1, 2, 3, 4],
+            market,
+            None,
+            None,
+            Some(TripRows::Into(ALL_ZONES, true, &mut rows)),
+        )
+        .unwrap();
+        let frame = World::open(&save).unwrap().api.world().net.frame();
+        let packed = |id: &str| {
+            let rows = zone_rows(&rows, id).unwrap();
+            let fresh = World::open(&save).unwrap();
+            // the old tripCells' projection, through the editor's API
+            let mut out = Vec::with_capacity(rows.len());
+            for row in rows.chunks_exact(crate::trip_cells::PURPOSE_STRIDE) {
+                out.extend(
+                    fresh
+                        .api
+                        .from_lonlat(row[0], row[1])
+                        .into_iter()
+                        .map(|v| v as f32),
+                );
+                out.extend(row[2..].iter().map(|v| *v as f32));
+            }
+            assert_eq!(out, pack_cells(frame, &rows));
+            out
+        };
+        let expected = packed(ALL_ZONES);
+        eprintln!(
+            "lens, own solve (before): {:?}, {} cells",
+            t.elapsed(),
+            expected.len() / crate::trip_cells::PURPOSE_STRIDE
+        );
+        // the clock's solve, then the lens on the same network
+        FORECAST.lock().unwrap().clear();
+        let t = Instant::now();
+        let mut world = World::open(&save).unwrap();
+        let (_, forecast) = data.account_and_forecast(&save, &mut world).unwrap();
+        eprintln!("clock solve with the lenses' rows: {:?}", t.elapsed());
+        let t = Instant::now();
+        let got = files.read().unwrap().trip_cells(&save, ALL_ZONES).unwrap();
+        eprintln!("lens after the clock (after): {:?}", t.elapsed());
+        assert_eq!(got.len(), expected.len());
+        assert!(
+            got.iter()
+                .zip(&expected)
+                .all(|(a, b)| a.to_bits() == b.to_bits()),
+            "lens cells differ"
+        );
+        for zone in &local {
+            let one = data.trip_cells(&save, zone).unwrap();
+            assert_eq!(one, packed(zone), "{zone}");
+        }
+        // the same forecast again, from the cache
+        let mut again = World::open(&save).unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            &forecast,
+            &data.forecast(&save, &mut again).unwrap()
+        ));
+        // an edit away and back: the lens solves once more, then reads its own
+        let mut edited = World::open(&save).unwrap();
+        edited.header["fares"]["lensProbe"] = 1.into();
+        let other = edited
+            .save(edited.header["clock"].as_f64().unwrap())
+            .unwrap();
+        let t = Instant::now();
+        data.trip_cells(&other, ALL_ZONES).unwrap();
+        eprintln!("lens on another network (own solve): {:?}", t.elapsed());
+        let t = Instant::now();
+        assert_eq!(data.trip_cells(&save, ALL_ZONES).unwrap(), got);
+        data.trip_cells(&other, ALL_ZONES).unwrap();
+        eprintln!("both lenses again from the cache: {:?}", t.elapsed());
+    }
     /// The purpose filter's rows (`trip_cells::purpose_rows`) against every purpose's: the same
     /// cells and totals in the first eight counts, and the seven purposes never above them (the
     /// longer trips make the rest). WORLD_CITY_DATA holds `<city>.json/.bin/.market.json` and
@@ -862,10 +1252,10 @@ mod tests {
                 market,
                 None,
                 None,
-                Some((&id, by_purpose, &mut cells)),
+                Some(TripRows::Into(&id, by_purpose, &mut cells)),
             )
             .unwrap();
-            cells
+            zone_rows(&cells, &id).unwrap()
         };
         let (all, parts) = (run(false), run(true));
         let stride = crate::trip_cells::PURPOSE_STRIDE;
@@ -981,10 +1371,11 @@ mod tests {
                 Some(&geo),
                 output
                     .as_ref()
-                    .map(|_| (id.as_str(), by_purpose, &mut cells)),
+                    .map(|_| TripRows::Into(id.as_str(), by_purpose, &mut cells)),
             )
             .unwrap();
             if let Some(path) = output {
+                let cells = zone_rows(&cells, &id).unwrap();
                 std::fs::write(path, serde_json::to_vec(&cells).unwrap()).unwrap();
             }
             let dir = std::path::PathBuf::from(dir);
@@ -1090,35 +1481,7 @@ pub extern "system" fn Java_world_nativegame_NativeRidership_tripCells(
         let spec: String = env.get_string(&manifest).map_err(|e| e.to_string())?.into();
         let city: String = env.get_string(&city).map_err(|e| e.to_string())?.into();
         let files: DemandFiles = serde_json::from_str(&spec).map_err(|e| e.to_string())?;
-        let data = files.read()?;
-        let zones: Vec<_> = data.markets.iter().map(String::as_str).collect();
-        let market = (!zones.is_empty()).then_some((
-            data.index.as_slice(),
-            data.drives.as_slice(),
-            zones.as_slice(),
-        ));
-        let mut cells = Vec::new();
-        solve(
-            &save,
-            &data.packs,
-            &[0, 1, 2, 3, 4],
-            market,
-            None,
-            None,
-            Some((&city, true, &mut cells)),
-        )?;
-        let world = World::open(&save).ok_or("Simpanan tidak dapat dibaca")?;
-        let mut packed = Vec::with_capacity(cells.len());
-        for row in cells.chunks_exact(crate::trip_cells::PURPOSE_STRIDE) {
-            packed.extend(
-                world
-                    .api
-                    .from_lonlat(row[0], row[1])
-                    .into_iter()
-                    .map(|v| v as f32),
-            );
-            packed.extend(row[2..].iter().map(|v| *v as f32));
-        }
+        let packed = files.read()?.trip_cells(&save, &city)?;
         let size = i32::try_from(packed.len()).map_err(|e| e.to_string())?;
         let array = env.new_float_array(size).map_err(|e| e.to_string())?;
         env.set_float_array_region(&array, 0, &packed)
@@ -1132,6 +1495,15 @@ pub extern "system" fn Java_world_nativegame_NativeRidership_tripCells(
             std::ptr::null_mut()
         }
     }
+}
+
+/// `LENS_STAGE`: what a running `tripCells` is doing, for the lens's progress line.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_NativeRidership_tripCellsStage(
+    _: JNIEnv,
+    _: JClass,
+) -> jint {
+    LENS_STAGE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[no_mangle]

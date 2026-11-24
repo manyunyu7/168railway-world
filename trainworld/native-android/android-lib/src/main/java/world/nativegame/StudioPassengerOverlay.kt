@@ -58,6 +58,16 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     val active get() = selection[0] != "none" || selection[1] != "none" || track != "line"
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cells = mutableListOf<FloatArray>()
+    /** Bumped whenever `cells` changes, so the bubble groups kept per zoom band are dropped. */
+    private var cellsVersion = 0
+    /** While trips load, the progress line follows what Rust is doing (`NativeRidership.tripCellsStage`). */
+    private val tripsProgress = object : Runnable {
+        override fun run() {
+            if (loading != "trips") return
+            redraw()
+            main.postDelayed(this, 400)
+        }
+    }
     private val stations = mutableListOf<FloatArray>()
     /** Daily riders at the stop nearest (x,y) and that stop's share of the busiest stop; null until loaded. */
     fun riders(x: Float, y: Float, radius: Float = 120f): Pair<Int, Float>? {
@@ -107,14 +117,14 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             return
         }
         staleTrips = false; staleNetwork = false
-        cells.clear(); stations.clear(); edgeProfit.clear(); spans.clear(); discs.clear()
+        cells.clear(); cellsVersion++; stations.clear(); edgeProfit.clear(); spans.clear(); discs.clear()
         bySpeed.clear(); byHeight.clear()
         busiest.fill(0f)
         gridKey = ""
     }
     fun zoneAdded() {
         if (loading == "trips") stop()
-        cells.clear()
+        cells.clear(); cellsVersion++
         discs.clear()
         loaded.remove("trips")
         gridKey = ""
@@ -142,6 +152,8 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             // every opened zone's cells at once, so a pan to another city needs no new solve
             val zone = ALL_ZONES
             val inputs = requireNotNull(manifest)
+            main.removeCallbacks(tripsProgress)
+            main.postDelayed(tripsProgress, 400)
             nativeTask = executor.submit {
                 val result = runCatching {
                     val packed = NativeRidership.tripCells(bytes,inputs(bytes,true),zone)
@@ -152,6 +164,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                     if (generation == id) result.fold({ rows ->
                         if (staleTrips) { cells.clear(); discs.clear(); staleTrips = false }
                         cells.addAll(rows)
+                        cellsVersion++
                         loaded.add(kind)
                         gridKey = ""
                         stop()
@@ -289,7 +302,10 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         val counts:DoubleArray,val station:Boolean)
     private val discs=mutableListOf<Disc>()
     private var gridKey = ""
-    private val groups = mutableMapOf<Long,DoubleArray>()
+    private var groups: Map<Long,DoubleArray> = emptyMap()
+    /** Bubble groups per lens, zoom band and purpose of the current `cells` (switching back is free). */
+    private val groupCache = HashMap<String,Map<Long,DoubleArray>>()
+    private var groupCacheVersion = -1
     private val modeColors = intArrayOf(0x317bb8,0x67ab55,0xd99154,0x88758a)
     /** Web modeMix on the light basemap, including the share of trips without a route. */
     private fun bubbleColor(g: DoubleArray, scheme: String): Int {
@@ -327,19 +343,28 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             }
             val bin = 410.0 * sqrt(7.0).pow(level)
             val key="$end/$bin/$purpose"
-            if (key != gridKey) {
-                groups.clear()
-                // the purpose's eight counts: home end rail, walk, road, no route, then the destination's
-                val base = 2 + 8 * PURPOSES.indexOfFirst { it.first == purpose }.coerceAtLeast(0)
-                for (r in cells) {
-                    val gx=floor(r[0]/bin).toLong(); val gy=floor(r[1]/bin).toLong()
-                    val g=groups.getOrPut((gx shl 32) or (gy and 0xffffffffL)){ DoubleArray(7) }
-                    var n=0.0
-                    for(i in 0..3) {
-                        val v=(if(end!="work") r[base+i] else 0f)+(if(end!="home") r[base+4+i] else 0f)
-                        g[3+i]+=v.toDouble(); n+=v
+            if (key != gridKey || groupCacheVersion != cellsVersion) {
+                if (groupCacheVersion != cellsVersion) { groupCache.clear(); groupCacheVersion = cellsVersion }
+                groups = groupCache.getOrPut(key) {
+                    val made = HashMap<Long,DoubleArray>()
+                    // the purpose's eight counts: home end rail, walk, road, no route, then the destination's
+                    val base = 2 + 8 * PURPOSES.indexOfFirst { it.first == purpose }.coerceAtLeast(0)
+                    val home = end != "work"; val work = end != "home"
+                    for (r in cells) {
+                        var n=0.0
+                        val v0=(if(home) r[base] else 0f)+(if(work) r[base+4] else 0f)
+                        val v1=(if(home) r[base+1] else 0f)+(if(work) r[base+5] else 0f)
+                        val v2=(if(home) r[base+2] else 0f)+(if(work) r[base+6] else 0f)
+                        val v3=(if(home) r[base+3] else 0f)+(if(work) r[base+7] else 0f)
+                        if (v0 == 0f && v1 == 0f && v2 == 0f && v3 == 0f) continue
+                        val gx=floor(r[0]/bin).toLong(); val gy=floor(r[1]/bin).toLong()
+                        val g=made.getOrPut((gx shl 32) or (gy and 0xffffffffL)){ DoubleArray(7) }
+                        g[3]+=v0.toDouble(); g[4]+=v1.toDouble(); g[5]+=v2.toDouble(); g[6]+=v3.toDouble()
+                        n+=v0; n+=v1; n+=v2; n+=v3
+                        g[0]+=r[0]*n; g[1]+=r[1]*n; g[2]+=n
                     }
-                    g[0]+=r[0]*n; g[1]+=r[1]*n; g[2]+=n
+                    if (groupCache.size >= 8) groupCache.clear()
+                    made
                 }
                 gridKey=key
             }
@@ -405,6 +430,11 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     fun legend():String? {
         if(!active) return null
         if(error!=null) return "Gagal memuat lapisan · pilih lagi untuk mencoba"
+        if(loading=="trips") return when(NativeRidership.tripCellsStage()) {
+            2 -> "Menunggu prakiraan penumpang simulasi…"
+            3 -> "Menghitung perjalanan…"
+            else -> "Memuat perjalanan…"
+        }
         if(loading.isNotEmpty()) return if(loading=="network" && selection[1]=="none" && (track=="speed" || track=="height"))
             "Memuat profil line…" else "Menghitung perjalanan…"
         val parts=mutableListOf<String>()
