@@ -44,15 +44,15 @@ internal class StudioOperationsGuide(
             // Step card: "LANGKAH n DARI m", display title, purple progress segments.
             val card = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
-                background = StudioUi.card(activity, 26, 0xf2ffffff.toInt())
-                setPadding(dp(18), dp(16), dp(18), dp(18))
+                background = StudioUi.card(activity, 14, 0xf2ffffff.toInt())
+                setPadding(dp(10), dp(8), dp(10), dp(8))
             }
             card.addView(StudioUi.text(activity,
                 if (task != null) "LANGKAH ${complete + 1} DARI ${tasks.size}" else "${tasks.size} DARI ${tasks.size} LANGKAH",
                 12f, true, StudioUi.BLUE).apply { letterSpacing = .06f })
             card.addView(StudioUi.title(activity, task?.title ?: "Latihan selesai", 22f),
                 LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
-            card.addView(StudioUi.text(activity, task?.detail ?: "Semua langkah di panduan ini sudah kamu selesaikan.", 15f, true, StudioUi.MUTED).apply {
+            card.addView(StudioUi.text(activity, task?.detail ?: "Semua langkah di panduan ini sudah kamu selesaikan.", 14f, true, StudioUi.MUTED).apply {
                 setLineSpacing(dp(2).toFloat(), 1f)
             }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
             val segments = LinearLayout(activity)
@@ -71,7 +71,7 @@ internal class StudioOperationsGuide(
                 }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
             }
             val footer = LinearLayout(activity).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-            fun textButton(label: String, click: () -> Unit) = StudioUi.text(activity,label,15f,true,StudioUi.MUTED).apply {
+            fun textButton(label: String, click: () -> Unit) = StudioUi.text(activity,label,14f,true,StudioUi.MUTED).apply {
                 gravity = android.view.Gravity.CENTER
                 minHeight = dp(48)
                 setPadding(dp(8),0,dp(8),0)

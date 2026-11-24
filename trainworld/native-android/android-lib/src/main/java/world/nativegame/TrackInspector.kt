@@ -223,14 +223,14 @@ internal object TrackInspector {
                     render()
                 }
                 val limitRow = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
-                limitRow.addView(StudioUi.text(activity, "Batas laju", 15f, true), LinearLayout.LayoutParams(0, -2, 1f))
+                limitRow.addView(StudioUi.text(activity, "Batas laju", 14f, true), LinearLayout.LayoutParams(0, -2, 1f))
                 if (have > 0) {
                     fun step(d: Int) {
                         val to = (have + d * STEP).coerceIn(MIN, top.toInt())
                         if (to != have) send(to)
                     }
                     limitRow.addView(StudioUi.iconButton(activity, "Turunkan batas laju", StudioUi.Icon.MINUS) { step(-1) }.apply { isEnabled = have > MIN })
-                    limitRow.addView(StudioUi.text(activity, speed(have.toDouble()), 16f).apply {
+                    limitRow.addView(StudioUi.text(activity, speed(have.toDouble()), 14f).apply {
                         typeface = StudioUi.heavy(activity); gravity = Gravity.CENTER
                         minWidth = dp(96)
                     })

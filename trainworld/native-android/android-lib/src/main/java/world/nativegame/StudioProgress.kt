@@ -33,7 +33,7 @@ internal object StudioProgress {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         val delta = cashEnd - cashStart
         StudioUi.sheet(activity, "Laporan hari $day") { column, dialog ->
-            column.addView(StudioUi.text(activity, if (delta >= 0) "Hari yang untung!" else "Hari yang berat", 16f, true, StudioUi.MUTED))
+            column.addView(StudioUi.text(activity, if (delta >= 0) "Hari yang untung!" else "Hari yang berat", 14f, true, StudioUi.MUTED))
             val grid = android.widget.GridLayout(activity).apply { columnCount = 2 }
             listOf(
                 Triple("Kereta di peta", trains.toString(), StudioUi.INK),

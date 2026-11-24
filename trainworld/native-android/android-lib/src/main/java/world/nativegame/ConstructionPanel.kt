@@ -110,7 +110,7 @@ internal object ConstructionPanel {
                     setSingleLine(); filters=arrayOf(InputFilter.LengthFilter(48))
                     if(tool==BuildTool.STATION) hint="Otomatis dari lokasi"
                     setText(plan.name); setSelectAllOnFocus(true); textSize=17f; typeface=StudioUi.face(host)
-                    setTextColor(StudioUi.INK); setPadding(dp(18),dp(4),dp(18),dp(4)); minHeight=dp(52)
+                    setTextColor(StudioUi.INK); setPadding(dp(10),dp(4),dp(10),dp(4)); minHeight=dp(52)
                     background=StudioUi.pill(host,StudioUi.WHITE,26)
                     body.addView(this,LinearLayout.LayoutParams(-1,-2))
                 }
@@ -122,7 +122,7 @@ internal object ConstructionPanel {
                     label("Panjang peron")
                     val row=LinearLayout(host).apply {
                         gravity=Gravity.CENTER_VERTICAL
-                        background=StudioUi.card(host,24)
+                        background=StudioUi.card(host, 14)
                         setPadding(dp(8),dp(8),dp(8),dp(8))
                     }
                     val value=StudioUi.title(host,"",22f).apply { gravity=Gravity.CENTER }

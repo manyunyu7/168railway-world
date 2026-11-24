@@ -57,7 +57,7 @@ internal object WorldExtras {
     private fun money(host: Activity, millions: Double) = StudioFormat.money(millions * 1e6, StudioCurrency.current(host))
     private fun card(host: Activity) = LinearLayout(host).apply {
         orientation = LinearLayout.VERTICAL
-        background = StudioUi.card(host, 22)
+        background = StudioUi.card(host, 14)
         val p = StudioUi.dp(host, 12); setPadding(p + StudioUi.dp(host, 2), p, p, p)
     }
     private fun note(host: Activity, value: String) = StudioUi.text(host, value, 12f, true, StudioUi.MUTED).apply {
@@ -95,12 +95,12 @@ internal object WorldExtras {
                 val name = sizes.getJSONObject(size).getString("name")
                 if (p.has("cars")) {
                     val cars = p.getDouble("cars"); val used = p.getDouble("used")
-                    c.addView(StudioUi.text(host, "${count(used)} / ${count(slots)} slot terisi · $name", 15f, true))
+                    c.addView(StudioUi.text(host, "${count(used)} / ${count(slots)} slot terisi · $name", 14f, true))
                     c.addView(StudioProgress.Bar(host, if (cars > slots) StudioUi.RED else 0xff2fb36d.toInt(), StudioUi.TINT_GREY).apply {
                         fraction = (used / slots).toFloat()
                     }, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(6) })
                     if (cars > slots) c.addView(note(host, "Penuh: ${count(cars - slots)} mobil lagi ingin parkir di sini."))
-                } else c.addView(StudioUi.text(host, "Kapasitas ${count(slots)} slot · $name", 15f, true))
+                } else c.addView(StudioUi.text(host, "Kapasitas ${count(slots)} slot · $name", 14f, true))
                 // fee stepper, Rp 0 to Rp 20.000 a day
                 val fee = p.getDouble("fee"); val step = p.getDouble("feeStep"); val max = p.getDouble("feeMax")
                 val row = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -108,7 +108,7 @@ internal object WorldExtras {
                 row.addView(StudioUi.iconButton(host, "Turunkan tarif parkir", StudioUi.Icon.MINUS) {
                     if (fee > 0) edit { now -> JSONObject(setPark(handle, node, maxOf(0.0, fee - step), size, now)) }
                 }, LinearLayout.LayoutParams(dp(48), dp(48)))
-                row.addView(StudioUi.text(host, rp(fee), 16f).apply {
+                row.addView(StudioUi.text(host, rp(fee), 14f).apply {
                     typeface = StudioUi.heavy(host); gravity = Gravity.CENTER
                 }, LinearLayout.LayoutParams(dp(92), -2))
                 row.addView(StudioUi.iconButton(host, "Naikkan tarif parkir", StudioUi.Icon.PLUS) {

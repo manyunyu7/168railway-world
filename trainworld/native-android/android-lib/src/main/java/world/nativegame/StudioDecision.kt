@@ -16,9 +16,9 @@ internal class StudioDecision(context: Context, title: String, detail: String? =
 
     init {
         orientation = VERTICAL
-        background = StudioUi.card(context, 22)
-        setPadding(dp(16),dp(14),dp(16),dp(14))
-        addView(StudioUi.text(context,title,17f,color = StudioUi.INK).apply { typeface = StudioUi.heavy(context) })
+        background = StudioUi.card(context, 14)
+        setPadding(dp(10),dp(8),dp(10),dp(8))
+        addView(StudioUi.text(context,title,15f,color = StudioUi.INK).apply { typeface = StudioUi.heavy(context) })
         detail?.let { addView(StudioUi.text(context,it,13f,true,StudioUi.MUTED).apply { setPadding(0,dp(2),0,dp(4)) }) }
     }
 
@@ -26,9 +26,9 @@ internal class StudioDecision(context: Context, title: String, detail: String? =
         val row = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
             background = StudioUi.pill(context, 0x0d22204a, 14)
-            setPadding(dp(12),dp(9),dp(12),dp(9))
+            setPadding(dp(10),dp(6),dp(10),dp(6))
             addView(StudioUi.text(context,label,13f,true,StudioUi.MUTED), LayoutParams(0,-2,1f))
-            addView(StudioUi.text(context,value,15f,color = StudioUi.INK).apply {
+            addView(StudioUi.text(context,value,14f,color = StudioUi.INK).apply {
                 typeface = StudioUi.heavy(context)
                 gravity = Gravity.END
             }, LayoutParams(0,-2,1.15f))

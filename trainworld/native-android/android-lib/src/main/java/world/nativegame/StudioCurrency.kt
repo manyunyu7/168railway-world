@@ -59,7 +59,7 @@ internal data class StudioCurrency(val code: String, val label: String, val symb
                 val preview = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     background = StudioUi.panel(activity,StudioDepot.MINT,16,StudioDepot.LINE)
-                    setPadding(dp(15),dp(12),dp(15),dp(12))
+                    setPadding(dp(10),dp(6),dp(10),dp(6))
                 }
                 preview.addView(StudioUi.text(activity,"Contoh anggaran · setara US$1 juta",14f,true,StudioDepot.TEAL))
                 val amount = StudioUi.text(activity,choice.compact(1.0),25f,true,StudioDepot.TEAL)

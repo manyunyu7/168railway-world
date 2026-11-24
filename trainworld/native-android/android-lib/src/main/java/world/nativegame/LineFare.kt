@@ -24,16 +24,16 @@ internal object LineFare {
         fun dp(n: Int) = StudioUi.dp(host, n)
         var mul = JSONObject(get(handle, id)).optDouble("fare", 1.0)
         fun text(v: Double) = String.format(ID, "%.2f×", v)
-        val box = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; background = StudioUi.card(host, 22); setPadding(dp(14), dp(8), dp(8), dp(8)) }
+        val box = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; background = StudioUi.card(host, 14); setPadding(dp(10), dp(8), dp(8), dp(8)) }
         val line = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
         // the title on its own row: beside the stepper it wrapped into "Kelip / atan / tarif" on a phone
-        box.addView(StudioUi.text(host, "Kelipatan tarif", 15f, true))
+        box.addView(StudioUi.text(host, "Kelipatan tarif", 14f, true))
         line.addView(View(host), LinearLayout.LayoutParams(0, 1, 1f))
         box.addView(line)
         box.addView(StudioUi.text(host, "Mengalikan tarif untuk naik di line ini, termasuk tarif dasar. Perjalanan lewat beberapa line membayar tarif dasar tertinggi di antaranya.",
             12f, true, StudioUi.MUTED).apply { setPadding(0, dp(4), dp(6), 0) })
         if (!editable) {
-            line.addView(StudioUi.text(host, text(mul), 16f).apply { typeface = StudioUi.heavy(host) })
+            line.addView(StudioUi.text(host, text(mul), 14f).apply { typeface = StudioUi.heavy(host) })
             return box
         }
         val value = EditText(host).apply {

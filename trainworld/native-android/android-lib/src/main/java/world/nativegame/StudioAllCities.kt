@@ -133,7 +133,7 @@ object StudioAllCities {
             body.addView(ProgressBar(activity).apply {
                 indeterminateTintList = android.content.res.ColorStateList.valueOf(StudioUi.BLUE)
             }, LinearLayout.LayoutParams(-1, StudioUi.dp(activity, 40)))
-            body.addView(StudioUi.text(activity, "Menjumlahkan semua kota…", 15f, true, StudioUi.MUTED).apply {
+            body.addView(StudioUi.text(activity, "Menjumlahkan semua kota…", 14f, true, StudioUi.MUTED).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
             })
             column.addView(body)

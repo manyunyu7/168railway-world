@@ -158,14 +158,14 @@ internal object StopEditMode {
         val root = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL
             background = StudioUi.glass(a, 24, 0xfffbfaff.toInt())
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(dp(10), dp(6), dp(10), dp(6))
             isClickable = true
             elevation = dp(12).toFloat()
         }
         val head = LinearLayout(a).apply { gravity = Gravity.CENTER_VERTICAL }
         head.addView(StudioUi.badge(a, ServicePanel.code(s.name), s.color, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
         val words = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
-        words.addView(StudioUi.text(a, s.name, 15f, true, StudioUi.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+        words.addView(StudioUi.text(a, s.name, 14f, true, StudioUi.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
         words.addView(StudioUi.text(a, "Ubah perhentian", 12f, true, StudioUi.MUTED))
         head.addView(words, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
         root.addView(head)

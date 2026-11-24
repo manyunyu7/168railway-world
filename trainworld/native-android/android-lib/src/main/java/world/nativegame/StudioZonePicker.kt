@@ -66,7 +66,7 @@ internal object StudioZonePicker {
             }
             local.addView(StudioUi.section(activity,"Kota lainnya"),
                 LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(4) })
-            val missing = StudioUi.text(activity, "Kota tidak ditemukan.", 15f, true, StudioUi.MUTED)
+            val missing = StudioUi.text(activity, "Kota tidak ditemukan.", 14f, true, StudioUi.MUTED)
             missing.visibility = View.GONE
             column.addView(missing, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
             val matches = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }

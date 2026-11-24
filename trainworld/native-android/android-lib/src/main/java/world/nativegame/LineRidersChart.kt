@@ -36,8 +36,8 @@ internal object LineRidersChart {
         val names = route.names
         val card = LinearLayout(host).apply {
             orientation = LinearLayout.VERTICAL
-            background = StudioUi.card(host, 22)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = StudioUi.card(host, 14)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
         }
         val head = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
         head.addView(StudioUi.section(host, "Penumpang per ruas"), LinearLayout.LayoutParams(0, -2, 1f))

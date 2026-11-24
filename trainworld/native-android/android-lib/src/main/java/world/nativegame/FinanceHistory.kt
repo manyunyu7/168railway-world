@@ -77,8 +77,8 @@ internal object FinanceHistory {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            background = StudioUi.card(activity, 22)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = StudioUi.card(activity, 14)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
         }
         val chips = LinearLayout(activity)
         val title = StudioUi.text(activity, "", 13f, true, StudioUi.MUTED)
@@ -164,8 +164,8 @@ internal object FinanceHistory {
         val usd = { v: Double -> StudioFormat.money(v * 1e6, currency) }
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            background = StudioUi.card(activity, 22)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = StudioUi.card(activity, 14)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
         }
         val top = cols.maxOf { maxOf(it.fares, it.running) }
         val head = LinearLayout(activity)

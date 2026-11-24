@@ -149,7 +149,7 @@ internal object JunctionInspector {
             texts.addView(StudioUi.text(c, "Memotong $list", 12f, true, StudioUi.MUTED))
         }
         row.addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
-        row.addView(StudioUi.text(c, Math.round(m.optDouble("tph")).toString(), 15f, true).apply { gravity = Gravity.END },
+        row.addView(StudioUi.text(c, Math.round(m.optDouble("tph")).toString(), 14f, true).apply { gravity = Gravity.END },
             LinearLayout.LayoutParams(dp(34), -2))
         val delay = m.optDouble("delay")
         row.addView(StudioUi.text(c, if (delay > 0) "+" + duration(delay) else "", 14f, true, StudioUi.MUTED).apply { gravity = Gravity.END },

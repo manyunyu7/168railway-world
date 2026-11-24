@@ -136,15 +136,15 @@ internal class ScheduleEditor(
             val titleRow = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
             titleRow.addView(StudioUi.badge(host, ServicePanel.code(service.getString("name")), colour, 46), LinearLayout.LayoutParams(dp(46), dp(46)))
             val heading = group()
-            val routeTitle = StudioUi.text(host, service.getString("name"), 17f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) }
+            val routeTitle = StudioUi.text(host, service.getString("name"), 15f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) }
             heading.addView(routeTitle)
             val summary = listOf(service.getString("vehicle"), route.endpoints).filter { it.isNotBlank() }.joinToString("  ·  ")
             heading.addView(StudioUi.text(host, summary, 13f, true, StudioUi.MUTED))
             titleRow.addView(heading, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
             body.addView(titleRow, gap(4))
             val card = group().apply {
-                background = StudioUi.card(host, 22)
-                setPadding(dp(14), dp(10), dp(14), dp(12))
+                background = StudioUi.card(host, 14)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
             }
             card.addView(StudioUi.text(host, "Pratinjau frekuensi · satu jam", 13f, true, StudioUi.MUTED))
             card.addView(preview, LinearLayout.LayoutParams(-1, dp(92)))
@@ -175,12 +175,12 @@ internal class ScheduleEditor(
             periods.forEachIndexed { i, period ->
                 val row = LinearLayout(host).apply {
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(14), dp(8), dp(8), dp(8))
-                    background = StudioUi.card(host, 22)
+                    setPadding(dp(10), dp(8), dp(8), dp(8))
+                    background = StudioUi.card(host, 14)
                 }
                 val text = group()
-                text.addView(StudioUi.text(host, if (i == nowLevel) "$period · sekarang" else period, 16f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
-                if (i == nowLevel) row.background = StudioUi.card(host, 22, StudioUi.TINT_YELLOW)
+                text.addView(StudioUi.text(host, if (i == nowLevel) "$period · sekarang" else period, 14f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
+                if (i == nowLevel) row.background = StudioUi.card(host, 14, StudioUi.TINT_YELLOW)
                 val hint = StudioUi.text(host, "", 12f, true, StudioUi.MUTED)
                 text.addView(hint)
                 hints.add(hint)
@@ -240,10 +240,10 @@ internal class ScheduleEditor(
             val weekend = input("Porsi kereta akhir pekan terhadap kereta hari kerja", shareStart, true)
             val shareRow = LinearLayout(host).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(14), dp(6), dp(8), dp(6))
-                background = StudioUi.card(host, 22)
+                setPadding(dp(10), dp(6), dp(8), dp(6))
+                background = StudioUi.card(host, 14)
             }
-            shareRow.addView(StudioUi.text(host, "Porsi dari hari kerja (%)", 15f, true), LinearLayout.LayoutParams(0, -2, 1f))
+            shareRow.addView(StudioUi.text(host, "Porsi dari hari kerja (%)", 14f, true), LinearLayout.LayoutParams(0, -2, 1f))
             shareRow.addView(weekend, LinearLayout.LayoutParams(dp(84), dp(48)))
             body.addView(shareRow, gap(6))
             val manualNote = StudioUi.text(host, "Kereta akhir pekan diatur manual. Mengubah porsi mengembalikannya ke porsi.", 12f, true, 0xff7a5600.toInt()).apply {
@@ -254,10 +254,10 @@ internal class ScheduleEditor(
             val weekendFields = periods.mapIndexed { i, period ->
                 val row = LinearLayout(host).apply {
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(14), dp(6), dp(8), dp(6))
-                    background = StudioUi.card(host, 22)
+                    setPadding(dp(10), dp(6), dp(8), dp(6))
+                    background = StudioUi.card(host, 14)
                 }
-                row.addView(StudioUi.text(host, "$period · ${route.vehicleUnit}", 15f, true), LinearLayout.LayoutParams(0, -2, 1f))
+                row.addView(StudioUi.text(host, "$period · ${route.vehicleUnit}", 14f, true), LinearLayout.LayoutParams(0, -2, 1f))
                 val field = input("Kereta akhir pekan, permintaan ${period.lowercase()}", weekendStart[i].toString(), true)
                 fun step(d: Int) = StudioUi.iconButton(host, "${if (d < 0) "Kurangi" else "Tambah"} ${route.vehicleUnit} akhir pekan, permintaan ${period.lowercase()}",
                     if (d < 0) StudioUi.Icon.MINUS else StudioUi.Icon.PLUS) {

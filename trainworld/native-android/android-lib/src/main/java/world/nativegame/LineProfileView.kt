@@ -81,7 +81,7 @@ internal object LineProfileView {
                     isEnabled = setLimit != null && max(least, min(kindTop, limit + d * step)) != limit
                 }
                 stepper.addView(stepButton("−", -1, "Kurangi batas laju"), LinearLayout.LayoutParams(dp(52), dp(48)))
-                stepper.addView(StudioUi.text(c, speed(limit.toDouble()), 15f, true).apply {
+                stepper.addView(StudioUi.text(c, speed(limit.toDouble()), 14f, true).apply {
                     gravity = Gravity.CENTER
                 }, LinearLayout.LayoutParams(dp(84), -2))
                 stepper.addView(stepButton("+", 1, "Tambah batas laju"), LinearLayout.LayoutParams(dp(52), dp(48)))

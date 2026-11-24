@@ -25,14 +25,14 @@ internal object StudioTimetable {
     fun departure(host: Activity, time: String, destination: String): View = LinearLayout(host).apply {
         gravity = Gravity.CENTER_VERTICAL
         background = StudioUi.card(host, 18)
-        setPadding(StudioUi.dp(host,8),StudioUi.dp(host,7),StudioUi.dp(host,12),StudioUi.dp(host,7))
-        addView(StudioUi.text(host, time, 15f, color = StudioUi.WHITE).apply {
+        setPadding(StudioUi.dp(host,8),StudioUi.dp(host,7),StudioUi.dp(host,10),StudioUi.dp(host,7))
+        addView(StudioUi.text(host, time, 14f, color = StudioUi.WHITE).apply {
             typeface = StudioUi.heavy(host)
             background = StudioUi.pill(host,StudioUi.INK,12)
             gravity = Gravity.CENTER
             setPadding(StudioUi.dp(host,10),StudioUi.dp(host,5),StudioUi.dp(host,10),StudioUi.dp(host,6))
         })
-        addView(StudioUi.text(host, destination.ifEmpty { "Keberangkatan" }, 15f, true),LinearLayout.LayoutParams(0,-2,1f).apply {
+        addView(StudioUi.text(host, destination.ifEmpty { "Keberangkatan" }, 14f, true),LinearLayout.LayoutParams(0,-2,1f).apply {
             marginStart = StudioUi.dp(host,12)
         })
     }
@@ -50,7 +50,7 @@ internal object StudioTimetable {
             head.addView(StudioUi.badge(host, ServicePanel.code(service.getString("name")), ServicePanel.color(service), 44),
                 LinearLayout.LayoutParams(StudioUi.dp(host,44), StudioUi.dp(host,44)))
             val copy = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
-            copy.addView(StudioUi.text(host,service.getString("name"),16f,color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
+            copy.addView(StudioUi.text(host,service.getString("name"),14f,color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
             copy.addView(StudioUi.text(host,route.endpoints,13f,true,StudioUi.MUTED))
             head.addView(copy, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = StudioUi.dp(host,12) })
             column.addView(head)
@@ -70,7 +70,7 @@ internal object StudioTimetable {
                 board.removeAllViews()
                 val trips = state?.optJSONArray("trips") ?: JSONArray()
                 val span = time(start + shift) + "–" + time(start + 7200 + shift)
-                frame.addView(StudioUi.text(host,"$span · ${trips.length()} perjalanan",15f,color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) },
+                frame.addView(StudioUi.text(host,"$span · ${trips.length()} perjalanan",14f,color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) },
                     LinearLayout.LayoutParams(-1, -2).apply { topMargin = StudioUi.dp(host, 8) })
                 if (trips.length() > 0 && state != null) {
                     frame.addView(object : View(host) {
@@ -150,7 +150,7 @@ internal object StudioTimetable {
                     }
                     board.addView(StudioUi.text(host,"$reason $guidance",14f,true,StudioUi.MUTED).apply {
                         background = StudioUi.card(host, 18)
-                        setPadding(StudioUi.dp(host,14),StudioUi.dp(host,12),StudioUi.dp(host,14),StudioUi.dp(host,12))
+                        setPadding(StudioUi.dp(host,10),StudioUi.dp(host,6),StudioUi.dp(host,10),StudioUi.dp(host,6))
                     })
                     if (trips.length() == 0 && editSchedule != null) {
                         board.addView(StudioUi.button(host, "Atur jadwal", StudioUi.Tone.PRIMARY) {

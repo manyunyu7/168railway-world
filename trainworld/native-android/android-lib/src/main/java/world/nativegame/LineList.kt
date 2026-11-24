@@ -200,7 +200,7 @@ internal class LineList(
         }
         head.addView(StudioUi.badge(host, ServicePanel.code(title), color, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
         val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
-        body.addView(StudioUi.text(host, title, 15f, color = StudioUi.INK).apply {
+        body.addView(StudioUi.text(host, title, 14f, color = StudioUi.INK).apply {
             typeface = StudioUi.heavy(host); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
         })
         body.addView(StudioUi.text(host, statusLine(s, group.size) + if (many) (if (isOpen) "  ▾" else "  ▸") else "", 12f, true, StudioUi.MUTED).apply { maxLines = 1 })
@@ -246,7 +246,7 @@ internal class LineList(
         last = Triple(found, any, clear)
         rows.removeAllViews()
         if (found.isEmpty() && any) {
-            rows.addView(StudioUi.text(host, "Line tidak ditemukan.", 15f, true, StudioUi.MUTED).apply { setPadding(dp(4), dp(12), 0, dp(6)) })
+            rows.addView(StudioUi.text(host, "Line tidak ditemukan.", 14f, true, StudioUi.MUTED).apply { setPadding(dp(4), dp(12), 0, dp(6)) })
             rows.addView(StudioUi.button(host, "Hapus pencarian") { clear() })
             return
         }

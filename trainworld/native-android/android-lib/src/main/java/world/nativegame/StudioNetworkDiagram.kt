@@ -41,7 +41,7 @@ internal object StudioNetworkDiagram {
         val diagram=Diagram(host,data,layer)
         StudioUi.sheet(host,"Diagram jaringan",.94f) { col,dialog ->
             if(!diagram.hasNetwork) {
-                col.addView(StudioUi.text(host,"Diagram masih kosong. Stasiun dan line yang kamu bangun akan muncul di sini.",16f))
+                col.addView(StudioUi.text(host,"Diagram masih kosong. Stasiun dan line yang kamu bangun akan muncul di sini.",14f))
                 col.addView(StudioUi.button(host,"Kembali ke peta"){ dialog.dismiss() })
                 return@sheet
             }
@@ -57,7 +57,7 @@ internal object StudioNetworkDiagram {
             }
             col.addView(selection)
             // Rounded canvas card with soft sky-to-sand ground (drawn by the diagram itself).
-            diagram.background=StudioUi.card(host,26)
+            diagram.background=StudioUi.card(host, 14)
             diagram.clipToOutline=true
             col.addView(diagram,LinearLayout.LayoutParams(-1,(host.resources.displayMetrics.heightPixels*.47).roundToInt()).apply { topMargin=dp(6) })
             val tools=LinearLayout(host).apply {
@@ -129,7 +129,7 @@ internal object StudioNetworkDiagram {
                 routeRows.removeAllViews()
                 val routes=diagram.visibleRoutes
                 if(routes.isEmpty()) {
-                    routeRows.addView(StudioUi.text(host,"Belum ada line di area ini.",15f,true,StudioUi.MUTED))
+                    routeRows.addView(StudioUi.text(host,"Belum ada line di area ini.",14f,true,StudioUi.MUTED))
                     return
                 }
                 routeRows.addView(StudioUi.section(host,"Line"))
@@ -144,7 +144,7 @@ internal object StudioNetworkDiagram {
                         compoundDrawablePadding=dp(6)
                         maxLines=1
                         background=StudioDepot.touch(host,0xe6ffffff.toInt(),20)
-                        setPadding(dp(12),dp(9),dp(14),dp(10))
+                        setPadding(dp(10),dp(6),dp(10),dp(6))
                         isClickable=true
                         contentDescription="Line ${route.name}"
                         setOnClickListener {
@@ -291,7 +291,7 @@ internal object StudioNetworkDiagram {
                     typeface=StudioUi.face(host,true);textSize=16f
                     setTextColor(StudioUi.INK);setHintTextColor(StudioUi.MUTED)
                     background=StudioUi.pill(host,-1,28)
-                    setPadding(StudioUi.dp(host,18),0,StudioUi.dp(host,18),0)
+                    setPadding(StudioUi.dp(host,10),0,StudioUi.dp(host,10),0)
                     minHeight=StudioUi.dp(host,54)
                 }
                 body.addView(search)

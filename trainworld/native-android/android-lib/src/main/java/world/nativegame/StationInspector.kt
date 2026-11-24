@@ -441,7 +441,7 @@ internal object StationInspector {
             }
             setPadding(dp(16),dp(14),dp(16),dp(18))
         }
-        banner.addView(StudioUi.text(activity,"${platforms.size} peron · pilih fasilitas",15f,color = Color.WHITE).apply { typeface = StudioUi.heavy(activity) })
+        banner.addView(StudioUi.text(activity,"${platforms.size} peron · pilih fasilitas",14f,color = Color.WHITE).apply { typeface = StudioUi.heavy(activity) })
         banner.addView(StudioUi.text(activity,"Fasilitas membuat penumpang betah dan kereta lebih lancar.",12f,true,0xd9ffffff.toInt()))
         sheet.add(banner,0)
         for (platform in platforms) {

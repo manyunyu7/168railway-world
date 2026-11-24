@@ -53,8 +53,8 @@ internal object StationRiders {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            background = StudioUi.card(activity, 22)
-            setPadding(dp(14), dp(10), dp(14), dp(12))
+            background = StudioUi.card(activity, 14)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
         }
         var filled = false
         var shown: String? = null

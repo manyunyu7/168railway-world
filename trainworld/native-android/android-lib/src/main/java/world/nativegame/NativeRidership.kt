@@ -88,7 +88,7 @@ object NativeRidership {
             body.addView(android.widget.ProgressBar(activity).apply {
                 indeterminateTintList = android.content.res.ColorStateList.valueOf(StudioUi.BLUE)
             },android.widget.LinearLayout.LayoutParams(-1,StudioUi.dp(activity,40)))
-            body.addView(StudioUi.text(activity,"Menghitung perjalanan dari penduduk, lokasi kerja, dan jadwal line…",15f,true,StudioUi.MUTED).apply {
+            body.addView(StudioUi.text(activity,"Menghitung perjalanan dari penduduk, lokasi kerja, dan jadwal line…",14f,true,StudioUi.MUTED).apply {
                 gravity = android.view.Gravity.CENTER_HORIZONTAL
             })
             column.addView(body,android.widget.LinearLayout.LayoutParams(-1,-2).apply { topMargin=StudioUi.dp(activity,10) })

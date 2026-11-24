@@ -253,11 +253,11 @@ internal object StudioAchievements {
                 val row = LinearLayout(activity).apply {
                     gravity = Gravity.CENTER_VERTICAL
                     background = StudioUi.card(activity, 18)
-                    setPadding(dp(14), dp(10), dp(10), dp(10))
+                    setPadding(dp(10), dp(6), dp(10), dp(6))
                     minimumHeight = dp(64)
                 }
                 val left = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-                left.addView(StudioUi.text(activity, t.name, 15f, true))
+                left.addView(StudioUi.text(activity, t.name, 14f, true))
                 val medals = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
                 // what each tier is: the latest reached with when, then the next one's rule
                 var note: String? = null
@@ -282,7 +282,7 @@ internal object StudioAchievements {
                 val row = LinearLayout(activity).apply {
                     gravity = Gravity.CENTER_VERTICAL
                     background = StudioUi.card(activity, 16)
-                    setPadding(dp(12), dp(8), dp(12), dp(8))
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
                     minimumHeight = dp(52)
                     alpha = if (a != null) 1f else .72f
                 }

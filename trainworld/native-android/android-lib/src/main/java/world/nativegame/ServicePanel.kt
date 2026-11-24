@@ -43,7 +43,7 @@ internal object ServicePanel {
         StudioUi.sheet(host, "Line") { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
             if (all.length() == 0) {
-                column.addView(StudioUi.text(host, "Bangun line pertama untuk mengatur jadwalnya.", 16f))
+                column.addView(StudioUi.text(host, "Bangun line pertama untuk mengatur jadwalnya.", 14f))
                 column.addView(StudioUi.button(host, "Kembali ke peta") { dialog.dismiss() })
             }
             val items = List(all.length()) { all.getJSONObject(it) }
