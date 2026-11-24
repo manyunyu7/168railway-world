@@ -177,6 +177,45 @@ pub extern "system" fn Java_world_nativegame_CitySurface_project(
     project().unwrap_or(std::ptr::null_mut())
 }
 
+// Checkpoints serialize the network; the downloaded terrain and water masks stay local.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_copy(
+    _: JNIEnv, _: JClass, source: jlong, destination: jlong,
+) {
+    if source != destination {
+        let src = unsafe { &*(source as *const World) };
+        let dst = unsafe { &mut *(destination as *mut World) };
+        dst.api.copy_city_surface_from(&src.api);
+    }
+}
+
+fn visit(world: &mut World, home: &str, zone: &str) -> bool {
+    let mut changed = false;
+    for key in ["opened", "cities"] {
+        if !world.header[key].is_array() {
+            world.header[key] = serde_json::json!([]);
+            changed = true;
+        }
+        let ids = world.header[key].as_array_mut().unwrap();
+        for id in [home, zone] {
+            if !ids.iter().any(|entry| entry.as_str() == Some(id)) {
+                ids.push(Value::from(id));
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_visit(
+    mut env: JNIEnv, _: JClass, handle: jlong, home: JString, zone: JString,
+) -> jni::sys::jboolean {
+    let home: String = match env.get_string(&home) { Ok(v) => v.into(), Err(_) => return 0 };
+    let zone: String = match env.get_string(&zone) { Ok(v) => v.into(), Err(_) => return 0 };
+    visit(unsafe { &mut *(handle as *mut World) }, &home, &zone) as _
+}
+
 /// The renderer uses the same CRS as the loaded TWG1, including legacy LCC city saves.
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_CitySurface_lonLat(
@@ -233,6 +272,31 @@ pub extern "system" fn Java_world_nativegame_CitySurface_attach(
 mod tests {
     use super::*;
     use std::{fs, path::Path};
+    #[test]
+    fn two_cities_share_the_network_after_save_and_reopen() {
+        let mut world = World::sandbox("jak", 106.82, -6.2);
+        world.header.as_object_mut().unwrap().remove("opened");
+        assert!(visit(&mut world, "jak", "bad"));
+        assert!(!visit(&mut world, "jak", "bad"));
+        let time = world.header["clock"].as_f64().unwrap();
+        for (city, lon, lat) in [("Jakarta", 106.82, -6.2), ("Bandung", 107.62, -6.92)] {
+            let point = world.api.from_lonlat(lon, lat);
+            let a = [point[0], point[1]];
+            world.build_service(a, [a[0] + 2000., a[1]], city, time).unwrap();
+        }
+        let archive = world.save(time).unwrap();
+        let restored = World::open(&archive).unwrap();
+        assert_eq!(restored.header["opened"], serde_json::json!(["jak", "bad"]));
+        assert_eq!(restored.api.line_name(0), "Jakarta");
+        assert_eq!(restored.api.line_name(1), "Bandung");
+        let demand = crate::demand_zones::plan(&archive, Path::new("/no-cached-boundaries")).unwrap();
+        for k in ["local", "markets"] {
+            for city in ["jak", "bad"] {
+                assert!(demand[k].as_array().unwrap().iter().any(|id| id == city));
+            }
+        }
+    }
+
     #[test]
     #[ignore = "requires the Jakarta pack and pinned OpenFreeMap road tiles"]
     fn jakarta_bus_follows_original_road_graph_moves_and_reopens() {

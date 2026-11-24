@@ -67,15 +67,16 @@ class NativeWorldActivity : Activity() {
     private val legacyWorkshop by lazy { archiveSlot == null && intent.getBooleanExtra("workshop", false) }
     private val workshop get() = archiveSlot != null || legacyWorkshop || !city.hasNetwork
     private val cityStore by lazy { StudioCatalog.get(this) }
-    private val city by lazy {
-        val selected = archiveSlot?.let { slot -> intent.getStringExtra("viewCity") ?: slot.city } ?: if(legacyWorkshop) "nyc" else intent.getStringExtra("city") ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
-        cityStore.city(selected)
+    private val homeCity by lazy {
+        archiveSlot?.city ?: if (legacyWorkshop) "nyc" else intent.getStringExtra("city")
+            ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
     }
+    private val city by lazy { cityStore.city(intent.getStringExtra("viewCity") ?: homeCity) }
     private val localClockShift by lazy { StudioNewGame.localShift(city.id) }
     private val hostLibrary get() = intent.getBooleanExtra("hostLibrary", false)
     private var activePack: CityPackStore.CityPack? = null
     private val local by lazy {
-        AtomicFile(archiveSlot?.let { WorldDocuments.path(this,it.id) } ?: File(filesDir, if (legacyWorkshop) "world-native-workshop.save" else "world-native-${city.id}.save"))
+        AtomicFile(archiveSlot?.let { WorldDocuments.path(this,it.id) } ?: File(filesDir, if (legacyWorkshop) "world-native-workshop.save" else "world-native-${homeCity}.save"))
     }
     private lateinit var build: Button
     private var plan = ConstructionPlan(BuildTool.RAIL)
@@ -485,10 +486,22 @@ class NativeWorldActivity : Activity() {
                 }
                 check(loaded != 0L) { "Format simpanan tidak dikenali" }
                 val geometry: JSONObject
-                val layer: CitySurface.Layer?
+                val layers = mutableMapOf<String,CitySurface.Layer>()
+                var expandedSave: ByteArray? = null
                 try {
                     geometry=JSONObject(Engine.geometry(loaded))
-                    layer=pack?.let { CitySurface.load(loaded,it) }
+                    val opened = geometry.optJSONArray("opened")
+                    val ids = linkedSetOf(homeCity)
+                    if (opened != null) for (i in 0 until opened.length()) ids.add(opened.getString(i))
+                    ids.add(city.id)
+                    val catalog = cityStore.cities().map { it.id }.toSet()
+                    for (id in ids.filter { it in catalog }) {
+                        val localPack = if (id == city.id) pack ?: continue else cityStore.load(id)
+                        layers[id] = CitySurface.load(loaded, localPack, overview = id != city.id)
+                    }
+                    if (intent.hasExtra("viewCity") && pack != null && CitySurface.visit(loaded,homeCity,city.id)) {
+                        expandedSave = Engine.save(loaded,geometry.getDouble("clock"))
+                    }
                 } catch (e: Throwable) {
                     Engine.close(loaded)
                     throw e
@@ -500,15 +513,18 @@ class NativeWorldActivity : Activity() {
                         if (previous.slotPath == local.baseFile.path && previous.revision == saveRevision) history = previous.history
                     }
                     handle = loaded; activePack=pack; clock = geometry.getDouble("clock")
+                    if (expandedSave != null && !persistBytes(expandedSave)) { finish(); return@runOnUiThread }
+                    val layer = layers[city.id]
+                    map.cityLayers=layers.values.toList()
                     map.cityLayer=layer
                     map.load(geometry)
                     if (intent.hasExtra("viewCity") && layer != null) {
-                        val origin = JSONObject(pack.header.readText()).getJSONObject("origin")
+                        val origin = JSONObject(requireNotNull(pack).header.readText()).getJSONObject("origin")
                         val point = CitySurface.project(handle,doubleArrayOf(origin.getDouble("lon"),origin.getDouble("lat")))
                         map.focusCity(point[0],point[1])
                     }
                     updateSummary()
-                    if(!legacyWorkshop) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
+                    if(!legacyWorkshop) getSharedPreferences("world-native",0).edit().putString("last-city",homeCity).apply()
                     updateControls()
                     updateLensLegend()
                     scheduleWarm(2500)
@@ -708,7 +724,7 @@ class NativeWorldActivity : Activity() {
                 }
             } })
             options.add("Arsip dan akun" to { withCommittedWorld { if (writeSave()) openLibrary() } })
-            if (hostLibrary && archiveSlot != null) options.add("Jelajahi kota lain" to {
+            options.add("Kota di dunia ini" to {
                 StudioZonePicker.show(this,cityStore,city.id) { next ->
                     val destination = cityStore.city(next)
                     val target = StudioDecision(this,destination.name,
@@ -727,7 +743,7 @@ class NativeWorldActivity : Activity() {
                         .setPositiveButton("Buka kota") { _,_ ->
                             withCommittedWorld { if (writeSave()) {
                                 startActivity(Intent(this,NativeWorldActivity::class.java)
-                                    .putExtra("archiveSlot",archiveSlot!!.id).putExtra("hostLibrary",true)
+                                    .putExtras(intent).putExtra("city",homeCity)
                                     .putExtra("viewCity",next).addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
                                 finish()
                             } }
@@ -1204,7 +1220,7 @@ class NativeWorldActivity : Activity() {
 
     private fun stationName(point: PointF): String {
         if(plan.name.isNotBlank()) return plan.name
-        val base = (map.cityLayer?.places?.minByOrNull { kotlin.math.hypot(it.x-point.x,it.y-point.y) }?.name
+        val base = (map.cityLayers.asSequence().flatMap { it.places.asSequence() }.minByOrNull { kotlin.math.hypot(it.x-point.x,it.y-point.y) }?.name
             ?: city.name).take(42)
         val existing = map.stops.map { it.name }.toSet() + map.plannedStationNames
         if(base !in existing) return base
@@ -1605,17 +1621,11 @@ class NativeWorldActivity : Activity() {
         restoringEdit = true
         updateControls()
         status.text = "Memulihkan ${target.label}…"
-        val pack = activePack
         executor.execute {
             var candidate = 0L
             val result = runCatching {
                 candidate = Engine.open(target.bytes)
                 check(candidate != 0L) { "Cadangan edit tidak dapat dibuka." }
-                if (pack != null) {
-                    checkNotNull(CitySurface.attach(candidate, pack.header.readText(), pack.cells.readBytes(), pack.terrain.readBytes())) {
-                        "Data medan kota tidak dapat dipasang."
-                    }
-                }
                 JSONObject(Engine.geometry(candidate))
             }
             runOnUiThread {
@@ -1624,6 +1634,7 @@ class NativeWorldActivity : Activity() {
                     result.onSuccess { geometry ->
                         if (!persistBytes(target.bytes)) return@onSuccess
                         val previous = handle
+                        CitySurface.copy(previous,candidate)
                         handle = candidate
                         candidate = 0L
                         Engine.close(previous)
@@ -1758,14 +1769,11 @@ class NativeWorldActivity : Activity() {
         runtime.snapshot(pause) { result ->
             result.onFailure { done(it.localizedMessage ?: "Snapshot simulasi tidak tersedia.") }
                 .onSuccess { bytes ->
-                    val pack = activePack
                     executor.execute {
                         var candidate = 0L
                         val restored = runCatching {
                             candidate = Engine.open(bytes)
                             check(candidate != 0L) { "Hasil simulasi tidak dapat dibuka." }
-                            if (pack != null) checkNotNull(CitySurface.attach(candidate, pack.header.readText(),
-                                pack.cells.readBytes(), pack.terrain.readBytes())) { "Medan kota tidak dapat dipasang." }
                             JSONObject(Engine.geometry(candidate))
                         }
                         runOnUiThread {
@@ -1774,6 +1782,7 @@ class NativeWorldActivity : Activity() {
                                     .onSuccess { geometry ->
                                         if (!persistBytes(bytes)) { done("Hasil simulasi belum tersimpan di perangkat."); return@onSuccess }
                                         if (!closed) {
+                                            CitySurface.copy(handle,candidate)
                                             Engine.swapWorlds(handle, candidate)
                                             clock = geometry.getDouble("clock")
                                             map.load(geometry, refit = false, keepTrainLoads = true)
@@ -1946,7 +1955,7 @@ class NativeWorldActivity : Activity() {
                 showBalance(NativeFinance.balance(handle, clock))
             }
         }
-        if (!legacyWorkshop && handle != 0L) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
+        if (!legacyWorkshop && handle != 0L) getSharedPreferences("world-native",0).edit().putString("last-city",homeCity).apply()
     }
     // ---- Lensa peta: one-tap presets over the three overlay groups ----
     private enum class Lens(val label: String, val trips: String, val stations: String, val track: String, val swatch: IntArray, val legend: String) {
@@ -2247,6 +2256,7 @@ internal class NetworkView(context: Context):View(context) {
     private var baseLayer: StudioBaseLayer? = null
     override fun onAttachedToWindow() { super.onAttachedToWindow(); if(baseLayer==null)baseLayer=StudioBaseLayer(context){invalidate()} }
     override fun onDetachedFromWindow() { overlay.stop(); baseLayer?.close();baseLayer=null;super.onDetachedFromWindow() }
+    var cityLayers: List<CitySurface.Layer> = emptyList()
     var cityLayer: CitySurface.Layer? = null
     private var cityCenter: PointF? = null
     var workshop = false
@@ -2628,16 +2638,25 @@ internal class NetworkView(context: Context):View(context) {
 
     private fun drawStatic(c:Canvas){
         c.drawColor(0xffeaf2ee.toInt())
-        if(waterBox[0]!=waterBox[2]) {
+        if(cityLayers.isEmpty() && waterBox[0]!=waterBox[2]) {
             paint.style=Paint.Style.FILL; paint.color=Color.WHITE;paint.isFilterBitmap=true
-            c.drawBitmap(cityLayer?.bitmap ?: water,null,RectF(sx(waterBox[0]),sy(waterBox[3]),sx(waterBox[2]),sy(waterBox[1])),paint)
+            c.drawBitmap(water,null,RectF(sx(waterBox[0]),sy(waterBox[3]),sx(waterBox[2]),sy(waterBox[1])),paint)
+        }
+        for (layer in cityLayers) {
+            val b = layer.bounds
+            val bounds = RectF(sx(b[0]),sy(b[3]),sx(b[2]),sy(b[1]))
+            if (RectF.intersects(bounds,RectF(0f,0f,vw.toFloat(),vh.toFloat()))) {
+                paint.color = Color.WHITE
+                paint.isFilterBitmap = true
+                c.drawBitmap(layer.bitmap,null,bounds,paint)
+            }
         }
         baseLayer?.draw(c,trainEngine(),centerX,centerY,scale,vw,vh,trainPainter.mercatorPerFrame,displaySettings.mapNames)
         if (displaySettings.contrast < 1f) c.drawColor(Color.argb(((1-displaySettings.contrast)*255).toInt(),245,246,239))
-        if (displaySettings.mapNames) cityLayer?.let { layer ->
+        if (displaySettings.mapNames) {
             val cells = mutableSetOf<Long>()
             paint.style=Paint.Style.FILL
-            for (place in layer.places) {
+            for (layer in cityLayers) for (place in layer.places) {
                 val x=sx(place.x); val y=sy(place.y)
                 if (x<0 || x>=vw || y<14*density || y>=vh) continue
                 val cell=((x/(95*density)).toLong() shl 32) or (y/(30*density)).toLong()

@@ -6,6 +6,8 @@ import org.json.JSONObject
 
 internal object CitySurface {
     init { System.loadLibrary("world_native") }
+    @JvmStatic external fun visit(handle: Long, home: String, zone: String): Boolean
+    @JvmStatic external fun copy(source: Long, destination: Long)
     @JvmStatic external fun empty(id: String, header: String): Long
     @JvmStatic external fun attach(handle: Long, header: String, cells: ByteArray, terrain: ByteArray): IntArray?
     @JvmStatic external fun lonLat(handle:Long,x:Float,y:Float):DoubleArray
@@ -27,10 +29,15 @@ internal object CitySurface {
             Place(row.getString(0), row.getInt(1), xy[i*2], xy[i*2+1])
         }
     }
-    fun load(handle: Long, pack: CityPackStore.CityPack): Layer {
+    fun load(handle: Long, pack: CityPackStore.CityPack, overview: Boolean = false): Layer {
         val pixels = checkNotNull(attach(handle, pack.header.readText(), pack.cells.readBytes(), pack.terrain.readBytes())) { "Medan atau perairan kota gagal dibaca" }
         val width = pixels[0]; val height = pixels[1]
         check(width > 0 && height > 0 && pixels.size == width * height + 6)
-        return Layer(Bitmap.createBitmap(pixels, 6, width, width, height, Bitmap.Config.ARGB_8888), FloatArray(4) { Float.fromBits(pixels[2 + it]) }, places(handle, pack))
+        val full = Bitmap.createBitmap(pixels, 6, width, width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = if (overview && maxOf(width,height) > 256) {
+            val scale = 256.0 / maxOf(width,height)
+            Bitmap.createScaledBitmap(full,maxOf(1,(width*scale).toInt()),maxOf(1,(height*scale).toInt()),true).also { full.recycle() }
+        } else full
+        return Layer(bitmap, FloatArray(4) { Float.fromBits(pixels[2 + it]) }, places(handle, pack))
     }
 }

@@ -228,6 +228,12 @@ pub(super) fn plan(bytes: &[u8], dir: &Path) -> Result<Value, String> {
             local.push(id);
         }
     }
+    for zone in world.header["opened"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        if let Some(&(id, _)) = ZONE_BOXES.iter().find(|row| row.0 == zone) {
+            if !local.contains(&id) { local.push(id); }
+            if !markets.contains(&id) { markets.push(id); }
+        }
+    }
     Ok(json!({"local":local,"markets":markets,"missing":missing}))
 }
 #[no_mangle]
