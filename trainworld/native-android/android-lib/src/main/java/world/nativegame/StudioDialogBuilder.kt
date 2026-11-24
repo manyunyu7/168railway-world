@@ -18,6 +18,7 @@ internal class StudioDialogBuilder(private val host: Activity) {
     private var title: CharSequence? = null
     private var message: CharSequence? = null
     private var content: View? = null
+    private var pinned: View? = null
     private var choices: Array<out CharSequence> = emptyArray()
     private var initial: Int? = null
     private var onPick: DialogInterface.OnClickListener? = null
@@ -28,6 +29,8 @@ internal class StudioDialogBuilder(private val host: Activity) {
     fun setTitle(value: CharSequence?) = apply { title = value }
     fun setMessage(value: CharSequence?) = apply { message = value }
     fun setView(view: View) = apply { content = view }
+    /** A view held above the scrolling body (e.g. the name field of a rename dialog), so it never scrolls away. */
+    fun setPinned(view: View) = apply { pinned = view }
     fun setOnCancelListener(listener: DialogInterface.OnCancelListener) = apply { cancel = listener }
     fun setItems(labels: Array<out CharSequence>, listener: DialogInterface.OnClickListener) = apply {
         choices = labels
@@ -49,7 +52,7 @@ internal class StudioDialogBuilder(private val host: Activity) {
     fun create(): StudioPrompt {
         val dialog = StudioPrompt(host)
         val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
-        val detail = StudioUi.text(host,"",16f,color = StudioDepot.SECONDARY).apply {
+        val detail = StudioUi.text(host,"",14f,color = StudioDepot.SECONDARY).apply {
             setLineSpacing(StudioUi.dp(host,2).toFloat(),1f)
         }
         dialog.detail = detail
@@ -61,7 +64,7 @@ internal class StudioDialogBuilder(private val host: Activity) {
             val row = if (initial != null) RadioButton(host).apply {
                 text = label
                 typeface = StudioUi.face(host,true)
-                textSize = 16f
+                textSize = 14f
                 setTextColor(StudioDepot.TEAL)
                 isChecked = initial == index
                 setOnClickListener {
@@ -75,7 +78,7 @@ internal class StudioDialogBuilder(private val host: Activity) {
             }
             row.gravity = Gravity.START or Gravity.CENTER_VERTICAL
             row.minHeight = StudioUi.dp(host,48)
-            body.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = StudioUi.dp(host,5) })
+            body.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = StudioUi.dp(host,4) })
         }
         val footer = if (actions.isEmpty()) null else object : LinearLayout(host) {
             override fun onMeasure(w: Int, h: Int) {
@@ -110,7 +113,15 @@ internal class StudioDialogBuilder(private val host: Activity) {
         // Short confirmations (message + buttons only) float as a centred glass card.
         val confirm = choices.isEmpty() && content == null && (message?.length ?: 0) < 400
         if (confirm) detail.gravity = Gravity.CENTER_HORIZONTAL
-        StudioUi.layoutSheet(host,dialog,title,ScrollView(host).apply { addView(body) },footer,centered = confirm)
+        val scroll = ScrollView(host).apply { addView(body) }
+        val main = pinned?.let { top ->
+            LinearLayout(host).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(top, LinearLayout.LayoutParams(-1, -2))
+                addView(scroll, LinearLayout.LayoutParams(-1, -2, 1f))
+            }
+        } ?: scroll
+        StudioUi.layoutSheet(host,dialog,title,main,footer,centered = confirm)
         dialog.setOnCancelListener(cancel)
         return dialog
     }

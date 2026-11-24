@@ -172,7 +172,8 @@ internal object BlueprintPanel {
                 }
                 column.addView(tracks, gap(4))
             }
-            column.addView(StudioUi.button(a, "Hapus yang dipilih", icon = StudioUi.Icon.DELETE) { remove(what) }.also { DemolitionPanel.danger(it) }, gap(10))
+            column.addView(StudioUi.button(a, "Hapus yang dipilih") { remove(what) }.also { StudioUi.danger(it) },
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = StudioUi.dp(a, 6) })
         }
 
         /** Web enableAll and its reverse: every part on, or every part off. */

@@ -322,8 +322,9 @@ internal object StationInspector {
                     .show()
                 DemolitionPanel.danger(confirm.getButton(android.content.DialogInterface.BUTTON_POSITIVE))
             }
-            DemolitionPanel.danger(button)
-            sheet.add(button,10)
+            StudioUi.danger(button)
+            button.layoutParams = LinearLayout.LayoutParams(-2,-2)
+            sheet.add(button,6)
         }
         sheet.show()
     }

@@ -491,7 +491,7 @@ internal object StationDesign {
                         "Luas ${Math.round(building.optDouble("area"))} m² · ${building.optInt("members")} peron"), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
                     val tools = LinearLayout(a)
                     tools.addView(StudioUi.button(a, "Ubah garis") { beginOutline(s) }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) })
-                    tools.addView(StudioUi.button(a, "Hapus bangunan") { s.removeBuilding = true; s.outline = null; schedule(s) }.also { DemolitionPanel.danger(it) },
+                    tools.addView(StudioUi.button(a, "Hapus bangunan") { s.removeBuilding = true; s.outline = null; schedule(s) }.also { StudioUi.danger(it) },
                         LinearLayout.LayoutParams(0, dp(48), 1f))
                     body.addView(tools, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
                 }

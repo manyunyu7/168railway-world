@@ -57,14 +57,16 @@ internal object WorldDeletion {
 
     private fun dialog(activity: Activity, slot: WorldDocuments.Slot, stations: Int?, yes: () -> Unit) {
         fun dp(n: Int) = StudioUi.dp(activity, n)
-        val body = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
-        body.addView(StudioUi.text(activity, "Hapus “${slot.title}” dari HP ini? Salinan di akun tidak ikut terhapus.", 15f, true, StudioUi.INK))
+        val body = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(4), 0, 0) }
+        body.addView(StudioUi.text(activity, "Hapus “${slot.title}” dari HP ini? Salinan di akun tidak ikut terhapus.", 14f, true, StudioUi.INK))
         // an unreadable count asks for the name instead, so a big world is never one tap away
         val gate = stations == null || stations >= WorldDocuments.TYPE_TO_DELETE
         val want = stations?.toString() ?: slot.title.trim()
         val typed = EditText(activity).apply {
             inputType = if (stations != null) android.text.InputType.TYPE_CLASS_NUMBER else android.text.InputType.TYPE_CLASS_TEXT
-            hint = want
+            // a plain hint "365" read as already typed: say it is what to type, in a faint colour
+            hint = "Ketik $want"
+            StudioUi.field(this)
             contentDescription = if (stations != null) "Jumlah stasiun" else "Nama dunia"
         }
         if (gate) {
@@ -72,7 +74,7 @@ internal object WorldDeletion {
                 if (stations != null) "Game ini punya $stations stasiun. Ketik $stations untuk menghapusnya."
                 else "Jumlah stasiun tidak terbaca. Ketik nama dunia untuk menghapusnya.",
                 14f, true, StudioUi.MUTED), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-            body.addView(typed)
+            body.addView(typed, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
         val dialog = StudioDialogBuilder(activity).setTitle("Hapus dunia?").setView(body)
             .setNegativeButton("Batal", null)

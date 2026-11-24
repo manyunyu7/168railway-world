@@ -13,21 +13,8 @@ internal object DemolitionPanel {
     @JvmStatic private external fun targets(handle: Long, kind: Int): String
     @JvmStatic external fun remove(handle: Long, kind: Int, id: Int, clock: Double, commit: Boolean): String
 
-    /** Red raised destructive button: #E5484D face over a #B02E33 edge. */
-    fun danger(button: android.widget.Button) {
-        val c = button.context
-        fun layers(pressed: Boolean) = android.graphics.drawable.LayerDrawable(arrayOf(
-            StudioUi.panel(c, 0xffb02e33.toInt(), 20, 0xffb02e33.toInt()),
-            StudioUi.panel(c, StudioUi.RED, 20, StudioUi.RED))).apply {
-            setLayerInset(1, 0, if (pressed) StudioUi.dp(c, 4) else 0, 0, if (pressed) 0 else StudioUi.dp(c, 5))
-        }
-        button.background = android.graphics.drawable.StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_pressed), layers(true))
-            addState(intArrayOf(), layers(false))
-        }
-        button.tag = "danger"
-        button.setTextColor(StudioUi.WHITE)
-    }
+    /** Red destructive button: filled flat red in confirmations, small red text elsewhere (see [StudioUi.danger]). */
+    fun danger(button: android.widget.Button) = StudioUi.danger(button, filled = true)
 
     fun show(activity: Activity, handle: Long, clock: Double, commit: (Int, Int, String) -> Unit) {
         val kinds = arrayOf("Layanan", "Stasiun atau peron")
