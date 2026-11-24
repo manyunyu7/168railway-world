@@ -27,15 +27,22 @@ internal class ScheduleEditor(
     private val onApplied: (JSONObject) -> Unit
 ) {
     private val route = ServiceStops(service)
-    private val periods = listOf("Sibuk", "Sedang", "Sepi")
+    /** Web `schedule.demandName` and `levelTimes` (game/periods.ts): each demand level and its hours. */
+    private val periods = listOf("Tinggi", "Sedang", "Rendah")
+    private val periodHours = listOf("06:00-20:00", "20:00-24:00", "00:00-06:00")
+    private val periodTip = listOf("tinggi", "sedang", "rendah")
     private val countDraft = Array(3) { service.getJSONArray("count").optInt(it, 0).toString() }
-    private val headwayDraft = Array(3) { service.getJSONArray("headway").optInt(it, listOf(180, 360, 720)[it]).toString() }
+    /** Headways are typed in minutes as the web shows them (`headwayText`), kept in seconds for the sim. */
+    private val headwayDraft = Array(3) { minutes(service.getJSONArray("headway").optInt(it, listOf(180, 360, 720)[it]).toDouble()) }
     private var byInterval = service.getJSONArray("headway").length() == 3
     private val fields = mutableListOf<EditText>()
     private val hints = mutableListOf<TextView>()
     private val modeButtons = mutableListOf<Button>()
     private val preview = FrequencyChart(host)
-    private val cycle = service.optDouble("cycle", 0.0)
+    /** Each demand level's round trip (web `roundTripByLevel`), for the headway a count gives. */
+    private val cycles = DoubleArray(3) { service.optJSONArray("cycles")?.optDouble(it) ?: service.optDouble("cycle", 0.0) }
+    /** The demand level running now in the line's local time (web: the row marked `now`). */
+    private val nowLevel = service.optInt("level", -1)
     private val colour = service.optInt("color", 0x1cb0f6) or Color.BLACK
     private fun dp(v: Int) = StudioUi.dp(host, v)
     private fun gap(v: Int) = LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(v) }
@@ -64,9 +71,35 @@ internal class ScheduleEditor(
         setText(value)
     }
 
+    companion object {
+        /** Web `HEADWAY_MIN_S`, `HEADWAY_MAX_S` (game/world.ts). */
+        const val HEADWAY_MIN_S = 60
+        const val HEADWAY_MAX_S = 14400
+        private val number = java.text.NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID")).apply { maximumFractionDigits = 2 }
+        /** Seconds as the minutes typed and shown: "5", "5,37". */
+        fun minutes(s: Double): String = number.format(s / 60)
+        /** Minutes typed back to seconds; null when not a number. */
+        fun seconds(text: String): Int? = runCatching { number.parse(text.trim())?.toDouble() }.getOrNull()?.let { Math.round(it * 60).toInt() }
+        /**
+         * Web `nextHeadway`: to the whole minute above or below (15 minutes at a time from an hour
+         * up), from no service plus 15 minutes and minus 5, minus at the 1-minute limit no service.
+         */
+        fun nextHeadway(s: Int, dir: Int): Int {
+            if (s <= 0) return if (dir > 0) 900 else 300
+            val long = if (dir > 0) s >= 3600 else s > 3600
+            val k = if (long) 15 else 1
+            val m = s / 60.0 / k
+            val near = Math.round(m).toDouble()
+            val whole = kotlin.math.abs(m - near) < 1e-6
+            if (dir > 0) return minOf(HEADWAY_MAX_S, ((if (whole) near + 1 else kotlin.math.ceil(m)) * k * 60).toInt())
+            if (s <= HEADWAY_MIN_S) return 0
+            return maxOf(HEADWAY_MIN_S, ((if (whole) near - 1 else kotlin.math.floor(m)) * k * 60).toInt())
+        }
+    }
+
     fun show() {
         lateinit var footer: LinearLayout
-        StudioUi.sheet(host, "Atur jadwal", .94f, pinnedAction = { footer }) { body, dialog ->
+        StudioUi.sheet(host, "Jadwal", .94f, pinnedAction = { footer }) { body, dialog ->
             val titleRow = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
             titleRow.addView(StudioUi.badge(host, ServicePanel.code(service.getString("name")), colour, 46), LinearLayout.LayoutParams(dp(46), dp(46)))
             val heading = group()
@@ -84,12 +117,13 @@ internal class ScheduleEditor(
             card.addView(preview, LinearLayout.LayoutParams(-1, dp(92)))
             body.addView(card, gap(12))
 
-            body.addView(section("Jadwal hari kerja"), gap(16))
+            body.addView(section("Hari kerja"), gap(16))
+            body.addView(StudioUi.text(host, "Atur dengan", 13f, true, StudioUi.MUTED).apply { setPadding(dp(4), 0, 0, 0) }, gap(6))
             val selector = LinearLayout(host).apply {
                 background = StudioUi.pill(host, 0x1422204a, 18)
                 setPadding(dp(4), dp(4), dp(4), dp(4))
             }
-            listOf("Jumlah ${route.vehicleUnit}", "Selang waktu").forEachIndexed { index, label ->
+            listOf(route.vehicleUnit.replaceFirstChar { it.uppercase() }, "Selang").forEachIndexed { index, label ->
                 val btn = StudioUi.button(host, label) {
                     val nextMode = index == 1
                     if (byInterval != nextMode) {
@@ -112,28 +146,31 @@ internal class ScheduleEditor(
                     background = StudioUi.card(host, 22)
                 }
                 val text = group()
-                text.addView(StudioUi.text(host, period, 16f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
+                text.addView(StudioUi.text(host, if (i == nowLevel) "$period · sekarang" else period, 16f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
+                if (i == nowLevel) row.background = StudioUi.card(host, 22, StudioUi.TINT_YELLOW)
                 val hint = StudioUi.text(host, "", 12f, true, StudioUi.MUTED)
                 text.addView(hint)
                 hints.add(hint)
                 row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
                 val initial = (if (byInterval) headwayDraft else countDraft)[i]
                 val edit = input(period, initial, true).apply {
+                    // minutes may carry a decimal comma (5,37)
+                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
                     background = null
                     typeface = StudioUi.heavy(host)
                     textSize = 17f
                 }
                 fields.add(edit)
                 fun move(direction: Int) {
+                    if (byInterval) {
+                        edit.setText(minutes(nextHeadway(seconds(edit.text.toString()) ?: 0, direction).toDouble()))
+                        return
+                    }
                     val current = edit.text.toString().toIntOrNull() ?: 0
-                    val step = if (byInterval) 60 else 1
-                    val upper = if (byInterval) 7200 else 128
-                    var next = (current.toLong() + direction * step).coerceIn(0L, upper.toLong()).toInt()
-                    if (byInterval && next in 1..59) next = if (direction > 0) 60 else 0
-                    edit.setText(next.toString())
+                    edit.setText((current + direction).coerceIn(0, 128).toString())
                 }
                 fun adjust(direction: Int) = StudioUi.iconButton(host,
-                    "${if (direction < 0) "Kurangi" else "Tambah"} periode ${period.lowercase()}",
+                    "${if (direction < 0) "Kurangi" else "Tambah"} permintaan ${period.lowercase()}",
                     if (direction < 0) StudioUi.Icon.MINUS else StudioUi.Icon.PLUS) { move(direction) }.apply {
                     // Round stepper: a soft minus and a solid plus.
                     background = android.graphics.drawable.GradientDrawable().apply {
@@ -202,11 +239,14 @@ internal class ScheduleEditor(
                 }
                 val values = JSONObject().put("name",title).put("mode",if (byInterval) "headway" else "count")
                 listOf("peak","day","night").forEachIndexed { i, key ->
-                    val n = read(fields[i], 0, if (byInterval) 7200 else 128) ?: return
-                    if (byInterval && n in 1..59) {
-                        invalid(fields[i], "Pilih 0 untuk berhenti beroperasi, atau minimal 60 detik.")
-                        return
-                    }
+                    val n = if (byInterval) {
+                        val s = seconds(fields[i].text.toString())
+                        if (s == null || s < 0 || s > HEADWAY_MAX_S || s in 1 until HEADWAY_MIN_S) {
+                            invalid(fields[i], "Isi 0 untuk tidak ada layanan, atau selang 1–240 mnt.")
+                            return
+                        }
+                        s
+                    } else read(fields[i], 0, 128) ?: return
                     values.put(key,n)
                 }
                 values.put("weekend",read(weekend,10,200) ?: return)
@@ -244,24 +284,26 @@ internal class ScheduleEditor(
         }
         val summaries = mutableListOf<String>()
         fields.forEachIndexed { i, field ->
-            val n = field.text.toString().toIntOrNull()
-            val valid = n != null && if (byInterval) n == 0 || n in 60..7200 else n in 0..128
+            val n = if (byInterval) seconds(field.text.toString()) else field.text.toString().toIntOrNull()
+            val valid = n != null && if (byInterval) n == 0 || n in HEADWAY_MIN_S..HEADWAY_MAX_S else n in 0..128
+            val cycle = cycles[i]
             val seconds = when {
                 !valid || n == null || n == 0 -> 0.0
                 byInterval -> n.toDouble()
                 cycle.isFinite() && cycle > 0 -> cycle / n
                 else -> 0.0
             }
-            val unit = if (byInterval) "detik" else route.vehicleUnit
+            val unit = if (byInterval) "mnt" else route.vehicleUnit
             val note = when {
                 !valid -> "Periksa angka"
-                n == 0 -> "Nonaktif"
+                n == 0 -> "tidak ada"
                 seconds <= 0 -> "Durasi belum tersedia"
                 seconds < 60 -> "≈ ${seconds.roundToInt()} detik"
                 else -> "≈ ${String.format(Locale.forLanguageTag("id-ID"),"%.1f",seconds/60).removeSuffix(",0")} mnt"
             }
-            field.contentDescription = "${periods[i]}, $unit"
-            hints[i].text = if (byInterval) "detik · $note" else note
+            field.contentDescription = "Permintaan ${periods[i].lowercase()}, $unit"
+            hints[i].text = periodHours[i] + " · " + (if (byInterval) "mnt · $note" else note)
+            hints[i].contentDescription = "Periode permintaan ${periodTip[i]}: ${periodHours[i]}. $note"
             preview.intervals[i] = seconds
             summaries.add("${periods[i]} $note")
         }
@@ -274,7 +316,7 @@ internal class ScheduleEditor(
         val intervals = DoubleArray(3)
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = StudioUi.face(host, true) }
         private val colors = intArrayOf(0xffff7a2f.toInt(),0xff6c4df6.toInt(),0xff3fb06a.toInt())
-        private val labels = listOf("Sibuk","Sedang","Sepi")
+        private val labels = listOf("Tinggi","Sedang","Rendah")
         override fun onDraw(canvas: Canvas) {
             val d = resources.displayMetrics.density
             val textSize = 12 * resources.displayMetrics.scaledDensity

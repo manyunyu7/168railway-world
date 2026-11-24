@@ -18,6 +18,14 @@ impl World {
     }
 
     fn inspect_service(&self, id: u32, now: f64) -> Option<Value> {
+        // web game/periods.ts PERIODS: high 06-20, medium 20-24, low 00-06, in the line's local time
+        fn level_at(local: f64) -> usize {
+            match (local.rem_euclid(86400.) / 3600.) as u32 {
+                6..=19 => 0,
+                20..=23 => 1,
+                _ => 2,
+            }
+        }
         let rows = self.api.lines_info();
         let r = rows.chunks_exact(22).find(|r| r[0] as u32 == id)?;
         let labels = stops::labels(&self.api, id);
@@ -44,7 +52,8 @@ impl World {
         };
         Some(
             json!({"name":self.api.line_name(id),"color":r[1],"cars":r[8],"count":[r[13],r[14],r[15]],"headway":self.api.line_auto(id),
-          "weekend":weekend.first().copied().unwrap_or(100.),"dwell":r[19],"turn":r[20],"cycle":r[10],"length":r[9],"limit":self.api.line_limit(id),
+          "weekend":weekend.first().copied().unwrap_or(100.),"dwell":r[19],"turn":r[20],"cycle":r[10],"cycles":[r[10],r[11],r[12]],"length":r[9],"limit":self.api.line_limit(id),
+          "level":level_at(now + self.api.world().svc.lines[id as usize].shift),
           "shift":self.api.world().svc.lines[id as usize].shift,"vehicle":vehicle,"stops":labels.stops,"unnamedStops":labels.unnamed,"directionNames":labels.directions,"upcoming":upcoming,"depart":trips,"running":r[3]==1.}),
         )
     }
@@ -146,7 +155,8 @@ impl World {
             return Err("Nama layanan harus 1–48 karakter.".into());
         }
         let headway = v["mode"] == "headway";
-        let max = if headway { 7200 } else { 128 };
+        // web HEADWAY_MAX_S (game/world.ts): four hours, the shortest stretch of one demand level
+        let max = if headway { 14400 } else { 128 };
         let counts = [
             number("peak", 0, max)?,
             number("day", 0, max)?,
