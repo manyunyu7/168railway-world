@@ -39,6 +39,7 @@ pub(crate) fn network(n: &Network) -> usize {
     vb(&n.st_x) + vb(&n.st_y) + vb(&n.line_name) + n.line_name.iter().map(|s| s.capacity()).sum::<usize>() + vb(&n.line_off) + vb(&n.line_stops) + vb(&n.hop_min) + vb(&n.hop_back)
         + vb(&n.line_speed_kmh) + vb(&n.line_headway_min) + vb(&n.line_seats) + vb(&n.line_rated) + vb(&n.line_crush) + vb(&n.st_group) + vb(&n.stop_x) + vb(&n.stop_y)
         + vb(&n.line_wrap) + vb(&n.span) + vb(&n.st_ups) + vb(&n.st_passage) + vb(&n.catches) + n.catches.iter().map(|c| vb(&c.pts)).sum::<usize>() + vb(&n.st_bus) + vb(&n.st_tram) + vb(&n.back_stops)
+        + vb(&n.terms.ride_min) + vb(&n.terms.board_min) + vb(&n.terms.line_board)
 }
 
 pub(crate) fn graph(g: &Graph) -> usize {

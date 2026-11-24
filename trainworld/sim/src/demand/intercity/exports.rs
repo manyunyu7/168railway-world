@@ -32,6 +32,10 @@ impl IntercityApi {
     pub fn set_back_stops(&mut self, back: &[u32]) {
         self.back_in = back.to_vec();
     }
+    /// `DemandApi::set_terms` (Android).
+    pub fn set_terms(&mut self, ride_min: &[f32], board_min: &[f32], line_board: &[f32]) {
+        self.terms_in = crate::demand::network::Terms { ride_min: ride_min.to_vec(), board_min: board_min.to_vec(), line_board: line_board.to_vec() };
+    }
     /// `DemandApi::set_bus` (T-1464), the points as longitude and latitude, as `set_network_ll`
     /// takes the stations.
     pub fn set_bus_ll(&mut self, catch_n: &[u32], catch_ll: &[f64]) {

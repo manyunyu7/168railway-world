@@ -19,7 +19,7 @@ fn common_test_net(lines: &[&[u32]], tph: &[f32], ride: &[f32]) -> Network {
         hop_min: vec![], hop_back: vec![], line_speed_kmh: vec![0.0; lines.len()],
         line_headway_min: tph.iter().map(|t| [if *t > 0.0 { 60.0 / t } else { f32::INFINITY }; network::PERIODS]).collect(),
         line_seats: vec![100.0; lines.len()], line_rated: vec![], line_crush: vec![200.0; lines.len()],
-        st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![],
+        st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![], terms: Default::default(),
     };
     for (l, stops) in lines.iter().enumerate() {
         net.line_stops.extend_from_slice(stops);
@@ -249,7 +249,7 @@ fn a_circle_rides_the_short_way_through_its_first_stop() {
             line_name: vec![String::new()], line_off: vec![0, 7], line_stops: stops.to_vec(),
             hop_min: ride, hop_back: back, line_speed_kmh: vec![0.0],
             line_headway_min: vec![[5.0; network::PERIODS]], line_seats: vec![100.0], line_rated: vec![], line_crush: vec![200.0],
-            st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![wrap], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![],
+            st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![wrap], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![], terms: Default::default(),
         }
     };
     let g = build_graph(&ring(true), &p);
@@ -302,7 +302,7 @@ fn a_passed_stop_boards_and_alights_nobody() {
         line_name: vec![String::new()], line_off: vec![0, 3], line_stops: vec![0, 1, 2],
         hop_min: vec![2.0, 2.0, 0.0], hop_back: vec![0.0, 1.5, 1.5], line_speed_kmh: vec![0.0],
         line_headway_min: vec![[5.0; network::PERIODS]], line_seats: vec![100.0], line_rated: vec![], line_crush: vec![200.0],
-        st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![false], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![],
+        st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![false], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![], terms: Default::default(),
     };
     // route nodes: run 0 = 0..3 (stations 0, 1, 2), run 1 = 3..6 (2, 1, 0)
     net.span = (0..network::PERIODS).flat_map(|_| (0..6).map(|r| if r == 4 { -1.0 } else { 1.0 })).collect();
@@ -569,6 +569,29 @@ fn a_waiting_room_shortens_perceived_waits_and_a_park_and_ride_rides() {
     assert_eq!(ride_fixed(&p, &net, 2), p.p_ride - 10.0);
 }
 
+/// Android's terms (`network::Terms`): a park's minutes in place of `PARK_RIDE_MIN`, and an
+/// advert's minutes on boarding at a station or onto a line; none set, as the web.
+#[test]
+fn android_terms_set_the_park_and_ride_and_boarding_minutes() {
+    let p = common_test_params();
+    let mut net = common_test_net(&[&[0, 1, 2], &[1, 3]], &[6.0, 6.0], &[2.0, 2.0]);
+    net.st_ups = vec![0, 0, upgrades::PARK_RIDE, 0];
+    let plain = skims(&build_graph(&net, &p), &p);
+    assert_eq!(ride_fixed(&p, &net, 2), p.p_ride - 10.0);
+    net.terms.ride_min = vec![0.0, 0.0, 4.0, 0.0];
+    assert_eq!(ride_fixed(&p, &net, 2), p.p_ride - 4.0);
+    assert_eq!(ride_fixed(&p, &net, 0), p.p_ride, "no park and ride, no minutes off");
+    net.terms.board_min = vec![0.5, 0.0, 0.0, 0.0];
+    let ad = skims(&build_graph(&net, &p), &p);
+    assert!((ad.r[1] - plain.r[1] - 0.5).abs() < 1e-4, "boarding at 0 costs half a minute more: {} {}", plain.r[1], ad.r[1]);
+    assert_eq!(ad.r[4 + 2], plain.r[4 + 2], "boarding at 1 as it was");
+    net.terms = Default::default();
+    net.terms.line_board = vec![0.0, 0.5];
+    let line = skims(&build_graph(&net, &p), &p);
+    assert!((line.r[4 + 3] - plain.r[4 + 3] - 0.5).abs() < 1e-4, "onto the second line: {} {}", plain.r[4 + 3], line.r[4 + 3]);
+    assert_eq!(line.r[1], plain.r[1]);
+}
+
 /// T-1430: a trip's first boarding at the planned wait (the least of half the headway, 5 + a sixth
 /// and 30, no tolerance penalty) pools fewer slow lines; a change keeps half the headway, and a
 /// train every 10 minutes waits as before.
@@ -733,7 +756,7 @@ fn a_lollipop_line_changes_onto_itself_at_its_junction() {
             line_name: vec![String::new()], line_off: vec![0, n as u32], line_stops: stops,
             hop_min: (0..n).map(|k| if k + 1 < n { 2.0 } else { 0.0 }).collect(), hop_back: vec![], line_speed_kmh: vec![0.0],
             line_headway_min: vec![[5.0; network::PERIODS]], line_seats: vec![100.0], line_rated: vec![], line_crush: vec![200.0],
-            st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![false], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![],
+            st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![false], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![], terms: Default::default(),
         }
     };
     let g = build_graph(&lolly(true), &p);
@@ -789,7 +812,7 @@ fn bent_line(gap: f32) -> Network {
         line_name: vec![String::new()], line_off: vec![0, 7], line_stops: (0..7).collect(),
         hop_min: vec![3.0, 6.0, 6.0, 6.0, 6.0, 3.0, 0.0], hop_back: vec![], line_speed_kmh: vec![0.0],
         line_headway_min: vec![[5.0; network::PERIODS]], line_seats: vec![100.0], line_rated: vec![], line_crush: vec![200.0],
-        st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![false], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![],
+        st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![false], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![], terms: Default::default(),
     }
 }
 
@@ -1683,7 +1706,7 @@ fn leaf_stations_leave_every_strategy_as_it_was() {
             line_name: vec![String::new()], line_off: vec![0, 7], line_stops: vec![0, 1, 2, 3, 4, 5, 0],
             hop_min: (0..7).map(|k| if k < 6 { 2.0 } else if wrap { 0.5 } else { 0.0 }).collect(), hop_back: vec![], line_speed_kmh: vec![0.0],
             line_headway_min: vec![[5.0; network::PERIODS]], line_seats: vec![100.0], line_rated: vec![], line_crush: vec![200.0],
-            st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![wrap], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![],
+            st_group: vec![], stop_x: vec![], stop_y: vec![], line_wrap: vec![wrap], span: vec![], st_ups: vec![], st_passage: vec![], catches: vec![], st_bus: vec![], st_tram: vec![], back_stops: vec![], terms: Default::default(),
         }
     };
     let nets = [network::synth_network(), ring(true), ring(false), common_test_net(&[&[0, 1, 2, 3], &[0, 1, 2]], &[6.0, 12.0], &[2.0, 3.0])];

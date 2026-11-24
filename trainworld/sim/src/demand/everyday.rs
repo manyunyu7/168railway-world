@@ -2032,6 +2032,10 @@ impl EverydayApi {
     pub fn set_upgrades(&mut self, ups: &[u8]) {
         self.engine.set_upgrades(ups);
     }
+    /// `DemandApi::set_terms` (Android).
+    pub fn set_terms(&mut self, ride_min: &[f32], board_min: &[f32], line_board: &[f32]) {
+        self.engine.set_terms(ride_min, board_min, line_board);
+    }
     /// `DemandApi::set_passages` (T-1281).
     pub fn set_passages(&mut self, pairs: &[u32]) {
         self.engine.set_passages(pairs);

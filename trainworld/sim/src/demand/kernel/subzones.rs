@@ -110,7 +110,7 @@ pub enum End {
 /// A ride's fixed cost to or from station `s` (`p_ride`), less `PARK_RIDE_MIN` where it has a park
 /// and ride (T-1281).
 pub fn ride_fixed(p: &Params, net: &Network, s: usize) -> f32 {
-    if net.ups(s) & upgrades::PARK_RIDE != 0 { (p.p_ride - upgrades::PARK_RIDE_MIN).max(0.0) } else { p.p_ride }
+    if net.ups(s) & upgrades::PARK_RIDE != 0 { (p.p_ride - net.park_min(s)).max(0.0) } else { p.p_ride }
 }
 
 /// How much of its minutes a wait at station `s` counts in mode choice (T-1281): less in a

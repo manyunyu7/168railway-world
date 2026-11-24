@@ -76,6 +76,19 @@ pub struct Network {
     /// line's two directions stop at different platforms (one-way track): the platform on the
     /// return run's own track. Empty: every reverse stop at the listed stop's station.
     pub back_stops: Vec<u32>,
+    /// 168Railway Android (`Terms`): per station and line perceived-minute terms the web never sets.
+    pub terms: Terms,
+}
+
+/// 168Railway Android's own terms (paid parking and adverts, kept beside the save, never in it):
+/// per station the minutes a park and ride takes off a ride's fixed cost (`ride_min`, in place of
+/// `PARK_RIDE_MIN` where the station has one) and minutes added to boarding there (`board_min`);
+/// per line minutes added to boarding it (`line_board`). Each empty (the default): as the web.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct Terms {
+    pub ride_min: Vec<f32>,
+    pub board_min: Vec<f32>,
+    pub line_board: Vec<f32>,
 }
 
 /// A bus stop's stretch of route (T-1464): its demand station and the stretch as points in the
@@ -96,6 +109,17 @@ impl Network {
     #[inline]
     pub fn rated(&self, l: usize) -> f32 {
         self.line_rated.get(l).copied().unwrap_or(self.line_crush[l])
+    }
+    /// Minutes a park and ride at station `s` takes off a ride's fixed cost: `Terms::ride_min`, else
+    /// `PARK_RIDE_MIN` (T-1281).
+    #[inline]
+    pub fn park_min(&self, s: usize) -> f32 {
+        self.terms.ride_min.get(s).copied().unwrap_or(crate::track::upgrades::PARK_RIDE_MIN)
+    }
+    /// Minutes added to boarding line `l` at station `s` (`Terms`).
+    #[inline]
+    pub fn board_extra(&self, s: usize, l: usize) -> f32 {
+        self.terms.board_min.get(s).copied().unwrap_or(0.0) + self.terms.line_board.get(l).copied().unwrap_or(0.0)
     }
     /// Whether station `s` is a bus stop only (T-1464).
     #[inline]
@@ -231,6 +255,7 @@ pub fn synth_network() -> Network {
         st_bus: vec![],
         st_tram: vec![],
         back_stops: vec![],
+        terms: Terms::default(),
     };
     for &(name, kind, pts) in LINES {
         let mut stops: Vec<u32> = vec![];

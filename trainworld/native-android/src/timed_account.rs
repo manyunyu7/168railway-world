@@ -20,6 +20,8 @@ pub(super) struct Account {
     rates: BTreeMap<u32, [f64; 2]>,
     upkeep: Regions,
     calendar_day: i64,
+    /// Android's parking and advert money (`extras`), set from the same forecast.
+    pub(crate) extras: crate::extras::Daily,
 }
 fn between(table: &[[f64; 5]; 6], mut start: f64, end: f64, country: &str) -> f64 {
     let mut total = 0.;
@@ -166,6 +168,7 @@ impl Account {
             rates: BTreeMap::new(),
             upkeep,
             calendar_day: i64::MIN,
+            extras: Default::default(),
         };
         account.prepare(api, hour, costs);
         account.previous = clock.rem_euclid(3600.) / 3600.;

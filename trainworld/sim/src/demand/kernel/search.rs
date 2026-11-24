@@ -24,7 +24,8 @@ pub struct Graph {
     /// logit's own form for an option open to that share. 0 with service all period.
     pub rn_span: Vec<f32>,
     /// Perceived minutes added to boarding on a bus line (T-1576): `BUS_BOARD_MIN` on every route
-    /// node of a line with a bus-only stop, 0 elsewhere. Part of `rn_left`, but not real minutes.
+    /// node of a line with a bus-only stop, 0 elsewhere, plus `Network::board_extra` (Android's
+    /// adverts). Part of `rn_left`, but not real minutes.
     pub rn_bus: Vec<f32>,
     /// Each route node's platform less its station's position, metres (`Network::stop_x`): a change
     /// of trains walks from the platform it arrives at to the one it leaves from (T-717).
@@ -277,7 +278,7 @@ pub fn build_graph(net: &Network, p: &Params) -> Graph {
     }).collect();
     let rn_span: Vec<f32> = (0..nr).map(|r| { let f = phi(r); if f > 0.0 && f < 1.0 { -f.ln() / p.beta } else { 0.0 } }).collect();
     let bus_line: Vec<bool> = (0..net.n_lines()).map(|l| net.bus_line(l)).collect();
-    let rn_bus: Vec<f32> = rn_line.iter().map(|&l| if bus_line[l as usize] { BUS_BOARD_MIN } else { 0.0 }).collect();
+    let rn_bus: Vec<f32> = rn_line.iter().zip(&rn_station).map(|(&l, &st)| if bus_line[l as usize] { BUS_BOARD_MIN } else { 0.0 } + net.board_extra(st as usize, l as usize)).collect();
     Graph {
         rn_left: rn_span.iter().zip(&rn_bus).map(|(a, b)| a + b).collect(),
         rn_span,

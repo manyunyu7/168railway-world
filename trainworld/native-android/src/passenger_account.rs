@@ -71,6 +71,11 @@ pub(super) struct Forecast {
     /// `cityDemandViews` (demandSums.ts `summaryOnDay` of `citySummary` with `cityParts`)
     city_days: BTreeMap<String, [f64; 4]>,
     transfers: BTreeMap<([u32; 3], [u32; 3]), f64>,
+    /// Android's paid parking (`extras`): per station node, the cars parked there a day on the
+    /// average day (`DemandApi::parked_riders`, both ways of the commute, halved).
+    parked: BTreeMap<u32, f64>,
+    /// `parked` of the solve before on the same network, for the car parks' room (`extras`).
+    parked_before: BTreeMap<u32, f64>,
 }
 
 fn accumulate(target: &mut [f32], src: &[f32]) {
@@ -466,6 +471,44 @@ impl Forecast {
                     }
                 }
                 (id, board)
+            })
+            .collect()
+    }
+    /// Cars parked at station `node` a day (`parked`), 0 for none.
+    pub(super) fn parked(&self, node: u32) -> f64 {
+        self.parked.get(&node).copied().unwrap_or(0.)
+    }
+    pub(super) fn parked_all(&self) -> &BTreeMap<u32, f64> {
+        &self.parked
+    }
+    pub(super) fn parked_before(&self) -> &BTreeMap<u32, f64> {
+        &self.parked_before
+    }
+    pub(super) fn set_parked_before(&mut self, before: BTreeMap<u32, f64>) {
+        self.parked_before = before;
+    }
+    pub(super) fn add_parked(&mut self, node: u32, cars: f64) {
+        if cars > 0. {
+            *self.parked.entry(node).or_default() += cars;
+        }
+    }
+    /// Per line, its boardings and alightings at each stop on the average day, laid out as
+    /// `day_boardings`.
+    pub(super) fn day_stops(&self) -> BTreeMap<u32, (Vec<f64>, Vec<f64>)> {
+        self.lines
+            .iter()
+            .map(|(&id, l)| {
+                let n = l.days[days::AVERAGE][0].board.len();
+                let (mut board, mut alight) = (vec![0.; n], vec![0.; n]);
+                for p in &l.days[days::AVERAGE] {
+                    for (t, &v) in board.iter_mut().zip(&p.board) {
+                        *t += f64::from(v);
+                    }
+                    for (t, &v) in alight.iter_mut().zip(&p.alight) {
+                        *t += f64::from(v);
+                    }
+                }
+                (id, (board, alight))
             })
             .collect()
     }

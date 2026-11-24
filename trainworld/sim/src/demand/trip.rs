@@ -792,7 +792,7 @@ impl DemandApi {
                 let (end, money, drop) = p.ride_station_end(&self.z, sz_j, End::Home);
                 let extra = sz.acc_w[ka] - p.ride_w() * sz.acc_t[ka];
                 // the car's cost is what is left: its per-trip part and its part by distance on the road there
-                let fixed = if svc.ups.get(a).is_some_and(|&u| u & crate::track::upgrades::PARK_RIDE != 0) { (p.p_ride - crate::track::upgrades::PARK_RIDE_MIN).max(0.0) } else { p.p_ride };
+                let fixed = if svc.ups.get(a).is_some_and(|&u| u & crate::track::upgrades::PARK_RIDE != 0) { (p.p_ride - svc.terms.ride_min.get(a).copied().unwrap_or(crate::track::upgrades::PARK_RIDE_MIN)).max(0.0) } else { p.p_ride };
                 parts = [extra, fixed, end, money, drop as u8 as f32, ride_home_park, extra - fixed - end - ride_home_park];
             }
             body.extend([a as f64, t as f64, rep[a], rep[t], sz.acc_d[ka] as f64, sz.acc_w[ka] as f64, sz.acc_d[kt] as f64, sz.acc_w[kt] as f64, sk.r[a * s + t] as f64, share as f64, sz.acc_t[ka] as f64, sz.acc_t[kt] as f64, ride as u8 as f64]);

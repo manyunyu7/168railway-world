@@ -40,6 +40,7 @@ mod train_scene;
 mod issue_text;
 mod line_bands;
 mod achievements;
+mod extras;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},
@@ -431,6 +432,10 @@ impl World {
         let lines: Vec<_> = (0..net.line_count() as u32).filter(|&id| net.line_ok(id)).collect();
         if lines.len() != net.line_count() {
             demolition::remap_header(&mut header, &lines);
+        }
+        if header.get(extras::KEY).is_some() {
+            let nodes: Vec<_> = (0..net.node_count() as u32).filter(|&n| net.node_ok(n)).collect();
+            extras::remap(&mut header, &nodes, &lines);
         }
         let bytes = serde_json::to_vec(&header).ok()?;
         let mut out = GzEncoder::new(Vec::new(), Compression::fast());

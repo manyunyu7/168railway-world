@@ -362,6 +362,16 @@ fn solve(
             passages.extend([*a, *b]);
         }
     }
+    // Android's paid parking and adverts (`extras`): the solve's stations in order
+    let mut nodes = vec![0u32; ix.len()];
+    for (&id, &i) in &ix {
+        nodes[i as usize] = id;
+    }
+    let line_ids: Vec<u32> = lines.iter().map(|l| l.0).collect();
+    let empty = std::collections::BTreeMap::new();
+    let before = account.as_deref().map_or(&empty, |a| a.parked_before());
+    let terms = crate::extras::demand_terms(&world.header, &api, &nodes, &line_ids, before)
+        .unwrap_or_default();
     let mut span = vec![1.; 10 * stops.len()];
     let mut off = 0;
     let (mut tram, mut ferry, mut catch_n, mut catch_ll) = (vec![], vec![], vec![], vec![]);
@@ -463,6 +473,8 @@ fn solve(
         outings.set_complexes(&complexes);
         solver.set_upgrades(&upgrades);
         outings.set_upgrades(&upgrades);
+        solver.set_terms(&terms.0, &terms.1, &terms.2);
+        outings.set_terms(&terms.0, &terms.1, &terms.2);
         solver.set_passages(&passages);
         outings.set_passages(&passages);
         solver.set_span(&span);
@@ -497,6 +509,7 @@ fn solve(
         m.set_fare_factors(&regional["factors"].to_string())?;
         m.set_complexes(&complexes);
         m.set_upgrades(&upgrades);
+        m.set_terms(&terms.0, &terms.1, &terms.2);
         m.set_passages(&passages);
         m.set_span(&span);
         m.set_bus_ll(&catch_n, &catch_ll);
@@ -634,6 +647,14 @@ fn solve(
         json!({"period":period,"lines":lines.len(),"stations":ix.len(),"rounds":work[0],"commuteRail":work[2],"outingsRail":other[2],"regionalRail":regional[2],"regionalTrips":regional[1],"trips":work[1]+other[1]+regional[1],"rail":work[2]+other[2]+regional[2],"walk":work[3]+other[3]+regional[3],"unserved":work[13]+other[13],"boardings":boardings}),
     );
         if let Some(account) = account.as_deref_mut() {
+            // cars parked: the home-end commuters riding to a car park, both ways, halved
+            for (solver, _) in &cities {
+                for (i, v) in solver.parked_riders(period, trainworld_sim::demand::days::AVERAGE).into_iter().enumerate() {
+                    if let Some(&node) = nodes.get(i) {
+                        account.add_parked(node, f64::from(v) / 2.);
+                    }
+                }
+            }
             account.add_period(
                 period,
                 &cities,
@@ -830,6 +851,8 @@ fn solve_bare(header: &str, cells: &[u8]) -> Result<(String, Vec<f64>), String> 
 // overlapping callers: a lens opened while the clock is still warming waits for that solve.
 struct CachedForecast {
     track: Vec<u8>,
+    /// What of Android's extras the demand reads (`extras::demand_key`).
+    extras: Value,
     fares: Value,
     files: DemandFiles,
     /// None for a network with no running service (nothing to forecast, trips still drawn)
@@ -841,6 +864,13 @@ struct CachedForecast {
 /// The last solves, most recent first: the network in hand and the one before (an edit undone
 /// reads its forecast again).
 static FORECAST: std::sync::Mutex<Vec<CachedForecast>> = std::sync::Mutex::new(Vec::new());
+/// The latest forecast of network `track` (else the latest of any), for the inspectors' parking and
+/// advert figures; None while a solve holds the cache or before any.
+pub(super) fn latest_forecast(track: &[u8]) -> Option<std::sync::Arc<crate::passenger_account::Forecast>> {
+    let cache = FORECAST.try_lock().ok()?;
+    let exact = cache.iter().find(|c| c.track == track && c.forecast.is_some());
+    exact.or_else(|| cache.iter().find(|c| c.forecast.is_some()))?.forecast.clone()
+}
 const KEPT_SOLVES: usize = 2;
 impl Inputs {
     /// The zones of the boundaries read (`DemandFiles::boundaries`), for the all cities view.
@@ -944,10 +974,10 @@ impl Inputs {
         };
         // a solve whose rows were lost is solved again for a lens (its forecast still serves)
         cache.retain(|c| !(cells && c.cells.failed()));
-        if let Some(i) = cache
-            .iter()
-            .position(|c| c.track == track && c.fares == *fares && c.files == self.files)
-        {
+        let extras = crate::extras::demand_key(&world.header);
+        if let Some(i) = cache.iter().position(|c| {
+            c.track == track && c.extras == extras && c.fares == *fares && c.files == self.files
+        }) {
             let saved = cache.remove(i);
             let found = (saved.forecast.clone(), saved.cells.clone());
             cache.insert(0, saved);
@@ -957,6 +987,13 @@ impl Inputs {
             lens_stage(3);
         }
         let mut forecast = running.then(crate::passenger_account::Forecast::default);
+        // the car parks' room reads the cars of the last solve of this network
+        if let (Some(f), Some(Some(last))) = (
+            forecast.as_mut(),
+            cache.iter().find(|c| c.track == track).map(|c| c.forecast.as_ref()),
+        ) {
+            f.set_parked_before(last.parked_all().clone());
+        }
         let rows = std::sync::Arc::new(PendingRows::default());
         let zones: Vec<_> = self.markets.iter().map(String::as_str).collect();
         let market = (!zones.is_empty()).then_some((
@@ -978,6 +1015,7 @@ impl Inputs {
             0,
             CachedForecast {
                 track,
+                extras,
                 fares: fares.clone(),
                 files: self.files.clone(),
                 forecast: forecast.clone(),
@@ -1010,8 +1048,9 @@ impl Inputs {
         let costs = super::operating::Costs::with_prices(&mut world.api, &forecast.run_prices());
         let clock = world.header["clock"].as_f64().ok_or("Jam tidak valid")?;
         let upkeep = self.geo.upkeep(&mut world.api);
-        let account =
+        let mut account =
             super::timed_account::Account::new(&forecast, &mut world.api, clock, &costs, upkeep);
+        account.extras = crate::extras::Daily::new(&world.header, &world.api, &forecast);
         world.operating = Some(costs);
         Ok((account, forecast))
     }
@@ -1113,6 +1152,108 @@ mod tests {
         let t = w.header["clock"].as_f64().unwrap();
         w.build_service([0., 0.], [3500., 600.], "Hudson", t).unwrap();
         w.save(t).unwrap()
+    }
+    /// Android's paid parking and adverts on the Jakarta scenario (`jak.save`) and its city pack
+    /// (WORLD_JAK_PACK: a folder with jak.json and jak.bin): the scale against the fares, and a
+    /// dearer car park or an advert costing riders. Prints the figures for the report.
+    #[test]
+    #[ignore = "requires the Jakarta city pack"]
+    fn jakarta_parking_and_adverts() {
+        use crate::extras::{self, Daily};
+        let dir = std::path::PathBuf::from(std::env::var("WORLD_JAK_PACK").unwrap());
+        let packs = [LocalPack {
+            header: std::fs::read_to_string(dir.join("jak.json")).unwrap(),
+            cells: std::fs::read(dir.join("jak.bin")).unwrap(),
+            country: "ID".into(),
+        }];
+        let mut w = World::open(include_bytes!(
+            "../android-lib/src/main/assets/world-native/scenarios/jak.save"
+        ))
+        .unwrap();
+        let clock = w.header["clock"].as_f64().unwrap();
+        let net = &w.api.world().net;
+        let stations: Vec<u32> = (0..net.node_count() as u32)
+            .filter(|&n| net.is_station(n) && net.node_built[n as usize])
+            .collect();
+        w.api.set_unlimited(true);
+        w.header["mode"] = "sandbox".into();
+        let parks: Vec<u32> = stations
+            .iter()
+            .copied()
+            .filter(|&n| w.api.set_station_upgrade(&[n], trainworld_sim::track::upgrades::PARK_RIDE, true) == 0)
+            .collect();
+        let run = |w: &World| {
+            let save = w.save(clock).unwrap();
+            let mut f = crate::passenger_account::Forecast::default();
+            let out = solve(&save, &packs, &[0, 1, 2, 3, 4], None, Some(&mut f), None, None).unwrap();
+            let rail: f64 = out.iter().map(|p| p["rail"].as_f64().unwrap()).sum();
+            let back = World::open(&save).unwrap();
+            (f, rail, back)
+        };
+        let set_fee = |w: &mut World, fee: f64, size: usize| {
+            for &n in &parks {
+                extras::set_park(w, n, fee, size, clock).unwrap();
+            }
+        };
+        // the default fee, every station's car park small
+        let (f, rail_5k, back) = run(&w);
+        let fares: f64 = f.map_lines().values().map(|l| l.fares).sum();
+        let (traffic, lines) = extras::traffic(&f, &back.api);
+        let cars: f64 = parks.iter().map(|&n| f.parked(n)).sum();
+        let daily = Daily::new(&back.header, &back.api, &f);
+        let parking = daily.income(0., 86400.).0;
+        let boardings: f64 = lines.values().sum();
+        eprintln!("stations {} parks {} boardings/day {boardings:.0} rail trips {rail_5k:.0}", stations.len(), parks.len());
+        eprintln!("fares/day US$M {fares:.4}; parked cars/day {cars:.0}; parking/day US$M {parking:.4} ({:.1}% of fares)", 100. * parking / fares);
+        let upkeep = extras::park_upkeep_day(&back.header, &back.api);
+        eprintln!("parking upkeep/day US$M {upkeep:.4}");
+        let mut busiest: Vec<(u32, f64)> = traffic.iter().map(|(&n, &v)| (n, v)).collect();
+        busiest.sort_by(|a, b| b.1.total_cmp(&a.1));
+        for &(n, people) in busiest.iter().take(6) {
+            let (used, money) = extras::park_day(extras::park(&back.header, n), f.parked(n));
+            let ad = people * extras::rupiah(extras::AD_STATION_RP);
+            // the station's share of the fares by its boardings and alightings
+            let share = fares * people / (2. * boardings);
+            eprintln!(
+                "  {} people/day {people:.0}: cars {:.0} (in slots {used:.0}) parking US$M {money:.4}; station advert US$M {ad:.4}/day = {:.1}% of its fares, {:.1} days pay the contract",
+                back.api.node_name(n), f.parked(n), 100. * ad / share, extras::AD_STATION_PRICE / ad
+            );
+        }
+        let mut most: Vec<(u32, f64)> = parks.iter().map(|&n| (n, f.parked(n))).collect();
+        most.sort_by(|a, b| b.1.total_cmp(&a.1));
+        for &(n, c) in most.iter().take(5) {
+            eprintln!("  most parked: {} cars {c:.0}", back.api.node_name(n));
+        }
+        for (&l, &riders) in lines.iter().take(6) {
+            let ad = riders * extras::rupiah(extras::AD_TRAIN_RP);
+            eprintln!("  line {} riders/day {riders:.0}: train advert US$M {ad:.4}/day = {:.1}% of fares/rider, {:.1} days pay the contract", back.api.line_name(l), 100. * ad / (fares * riders / boardings), extras::AD_TRAIN_PRICE / ad);
+        }
+        assert!(cars > 0., "Jakarta's commuters park at the stations");
+        // free parking rides more than the dearest
+        set_fee(&mut w, 0., 2);
+        let (free, rail_free, _) = run(&w);
+        set_fee(&mut w, extras::FEE_MAX, 2);
+        let (dear, rail_dear, _) = run(&w);
+        let cars_of = |f: &crate::passenger_account::Forecast| parks.iter().map(|&n| f.parked(n)).sum::<f64>();
+        eprintln!("rail trips: free {rail_free:.0}, Rp 5.000 {rail_5k:.0}, Rp 20.000 {rail_dear:.0}; cars: free {:.0}, Rp 20.000 {:.0}", cars_of(&free), cars_of(&dear));
+        assert!(rail_free > rail_dear);
+        assert!(cars_of(&free) > cars_of(&dear));
+        // an advert at the busiest station: fewer people there
+        set_fee(&mut w, extras::FEE_DEFAULT, 0);
+        let top = busiest[0].0;
+        extras::set_ad(&mut w, false, top, true, clock).unwrap();
+        let (ad, _, back) = run(&w);
+        let after = extras::traffic(&ad, &back.api).0[&top];
+        eprintln!("advert at {}: people/day {:.0} -> {after:.0} ({:+.2}%)", back.api.node_name(top), busiest[0].1, 100. * (after / busiest[0].1 - 1.));
+        assert!(after < busiest[0].1);
+        // a train advert on the first line
+        extras::set_ad(&mut w, false, top, false, clock).unwrap();
+        let (&l0, &r0) = lines.iter().next().unwrap();
+        extras::set_ad(&mut w, true, l0, true, clock).unwrap();
+        let (ad, _, back) = run(&w);
+        let r1 = extras::traffic(&ad, &back.api).1[&l0];
+        eprintln!("train advert on {}: riders/day {r0:.0} -> {r1:.0} ({:+.2}%)", back.api.line_name(l0), 100. * (r1 / r0 - 1.));
+        assert!(r1 < r0);
     }
     /// T-325: a zone no station reaches has, solved bare (the web aux worker's `openBare`), the
     /// very trip rows a solve of the network gives it.

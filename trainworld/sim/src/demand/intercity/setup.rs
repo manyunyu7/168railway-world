@@ -520,6 +520,7 @@ impl IntercityApi {
         let (st_x, st_y, st_map) = merge_stations(st_xy, &off, stops, self.base.station_merge_m);
         let group = demand_groups(&st_map, st_x.len(), &self.complex_in);
         let ups = demand_ups(&st_map, st_x.len(), &self.ups_in);
+        let n_st = st_x.len();
         let (catches, st_bus) = demand_catches(&st_map, st_x.len(), stops, &self.bus_in.0, &self.bus_in.1);
         let svc = Service {
             catches,
@@ -539,6 +540,7 @@ impl IntercityApi {
             span: span_for(&self.span_in, stops.len()),
             ups,
             passages: demand_passages(&st_map, &self.passages_in),
+            terms: crate::demand::api::demand_terms(&st_map, n_st, cars.len(), &self.terms_in),
         };
         // T-124: as `DemandApi::set_network`, access is kept with the layout and a period with
         // its level's inputs

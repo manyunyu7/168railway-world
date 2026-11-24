@@ -44,8 +44,11 @@ fn loan_profit(h: &Value, today: i64) -> Option<(f64, usize)> {
         .iter()
         .map(|d| {
             d["fares"].as_f64().unwrap_or(0.)
+                + d["parking"].as_f64().unwrap_or(0.)
+                + d["ads"].as_f64().unwrap_or(0.)
                 - d["running"].as_f64().unwrap_or(0.)
                 - d["upkeep"].as_f64().unwrap_or(0.)
+                - d["parkUpkeep"].as_f64().unwrap_or(0.)
         })
         .sum::<f64>();
     Some((sum / days.len() as f64, days.len()))
@@ -275,6 +278,8 @@ pub(super) fn tick_with_account(
         start
     };
     let mut cash = w.header["cash"].as_f64().unwrap_or(w.api.cash());
+    // Android's car parks (`extras`): their upkeep always, their fees and adverts with riders
+    let park_upkeep = super::extras::park_upkeep_day(&w.header, &w.api);
     while t < now {
         let hour = (t / 3600.).floor() as i64;
         let day = ((t + shift) / 86400.).floor() as i64;
@@ -311,9 +316,16 @@ pub(super) fn tick_with_account(
                     costs,
                 )
             });
-        cash += fares - (owed + upkeep + running);
+        let (parking, ads) = account.as_deref().map_or((0., 0.), |a| a.extras.income(t, end));
+        let park_up = park_upkeep * elapsed_days;
+        cash += fares + parking + ads - (owed + upkeep + running + park_up);
         for (key, index, at) in [("ledger", "day", day), ("hours", "hour", hour)] {
             let row = entry(&mut w.header, key, index, at);
+            for (field, v) in [("parking", parking), ("ads", ads), ("parkUpkeep", park_up)] {
+                if v > 0. {
+                    add(row, field, v);
+                }
+            }
             add(row, "fares", fares);
             add(row, "rides", rides);
             if points > 0. {

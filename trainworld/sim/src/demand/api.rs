@@ -21,7 +21,7 @@ use super::days::{day_rate, load_factor, share_out, share_ret, WEEKDAY, WORK};
 use super::kernel::*;
 use super::lengths::{len_kernel, len_zero, scale_to, LenOut, LenSums, N_LEN};
 use super::lod::{self, Lod};
-use super::network::{Network, PERIODS, TRAM_CARS};
+use super::network::{Network, Terms, PERIODS, TRAM_CARS};
 use super::pack::{self, City};
 use crate::track::params::{LEVELS, PERIOD_HOURS, PERIOD_LEVEL};
 use std::sync::Arc;
@@ -250,6 +250,23 @@ pub(crate) fn demand_groups(st_map: &[u32], n: usize, complex: &[u32]) -> Vec<u3
     (0..n).map(|d| find(&mut parent, d) as u32).collect()
 }
 
+/// Android's terms (`Terms`) per demand station: of the snapshot stations merged into one, the
+/// most of each; a list of another length than the snapshot's stations (or lines) left empty.
+pub(crate) fn demand_terms(st_map: &[u32], n: usize, lines: usize, t: &Terms) -> Terms {
+    let most = |v: &[f32]| -> Vec<f32> {
+        if v.len() != st_map.len() || v.is_empty() {
+            return vec![];
+        }
+        let mut out = vec![f32::NEG_INFINITY; n];
+        for (i, &x) in v.iter().enumerate() {
+            let o = &mut out[st_map[i] as usize];
+            *o = o.max(x);
+        }
+        out.iter().map(|&x| if x.is_finite() { x } else { 0.0 }).collect()
+    };
+    Terms { ride_min: most(&t.ride_min), board_min: most(&t.board_min), line_board: if t.line_board.len() == lines { t.line_board.clone() } else { vec![] } }
+}
+
 /// Each demand station's upgrades (T-1281): those of the snapshot stations merged into it
 /// (`ups`, one per snapshot station), together. Empty when `ups` does not match or has none.
 pub(crate) fn demand_ups(st_map: &[u32], n: usize, ups: &[u8]) -> Vec<u8> {
@@ -339,6 +356,8 @@ pub(crate) struct Service {
     /// `Network::back_stops` (`set_back_stops`, T-3348), demand stations; empty where every
     /// reverse stop is the listed stop's.
     pub(crate) back: Vec<u32>,
+    /// `Network::terms` (`set_terms`, Android), demand stations.
+    pub(crate) terms: Terms,
 }
 
 /// `span` if it is one per period and route node of `stops` stops, else empty (T-842).
@@ -369,6 +388,7 @@ impl Service {
             && self.st_bus == o.st_bus
             && self.st_tram == o.st_tram
             && self.back == o.back
+            && self.terms == o.terms
     }
     /// T-124: the periods (bit q) whose inputs are the same in `o`: the same layout, and the run
     /// times and trains an hour of the period's level. A period reads no other level's.
@@ -572,6 +592,8 @@ pub struct DemandApi {
     tram_in: Vec<u8>,
     /// The reverse runs' stops of the next `set_network` (`set_back_stops`, T-3348).
     back_in: Vec<u32>,
+    /// Android's terms of the next `set_network` (`set_terms`), per snapshot station and line.
+    terms_in: Terms,
     /// T-124: the periods (bit q) whose inputs the last `set_network` and `set_fares` left as they
     /// were, so their results were kept; and whether the layout was, so access was kept.
     pub(crate) same: u32,
@@ -716,6 +738,7 @@ impl DemandApi {
             st_bus: svc.st_bus.clone(),
             st_tram: svc.st_tram.clone(),
             back_stops: svc.back.clone(),
+            terms: svc.terms.clone(),
         };
         for l in 0..nl {
             let (a, b) = (svc.line_off[l] as usize, svc.line_off[l + 1] as usize);
@@ -1069,6 +1092,7 @@ impl DemandApi {
             bus_in: (vec![], vec![]),
             tram_in: vec![],
             back_in: vec![],
+            terms_in: Terms::default(),
             same: 0,
             layout_same: false,
             reusable: false,
@@ -1122,6 +1146,42 @@ impl DemandApi {
     /// (under 2^24). Empty if there is no network or no such station.
     pub fn station_riders(&self, station: u32) -> Vec<f32> {
         self.station_riders_day(station, WEEKDAY as u32)
+    }
+
+    /// 168Railway Android's paid parking: per `set_network` station, period `q`'s home-end
+    /// commuters reaching it by a ride that parks there (`station_riders_day`'s `rode`, less the
+    /// rides whose cheaper end at that station is the drop-off, `Params::ride_station_end`), on a
+    /// day of kind `day`. Both ways of the commute are counted, as `rode` counts them. Stations
+    /// merged for demand share their riders equally. Empty if the period is not solved.
+    pub fn parked_riders(&self, q: usize, day: usize) -> Vec<f32> {
+        let (Some(sz), Some(svc), Some(st)) = (self.sz.as_ref(), self.svc.as_ref(), self.period(q)) else { return vec![] };
+        let sub = &st.sub;
+        if sub.acc_home.len() != sz.acc_st.len() {
+            return vec![];
+        }
+        let s = svc.st_x.len();
+        let sq = self.z.by_square();
+        let parks: Vec<bool> = (0..s)
+            .map(|a| {
+                let zone = self.z.zone_at(&sq, ((svc.st_x[a] - self.z.x0) / self.z.zone_m).floor() as i32, ((svc.st_y[a] - self.z.y0) / self.z.zone_m).floor() as i32);
+                !self.base.ride_station_end(&self.z, zone, End::Home).2
+            })
+            .collect();
+        let f = load_factor(day, WORK, q);
+        let mut rode = vec![0f32; s];
+        for u in 0..sz.n {
+            for k in sz.ride(u) {
+                let t = sz.acc_st[k] as usize;
+                if parks[t] {
+                    rode[t] += sub.acc_home[k] * f;
+                }
+            }
+        }
+        let mut members = vec![0f32; s];
+        for &a in &svc.st_map {
+            members[a as usize] += 1.0;
+        }
+        svc.st_map.iter().map(|&a| rode[a as usize] / members[a as usize].max(1.0)).collect()
     }
 }
 
@@ -1180,7 +1240,7 @@ impl DemandApi {
         let (home_k, work_k) = zone_trip_factors(&city, &z, &gr, gravity_from_pack);
         // read only above; z and gr hold what the solves need of it (T-1611)
         city.gravity = None;
-        Ok(DemandApi { city: Arc::new(city), z: Arc::new(z), gr: Arc::new(gr), weights: None, base, nr, walk_all, walk_home_zone: ns.walk_home, walk_work_zone: ns.walk_work, unr_all, unr_home: ns.unr_home, unr_work: ns.unr_work, home_k, work_k, svc: None, sz: None, want: vec![], od_st: vec![], od_at: vec![], per: (0..PERIODS).map(|_| None).collect(), fare_per_km: 0.0, fare_km: vec![], fare_mul: vec![], base_mul: vec![], fare_curve: vec![], open_ms: now_ms() - t0, complex_in: vec![], ups_in: vec![], passages_in: vec![], span_in: vec![], bus_in: (vec![], vec![]), tram_in: vec![], back_in: vec![], same: 0, layout_same: false, reusable: false, lod: Lod::of(lod::FINE)?, part: (0, 1), len_base: std::cell::OnceCell::new() })
+        Ok(DemandApi { city: Arc::new(city), z: Arc::new(z), gr: Arc::new(gr), weights: None, base, nr, walk_all, walk_home_zone: ns.walk_home, walk_work_zone: ns.walk_work, unr_all, unr_home: ns.unr_home, unr_work: ns.unr_work, home_k, work_k, svc: None, sz: None, want: vec![], od_st: vec![], od_at: vec![], per: (0..PERIODS).map(|_| None).collect(), fare_per_km: 0.0, fare_km: vec![], fare_mul: vec![], base_mul: vec![], fare_curve: vec![], open_ms: now_ms() - t0, complex_in: vec![], ups_in: vec![], passages_in: vec![], span_in: vec![], bus_in: (vec![], vec![]), tram_in: vec![], back_in: vec![], terms_in: Terms::default(), same: 0, layout_same: false, reusable: false, lod: Lod::of(lod::FINE)?, part: (0, 1), len_base: std::cell::OnceCell::new() })
     }
 
     /// `new` at a level of detail (T-1222, `lod::FINE` or `lod::COARSE`): the commute chunks
@@ -1210,6 +1270,14 @@ impl DemandApi {
     /// `track::upgrades` bit set per station. Empty (the default) or another length: none.
     pub fn set_upgrades(&mut self, ups: &[u8]) {
         self.ups_in = ups.to_vec();
+    }
+
+    /// 168Railway Android's terms of the networks `set_network` is given from now on (`Terms`):
+    /// per snapshot station the park and ride's minutes (in place of `PARK_RIDE_MIN`) and minutes
+    /// added to boarding there; per line minutes added to boarding it. Empty (the default) or
+    /// another length: as the web.
+    pub fn set_terms(&mut self, ride_min: &[f32], board_min: &[f32], line_board: &[f32]) {
+        self.terms_in = Terms { ride_min: ride_min.to_vec(), board_min: board_min.to_vec(), line_board: line_board.to_vec() };
     }
 
     /// The passages of the networks `set_network` is given from now on (T-1281): station pairs,
@@ -1290,6 +1358,7 @@ impl DemandApi {
         let (st_x, st_y, st_map) = merge_stations(st_xy, &line_off, stops, self.base.station_merge_m);
         let group = demand_groups(&st_map, st_x.len(), &self.complex_in);
         let ups = demand_ups(&st_map, st_x.len(), &self.ups_in);
+        let st_x_len = st_x.len();
         let (catches, st_bus) = demand_catches(&st_map, st_x.len(), stops, &self.bus_in.0, &self.bus_in.1);
         let tram_line: Vec<bool> = if self.tram_in.len() == nl { self.tram_in.iter().map(|&f| f != 0).collect() } else { vec![] };
         let st_tram = tram_stops(&st_map, st_x.len(), stops, &line_off, &tram_line);
@@ -1311,6 +1380,7 @@ impl DemandApi {
             span: span_for(&self.span_in, nstops),
             ups,
             passages: demand_passages(&st_map, &self.passages_in),
+            terms: demand_terms(&st_map, st_x_len, nl, &self.terms_in),
         };
         let old = self.svc.as_ref().filter(|_| self.reusable);
         self.reusable = true;

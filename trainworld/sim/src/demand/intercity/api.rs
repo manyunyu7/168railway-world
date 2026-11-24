@@ -196,6 +196,8 @@ pub struct IntercityApi {
     pub(super) bus_in: (Vec<u32>, Vec<f32>),
     /// `DemandApi::set_back_stops` (T-3348).
     pub(super) back_in: Vec<u32>,
+    /// `DemandApi::set_terms` (Android).
+    pub(super) terms_in: crate::demand::network::Terms,
     /// T-409: per served zone, the track components its stations lie in.
     pub(super) served_comp: Vec<Vec<u32>>,
     pub(super) st_pat: StPattern,
