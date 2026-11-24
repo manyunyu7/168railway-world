@@ -37,6 +37,64 @@ fn upkeep_rates() -> [f64; 2] {
     [UPKEEP_STATION_UNDER * ECONOMY, UPKEEP_STATION * ECONOMY]
 }
 
+/// Web ClosestStations (game/walks.ts `closestStations`): the 3 stations nearest the station,
+/// built or planned, its own complex and name left out and a name listed once, each with its
+/// walk (the straight line, as the web counts it before the walk grid is in) in minutes and the
+/// lines stopping there.
+fn closest(w: &World, node: u32, complex: &[u32]) -> Value {
+    const SHOWN: usize = 3;
+    const WALK_KMH: f64 = 6.;
+    const WALK_DETOUR: f64 = 1.3;
+    let api = &w.api;
+    let net = &api.world().net;
+    let i = node as usize;
+    let here = api.to_lonlat(net.node_x[i], net.node_y[i]);
+    let key = |n: u32| api.node_name(n).trim().to_lowercase();
+    let own = key(node);
+    let metres = |ll: Vec<f64>| {
+        let cos = ((here[1] + ll[1]) / 2.).to_radians().cos();
+        let dx = (ll[0] - here[0]).to_radians() * cos * 6_371_008.8;
+        let dy = (ll[1] - here[1]).to_radians() * 6_371_008.8;
+        dx.hypot(dy)
+    };
+    let mut all: Vec<(f64, u32, bool)> = api
+        .nodes_info()
+        .chunks_exact(10)
+        .filter(|n| n[7] > 0.)
+        .map(|n| n[0] as u32)
+        .filter(|&n| !complex.contains(&n) && key(n) != own)
+        .map(|n| {
+            let j = n as usize;
+            (
+                metres(api.to_lonlat(net.node_x[j], net.node_y[j])),
+                n,
+                net.node_built[j],
+            )
+        })
+        .collect();
+    all.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut seen = std::collections::BTreeSet::new();
+    let picked: Vec<_> = all
+        .into_iter()
+        .filter(|(_, n, _)| seen.insert(key(*n)))
+        .take(SHOWN)
+        .collect();
+    let rows: Vec<_> = picked
+        .into_iter()
+        .map(|(m, n, built)| {
+            let mut names = std::collections::BTreeSet::new();
+            let lines: Vec<_> = (0..net.line_count() as u32)
+                .filter(|&l| net.line_ok(l) && api.line_stops(l).contains(&n))
+                .filter(|&l| names.insert(api.line_name(l)))
+                .map(|l| json!({"name": api.line_name(l), "color": net.line_colour[l as usize]}))
+                .collect();
+            json!({"id": n, "name": api.node_name(n), "built": built, "metres": m,
+                "minutes": m * WALK_DETOUR / (WALK_KMH / 3.6) / 60., "lines": lines})
+        })
+        .collect();
+    Value::Array(rows)
+}
+
 fn station(w: &World, node: u32, now: f64) -> Value {
     let net = &w.api.world().net;
     let complex = net.complex_of(node);
@@ -88,7 +146,7 @@ fn station(w: &World, node: u32, now: f64) -> Value {
         "facilities":super::station_facilities::offered(w,id),"id":id, "name":w.api.node_name(id), "meters":net.node_platform[id as usize], "level":net.node_level[id as usize],
         "upkeep":upkeep(net,id)
     })).collect();
-    json!({"id":node,"name":w.api.node_name(node),"platforms":platforms,"lines":lines,"upkeepRates":upkeep_rates(),
+    json!({"id":node,"name":w.api.node_name(node),"platforms":platforms,"lines":lines,"closest":closest(w,node,&complex),"upkeepRates":upkeep_rates(),
         "departures":departures.into_iter().map(|(_,d)|d).collect::<Vec<_>>()})
 }
 
@@ -190,6 +248,35 @@ mod tests {
         assert!(route(&w, line, 2, now).is_null());
         // upkeep as web stationUpkeepOf: 500 (2000 below ground) × economy 100, a one-platform station 60%
         assert_eq!(s["upkeepRates"], json!([200000.0, 50000.0]));
+        // web closestStations: 3 rows, nearest first, none of the complex, a name once
+        let near = s["closest"].as_array().unwrap();
+        assert_eq!(near.len(), 3);
+        assert!(near
+            .windows(2)
+            .all(|p| p[0]["metres"].as_f64() <= p[1]["metres"].as_f64()));
+        let members: Vec<u64> = s["platforms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["id"].as_u64().unwrap())
+            .collect();
+        assert!(near
+            .iter()
+            .all(|r| !members.contains(&r["id"].as_u64().unwrap())));
+        let first = &near[0];
+        assert!(
+            (first["minutes"].as_f64().unwrap()
+                - first["metres"].as_f64().unwrap() * 1.3 / (6. / 3.6) / 60.)
+                .abs()
+                < 1e-9
+        );
+        println!(
+            "terdekat: {}",
+            near.iter()
+                .map(|r| format!("{} {:.0} m", r["name"], r["metres"]))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         for p in s["platforms"].as_array().unwrap() {
             let id = p["id"].as_u64().unwrap() as u32;
             let base = if p["level"].as_i64().unwrap() < 0 {

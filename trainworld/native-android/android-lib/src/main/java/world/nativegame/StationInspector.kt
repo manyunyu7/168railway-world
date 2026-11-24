@@ -250,6 +250,28 @@ internal object StationInspector {
                 route(activity,handle,line.getInt("id"),direction.getInt("run"),node,time,transaction,changed)
             }
         }
+        // web ClosestStations: the 3 nearest on foot, each opening that station's view
+        val near = station.optJSONArray("closest")?.rows().orEmpty()
+        if (near.isNotEmpty()) {
+            sheet.text("Stasiun terdekat",true)
+            val metres = java.text.NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID"))
+            for (r in near) {
+                val built = r.optBoolean("built")
+                val name = if (built) r.getString("name") else r.getString("name") + " (rencana)"
+                val lines = r.getJSONArray("lines").rows()
+                val chips = lines.take(6).joinToString(" · ") { it.getString("name") } + if (lines.size > 6) " +${lines.size - 6}" else ""
+                val minutes = maxOf(1, Math.round(r.getDouble("minutes")).toInt())
+                val m = r.getDouble("metres")
+                val walk = StudioUi.text(activity,"$minutes mnt",15f,color = if (built) StudioUi.INK else StudioUi.MUTED).apply {
+                    typeface = StudioUi.heavy(activity)
+                    contentDescription = "${if (m >= 1000) String.format(Locale.forLanguageTag("id-ID"),"%.1f km",m/1000) else metres.format(Math.round(m)) + " m"} jalan kaki, $minutes menit"
+                }
+                // a planned station has no inspector of its own here: listed, not opened
+                if (built) sheet.action(name, color = lines.firstOrNull()?.getInt("color"), subtitle = chips.ifEmpty { null }, trailing = walk) {
+                    show(activity,handle,r.getInt("id"),time,transaction,changed)
+                } else sheet.add(StudioUi.row(activity,null,0,name,chips.ifEmpty { null },walk),6)
+            }
+        }
         // Actions: structure (white) and facility upgrades (orange).
         val actions = LinearLayout(activity)
         actions.addView(StudioUi.button(activity,"Gedung stasiun") {
