@@ -175,6 +175,15 @@ internal object ServicePanel {
                 stats.addView(StudioUi.stat(host, caption, value), LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(8) })
             }
             column.addView(stats, lp(12, host))
+            // web LineInspector "Ubah perhentian" (toggleEditStops): the stops edited on the map (StopEditMode.kt)
+            if (editable && StopEditMode.available && route.vehicleUnit == "kereta") {
+                column.addView(StudioUi.button(host, "Ubah perhentian", icon = StudioUi.Icon.EDIT) {
+                    dialog.dismiss()
+                    StopEditMode.start(host, id, service.getString("name"), color, transaction, changed) {
+                        details(host, StopEditMode.currentHandle(), id, clock, editable, transaction, changed)
+                    }
+                }.apply { contentDescription = "Ubah perhentian: ketuk stasiun di peta untuk menambah perhentian ke line" }, lp(10, host))
+            }
             if (route.names.isNotEmpty()) {
                 // Vertical strip in the line colour with each stop's riders; stops passed and skipped (LineStops.kt).
                 val strip = LineStops.strip(host, handle, id, route, color, editable) { success, edit ->

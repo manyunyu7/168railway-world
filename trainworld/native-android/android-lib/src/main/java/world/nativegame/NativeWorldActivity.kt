@@ -513,6 +513,11 @@ class NativeWorldActivity : Activity() {
             if (!drawing && !removingTrack && !restoringEdit && !selectingInfrastructure && handle != 0L)
                 withCommittedWorld(pause = false) { map.showLineAboveSheet(id); openServiceDetails(id) }
         }
+        // the line panel's "Ubah perhentian" (StopEditMode.kt): each step is a panel edit; its undo is the menu's
+        StopEditMode.attach(map, { handle }) { done -> history.next(true)?.let { entry ->
+            val resume = reference != null || playWhenWarm
+            withCommittedWorld { restoreEdit(true, entry) { if (resume) startReference(); done() } }
+        } }
         map.onJunctionTap = { x, y, r ->
             val node = if (!drawing && !removingTrack && !restoringEdit && !selectingInfrastructure && handle != 0L) JunctionInspector.at(handle, x, y, r) else -1
             if (node >= 0) withCommittedWorld(pause = false) { openJunction(node) }
@@ -2392,7 +2397,7 @@ class NativeWorldActivity : Activity() {
     }
 
     @Deprecated("Compatibility with API 24")
-    override fun onBackPressed() { if (!StationDesign.back()) leaveWorld() }
+    override fun onBackPressed() { if (!StationDesign.back() && !StopEditMode.back()) leaveWorld() }
 
     @Deprecated("Retained for configuration changes on API 24 and above")
     override fun onRetainNonConfigurationInstance(): Any? =
@@ -2919,6 +2924,8 @@ internal class NetworkView(context: Context):View(context) {
     private val bands = LineBands()
     /** Each service's polyline in world units, for picking a line by a tap (web: click a line). */
     private val routeXY = mutableListOf<Pair<Int,FloatArray>>()
+    fun routeOf(id: Int) = routeXY.firstOrNull { it.first == id }?.second
+    fun zoomLevel() = stationZoom()
     var onLineTap: ((Int) -> Unit)? = null
     /** Web pick.ts: a junction under the tap (world x, y, slop in world units) opens its inspector; true if one did. */
     var onJunctionTap: ((Double, Double, Double) -> Boolean)? = null
@@ -3320,6 +3327,7 @@ internal class NetworkView(context: Context):View(context) {
         }
         drawDynamic(c)
         StationDesign.draw(this, c)
+        StopEditMode.draw(this, c)
     }
 
     private fun drawStatic(c:Canvas){
@@ -3644,6 +3652,7 @@ internal class NetworkView(context: Context):View(context) {
     }
 
     private fun selectAt(x: Float, y: Float) {
+        if (StopEditMode.tapAway(this)) return
         if (!isDrafting) {
             // A station beats the lens discs drawn over it (station riders up to 42 dp, homes and
             // destinations up to 24 dp): those used to swallow the tap with a ridership sheet.
@@ -3742,6 +3751,7 @@ internal class NetworkView(context: Context):View(context) {
         if (e.actionMasked == MotionEvent.ACTION_DOWN) zoomAnimation?.cancel()
         if (draftTouch?.onTouch(e) == true) return true
         if (StationDesign.touch(this, e)) return true
+        if (StopEditMode.touch(this, e)) { MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }.also { pinch.onTouchEvent(it); pan.onTouchEvent(it); it.recycle() }; return true }
         if(railTool!=null && draft.size==2 && e.actionMasked==MotionEvent.ACTION_DOWN) {
             val tip=draft.last()
             holdingRail=kotlin.math.hypot(e.x-sx(tip.x),e.y-sy(tip.y))<=24*density

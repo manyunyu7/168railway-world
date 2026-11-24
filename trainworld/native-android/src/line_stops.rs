@@ -134,7 +134,7 @@ impl World {
         Ok(self.booked(clock, name, id))
     }
 
-    fn refusal(&self, other: &str) -> String {
+    pub(super) fn refusal(&self, other: &str) -> String {
         if self.api.issue_kinds().starts_with("Money:") {
             "Saldo tidak cukup untuk kereta tambahan yang dibutuhkan.".into()
         } else {
@@ -143,7 +143,7 @@ impl World {
     }
 
     /// The header's cash and fleets after a line edit, its charge booked; the panel's answer.
-    fn booked(&mut self, clock: f64, name: String, id: u32) -> Value {
+    pub(super) fn booked(&mut self, clock: f64, name: String, id: u32) -> Value {
         let charge = self.api.last_charge();
         let trains = self.api.last_train_charge();
         self.header["cash"] = self.api.cash().into();
