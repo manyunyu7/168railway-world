@@ -7,13 +7,24 @@ import org.json.JSONObject
 internal object CitySurface {
     init { System.loadLibrary("world_native") }
     @JvmStatic external fun visit(handle: Long, home: String, zone: String): Boolean
+    @JvmStatic external fun worldHome(handle: Long, setting: Int): Boolean
+    @JvmStatic external fun fork(handle: Long): Long
+    @JvmStatic external fun visitViewport(handle: Long, home: String, zone: String): Boolean
     @JvmStatic external fun copy(source: Long, destination: Long)
     @JvmStatic external fun empty(id: String, header: String): Long
     @JvmStatic external fun attach(handle: Long, header: String, cells: ByteArray, terrain: ByteArray): IntArray?
     @JvmStatic external fun lonLat(handle:Long,x:Float,y:Float):DoubleArray
     @JvmStatic external fun project(handle: Long, lonlat: DoubleArray): FloatArray
     data class Place(val name: String, val kind: Int, val x: Float, val y: Float)
-    data class Layer(val bitmap: Bitmap, val bounds: FloatArray, val places: List<Place>)
+    data class Layer(val bitmap: Bitmap, val bounds: FloatArray, val places: List<Place>) {
+        fun overview(): Layer {
+            val span = maxOf(bitmap.width,bitmap.height)
+            if (span <= 256) return this
+            val ratio = 256.0/span
+            return copy(bitmap = Bitmap.createScaledBitmap(bitmap,maxOf(1,(bitmap.width*ratio).toInt()),
+                maxOf(1,(bitmap.height*ratio).toInt()),true))
+        }
+    }
     private fun places(handle: Long, pack: CityPackStore.CityPack): List<Place> {
         if (!pack.places.isFile) return emptyList()
         val rows = JSONObject(pack.places.readText()).getJSONArray("places")
@@ -34,10 +45,7 @@ internal object CitySurface {
         val width = pixels[0]; val height = pixels[1]
         check(width > 0 && height > 0 && pixels.size == width * height + 6)
         val full = Bitmap.createBitmap(pixels, 6, width, width, height, Bitmap.Config.ARGB_8888)
-        val bitmap = if (overview && maxOf(width,height) > 256) {
-            val scale = 256.0 / maxOf(width,height)
-            Bitmap.createScaledBitmap(full,maxOf(1,(width*scale).toInt()),maxOf(1,(height*scale).toInt()),true).also { full.recycle() }
-        } else full
-        return Layer(bitmap, FloatArray(4) { Float.fromBits(pixels[2 + it]) }, places(handle, pack))
+        val layer = Layer(full, FloatArray(4) { Float.fromBits(pixels[2 + it]) }, places(handle, pack))
+        return if (overview) layer.overview().also { if (it !== layer) full.recycle() } else layer
     }
 }

@@ -19,7 +19,22 @@ object NativeRidership {
     @JvmStatic private external fun plan(save: ByteArray, boundaries: String): String
     @JvmStatic private external fun estimate(save: ByteArray, manifest: String, period: Int): String
 
-    internal fun inputs(context: Context, save: ByteArray, cityHeader: File, cells: File, regional: Boolean): JSONObject {
+    internal fun boundary(reference: File, id: String): File {
+        val name = "$id.boundary.geojson"
+        val dest = File(reference,name)
+        if (dest.isFile) return dest
+        check(reference.isDirectory || reference.mkdirs() || reference.isDirectory)
+        val tmp = File.createTempFile("boundary-", ".part",reference)
+        try {
+            val source = URL(CityPackStore.ORIGIN + name).openConnection().apply { connectTimeout=15000; readTimeout=30000 }
+            source.getInputStream().use { input -> tmp.outputStream().use { output -> input.copyTo(output) } }
+            JSONObject(tmp.readText()).getJSONArray("features")
+            check(tmp.renameTo(dest) || dest.isFile) { "Batas wilayah gagal disimpan" }
+        } finally { tmp.delete() }
+        return dest
+    }
+
+    internal fun inputs(context: Context, save: ByteArray, cityHeader: File, cells: File, regional: Boolean, includeViewed: Boolean = false): JSONObject {
         val local = JSONArray().put(JSONArray().put(cityHeader.path).put(cells.path))
         val markets = JSONArray()
         val files = JSONObject().put("local",local).put("markets",markets)
@@ -36,22 +51,16 @@ object NativeRidership {
         val missing = ids(zones,"missing")
         for (id in missing) {
             store.city(id)
-            val name = "$id.boundary.geojson"
-            val tmp = File.createTempFile("boundary-", ".part",reference)
-            try {
-                val source = URL(CityPackStore.ORIGIN + name).openConnection().apply { connectTimeout=15000; readTimeout=30000 }
-                source.getInputStream().use { input -> tmp.outputStream().use { output -> input.copyTo(output) } }
-                JSONObject(tmp.readText()).getJSONArray("features")
-                check(tmp.renameTo(File(reference,name))) { "Batas wilayah gagal disimpan" }
-            } finally { tmp.delete() }
+            boundary(reference,id)
         }
         if (missing.isNotEmpty()) zones = coverage()
         files.put("boundaries",reference.path)
         val home = JSONObject(cityHeader.readText()).getString("city")
-        for (id in ids(zones,"local")) {
+        val viewed = if (includeViewed) ids(zones,"viewed") else emptyList()
+        for (id in (ids(zones,"local") + viewed).distinct()) {
             if (id != home) local.put(JSONArray().put(store.demandAsset(id,"header.json").path).put(store.demandAsset(id,"cells.bin").path))
         }
-        for (id in (ids(zones,"markets") + home).distinct()) markets.put(store.demandAsset(id,"market.json").path)
+        for (id in (ids(zones,"markets") + viewed + home).distinct()) markets.put(store.demandAsset(id,"market.json").path)
         val global = RegionalData.load(context.filesDir)
         return files.put("index",global[0].path).put("drives",global[1].path)
     }

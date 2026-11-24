@@ -177,6 +177,32 @@ pub extern "system" fn Java_world_nativegame_CitySurface_project(
     project().unwrap_or(std::ptr::null_mut())
 }
 
+// An isolated terrain loader in exactly the editor's projection. Zone rasters are immutable.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_fork(
+    _: JNIEnv, _: JClass, source: jlong,
+) -> jlong {
+    let src = unsafe { &*(source as *const World) };
+    let origin = src.api.frame_origin();
+    let mut candidate = World::sandbox("", origin[0], origin[1]);
+    candidate.api.set_empty_frame(src.api.frame_kind());
+    candidate.api.copy_city_surface_from(&src.api);
+    Box::into_raw(Box::new(candidate)) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_worldHome(
+    _: JNIEnv, _: JClass, handle: jlong, setting: i32,
+) -> jni::sys::jboolean {
+    let world = unsafe { &mut *(handle as *mut World) };
+    match setting {
+        1 => world.header["home"] = Value::from("world"),
+        0 => { world.header.as_object_mut().unwrap().remove("home"); },
+        _ => (),
+    }
+    (world.header["home"].as_str() == Some("world")) as _
+}
+
 // Checkpoints serialize the network; the downloaded terrain and water masks stay local.
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_CitySurface_copy(
@@ -214,6 +240,28 @@ pub extern "system" fn Java_world_nativegame_CitySurface_visit(
     let home: String = match env.get_string(&home) { Ok(v) => v.into(), Err(_) => return 0 };
     let zone: String = match env.get_string(&zone) { Ok(v) => v.into(), Err(_) => return 0 };
     visit(unsafe { &mut *(handle as *mut World) }, &home, &zone) as _
+}
+
+// Remember where the player has explored independently of the zones needed for demand.
+fn visit_viewport(world: &mut World, home: &str, zone: &str) -> bool {
+    let new = !world.header["opened"].as_array().is_some_and(|v| v.iter().any(|id| id == zone));
+    let changed = visit(world, home, zone);
+    if new && home != zone {
+        if !world.header["androidViewed"].is_array() {
+            world.header["androidViewed"] = serde_json::json!([]);
+        }
+        world.header["androidViewed"].as_array_mut().unwrap().push(Value::from(zone));
+    }
+    changed
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_visitViewport(
+    mut env: JNIEnv, _: JClass, handle: jlong, home: JString, zone: JString,
+) -> jni::sys::jboolean {
+    let Ok(home) = env.get_string(&home).map(String::from) else {return 0};
+    let Ok(zone) = env.get_string(&zone).map(String::from) else {return 0};
+    visit_viewport(unsafe { &mut *(handle as *mut World) }, &home, &zone) as _
 }
 
 /// The renderer uses the same CRS as the loaded TWG1, including legacy LCC city saves.
@@ -272,6 +320,21 @@ pub extern "system" fn Java_world_nativegame_CitySurface_attach(
 mod tests {
     use super::*;
     use std::{fs, path::Path};
+    #[test]
+    fn viewing_an_empty_city_keeps_the_clock_manifest() {
+        let mut world = World::sandbox("jak", 106.82, -6.2);
+        let dir = Path::new("/no-cached-boundaries");
+        let before = crate::demand_zones::plan(&world.save(111600.).unwrap(), dir).unwrap();
+        assert!(visit_viewport(&mut world, "jak", "bad"));
+        assert!(!visit_viewport(&mut world, "jak", "bad"));
+        let bytes = world.save(111600.).unwrap();
+        let after = crate::demand_zones::plan(&bytes, dir).unwrap();
+        assert_eq!(after["local"], before["local"]);
+        assert_eq!(after["markets"], before["markets"]);
+        assert_eq!(after["viewed"], serde_json::json!(["bad"]));
+        assert_eq!(World::open(&bytes).unwrap().header["opened"], serde_json::json!(["jak","bad"]));
+    }
+
     #[test]
     fn two_cities_share_the_network_after_save_and_reopen() {
         let mut world = World::sandbox("jak", 106.82, -6.2);

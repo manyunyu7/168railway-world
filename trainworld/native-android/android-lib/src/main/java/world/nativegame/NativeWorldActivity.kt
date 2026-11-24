@@ -35,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
+import kotlin.math.abs
 import kotlin.math.min
 
 internal typealias PanelEdit = ((Double) -> Unit) -> Unit
@@ -72,7 +73,17 @@ class NativeWorldActivity : Activity() {
             ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
     }
     private val city by lazy { cityStore.city(intent.getStringExtra("viewCity") ?: homeCity) }
-    private val localClockShift by lazy { StudioNewGame.localShift(city.id) }
+    private var focusId: String? = null
+    private var localClockShift = 0
+    private val detailedSurfaces = linkedSetOf<String>()
+    private val surfaces = linkedMapOf<String, CitySurface.Layer>()
+    private val viewWorker = Executors.newSingleThreadExecutor()
+    private var loadingSurface = false
+    private var wantedZone: String? = null
+    private var viewportLabel = ""
+    private var worldHomeSetting: Boolean? = null
+    private val visitedThisSession = linkedSetOf<String>()
+
     private val hostLibrary get() = intent.getBooleanExtra("hostLibrary", false)
     private var activePack: CityPackStore.CityPack? = null
     private var openedCities: Set<String> = emptySet()
@@ -174,9 +185,9 @@ class NativeWorldActivity : Activity() {
             trainEngine = { handle }
             overlay.city = city.id
             val overlayCity = city.id
-            overlay.manifest = { bytes ->
+            overlay.manifest = { bytes, viewed ->
                 val local = cityStore.load(overlayCity)
-                NativeRidership.inputs(this@NativeWorldActivity,bytes,local.header,local.cells,true).toString()
+                NativeRidership.inputs(this@NativeWorldActivity,bytes,local.header,local.cells,true,viewed).toString()
             }
             overlay.allowTap = { !removingTrack && !selectingInfrastructure && !restoringEdit }
             overlay.snapshot = {
@@ -227,6 +238,8 @@ class NativeWorldActivity : Activity() {
         timeColumn.addView(localTime)
         info = StudioUi.text(this, "Membuka jaringan…", 11f, true, StudioUi.MUTED).apply { singleLine() }
         timeColumn.addView(info)
+        timeColumn.contentDescription = "Ringkasan semua kota"
+        timeColumn.setOnClickListener { if (handle != 0L && !drawing) allCities() }
         clockPill.addView(timeColumn, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
         val cashPill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -493,6 +506,7 @@ class NativeWorldActivity : Activity() {
                 }
                 check(loaded != 0L) { "Format simpanan tidak dikenali" }
                 val geometry: JSONObject
+                val zones = ViewportZones(this)
                 val layers = mutableMapOf<String,CitySurface.Layer>()
                 var expandedSave: ByteArray? = null
                 try {
@@ -523,9 +537,19 @@ class NativeWorldActivity : Activity() {
                     if (expandedSave != null && !persistBytes(expandedSave)) { finish(); return@runOnUiThread }
                     val layer = layers[city.id]
                     openedCities = layers.keys + homeCity
+                    surfaces.putAll(layers)
+                    if (layers[city.id] != null) detailedSurfaces.add(city.id)
+                    map.zones = zones
+                    map.onCameraMoving = { wantedZone = null }
+                    map.onViewSettled = ::followViewport
+                    viewportLabel = city.name
+                    focusId = city.id
+                    localClockShift = StudioNewGame.localShift(city.id)
                     map.cityLayers=layers.values.toList()
                     map.cityLayer=layer
                     map.load(geometry)
+                    if (CitySurface.worldHome(handle,-1) && savedInstanceState == null) map.locateWorld()
+                    map.cameraMoved()
                     if (intent.hasExtra("viewCity") && layer != null) {
                         val origin = JSONObject(requireNotNull(pack).header.readText()).getJSONObject("origin")
                         val point = CitySurface.project(handle,doubleArrayOf(origin.getDouble("lon"),origin.getDouble("lat")))
@@ -723,7 +747,7 @@ class NativeWorldActivity : Activity() {
             options.add("Keuangan" to { openFinance() })
             options.add("Pencapaian & misi" to { openProgress() })
             options.add("Tutorial bermain" to { chooseTutorial() })
-            options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), city.name, ::openStation, map.cityLayer) { id ->
+            options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), cityStore.city(focusId ?: city.id).name, ::openStation, map.cityLayer) { id ->
                 ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange("Jadwal layanan"); lastStatus = -1; refresh() }
             } })
             options.add("Cetak biru & konstruksi" to { withCommittedWorld { chooseConstruction() } })
@@ -738,33 +762,8 @@ class NativeWorldActivity : Activity() {
             } })
             options.add("Arsip dan akun" to { withCommittedWorld { if (writeSave()) openLibrary() } })
             options.add("Kota di dunia ini" to {
-                StudioZonePicker.show(this,cityStore,city.id, opened = openedCities) { next ->
-                    val destination = cityStore.city(next)
-                    val target = StudioDecision(this,destination.name,
-                        if (cityStore.cached(next)) "Peta tersedia di perangkat" else android.text.format.Formatter.formatShortFileSize(this,destination.bytes)+" untuk diunduh")
-                    val thumbnail = runCatching { assets.open("world-native/zone-previews/$next.webp").use {
-                        android.graphics.BitmapFactory.decodeStream(it)
-                    } }.getOrNull()
-                    if (thumbnail != null) target.addView(android.widget.ImageView(this).apply {
-                        setImageBitmap(thumbnail)
-                        scaleType=android.widget.ImageView.ScaleType.FIT_CENTER
-                        contentDescription="Peta wilayah ${destination.name}"
-                    },LinearLayout.LayoutParams(-1,dp(132)))
-                    StudioDialogBuilder(this).setTitle("Jelajahi kota?").setView(target)
-                        .setMessage("Kota ini akan dibuka di dunia yang sedang dimainkan.")
-                        .setNegativeButton("Kembali",null)
-                        .setPositiveButton("Buka kota") { _,_ ->
-                            withCommittedWorld { if (writeSave()) {
-                                startActivity(Intent(this,NativeWorldActivity::class.java)
-                                    .putExtras(intent).putExtra("city",homeCity)
-                                    .putExtra("speed",speedChip.multiple)
-                                    .putExtra("mapLayers",map.overlay.selection.copyOf())
-                                    .putExtra("mapPurpose",map.overlay.purpose)
-                                    .putExtra("viewCity",next).addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
-                                finish()
-                            } }
-                        }.show()
-                }
+                StudioZonePicker.show(this,cityStore,focusId ?: city.id,opened = openedCities,
+                    allCities = ::allCities, select = ::locateCity)
             })
             if (!hostLibrary) options.add("Pilih kota" to { withCommittedWorld { showCityPicker(this, cityStore, city.id) { writeSave() } } })
         }
@@ -1026,19 +1025,20 @@ class NativeWorldActivity : Activity() {
 
     private fun showDemand() {
         if (loadingDemand) return
+        val requestedCity = focusId ?: city.id
         val snapshot = Engine.save(handle, clock)
         val hour = (clock.toLong() / 3600 % 24).toInt()
         val period = when (hour) { in 6..9 -> 0; in 10..15 -> 1; in 16..19 -> 2; in 20..23 -> 3; else -> 4 }
         fun show(pack: CityPackStore.CityPack) = NativeRidership.show(this, snapshot, pack.header, pack.cells, period)
-        val pack = activePack
+        val pack = activePack?.takeIf { it.city.id == requestedCity }
         if (pack != null) { show(pack); return }
         loadingDemand = true
         Toast.makeText(this, "Memuat data penumpang…", Toast.LENGTH_SHORT).show()
         executor.execute {
-            val result = runCatching { cityStore.load(city.id) { _, _ -> } }
+            val result = runCatching { cityStore.load(requestedCity) }
             runOnUiThread {
                 loadingDemand = false
-                if (!closed && !isFinishing) result.onSuccess { activePack = it; show(it) }.onFailure {
+                if (!closed && !isFinishing) result.onSuccess { show(it) }.onFailure {
                     StudioDialogBuilder(this).setTitle("Data penumpang belum tersedia")
                         .setMessage(it.localizedMessage).setPositiveButton("Tutup", null).show()
                 }
@@ -1240,7 +1240,7 @@ class NativeWorldActivity : Activity() {
     private fun stationName(point: PointF): String {
         if(plan.name.isNotBlank()) return plan.name
         val base = (map.cityLayers.asSequence().flatMap { it.places.asSequence() }.minByOrNull { kotlin.math.hypot(it.x-point.x,it.y-point.y) }?.name
-            ?: city.name).take(42)
+            ?: cityStore.city(focusId ?: city.id).name).take(42)
         val existing = map.stops.map { it.name }.toSet() + map.plannedStationNames
         if(base !in existing) return base
         return generateSequence(2) { it+1 }.map { "$base $it" }.first { it !in existing }
@@ -1656,7 +1656,8 @@ class NativeWorldActivity : Activity() {
                 try {
                     if (closed || isFinishing || isChangingConfigurations) return@runOnUiThread
                     result.onSuccess { geometry ->
-                        if (!persistBytes(target.bytes)) return@onSuccess
+                        val changed = restoreMapPreferences(candidate)
+                        if (!persistBytes(if (changed) Engine.save(candidate,geometry.getDouble("clock")) else target.bytes)) return@onSuccess
                         val previous = handle
                         CitySurface.copy(previous,candidate)
                         handle = candidate
@@ -1804,7 +1805,9 @@ class NativeWorldActivity : Activity() {
                             try {
                                 restored.onFailure { done(it.localizedMessage ?: "Hasil simulasi belum dapat dibaca.") }
                                     .onSuccess { geometry ->
-                                        if (!persistBytes(bytes)) { done("Hasil simulasi belum tersimpan di perangkat."); return@onSuccess }
+                                        val changed = restoreMapPreferences(candidate)
+                                        val merged = if (changed) Engine.save(candidate,geometry.getDouble("clock")) else bytes
+                                        if (!persistBytes(merged)) { done("Hasil simulasi belum tersimpan di perangkat."); return@onSuccess }
                                         if (!closed) {
                                             CitySurface.copy(handle,candidate)
                                             Engine.swapWorlds(handle, candidate)
@@ -1888,9 +1891,122 @@ class NativeWorldActivity : Activity() {
             .setPositiveButton("Coba lagi") { _, _ -> startReference() }.show()
     }
 
-    private fun updateSummary(cash: Double = map.balance) {
+    private fun restoreMapPreferences(candidate: Long): Boolean {
+        var changed = false
+        for (zone in visitedThisSession) if (CitySurface.visitViewport(candidate,homeCity,zone)) changed = true
+        worldHomeSetting?.let {
+            CitySurface.worldHome(candidate,if (it) 1 else 0)
+            changed = true
+        }
+        return changed
+    }
+
+    private fun locateCity(id: String) {
+        val ll = map.zones?.center(id) ?: return
+        val xy = CitySurface.project(handle,ll)
+        map.focusCity(xy[0],xy[1])
+    }
+
+    private fun allCities() {
+        withCommittedWorld(pause = false) {
+            val bytes = Engine.save(handle,clock)
+            val manifest = map.overlay.manifest
+            StudioAllCities.show(this,{ bytes },{ manifest?.invoke(bytes,false) },{ bounds ->
+                if (!closed && handle != 0L) map.showBounds(CitySurface.project(handle,bounds))
+            },::locateCity) { home ->
+                if (!closed && handle != 0L) {
+                    worldHomeSetting = home == "world"
+                    CitySurface.worldHome(handle,if (home == "world") 1 else 0)
+                    worldChanged = true
+                    if (reference == null) writeSave()
+                }
+            }
+        }
+    }
+
+    private fun followViewport(id: String?, zoom: Float) {
+        if (closed || handle == 0L) return
+        viewportLabel = when {
+            zoom < 7 -> "Semua kota"
+            id == null -> ""
+            else -> cityStore.city(id).name
+        }
+        updateViewportSummary()
+        map.outlineFocus = id
+        wantedZone = id?.takeIf { zoom > 7.5f }
+        loadViewedZone()
+    }
+
+    private fun loadViewedZone() {
+        val id = wantedZone ?: return
+        if (closed || loadingSurface || handle == 0L) return
+        val installed = surfaces[id]
+        if (installed != null) {
+            if (id != focusId) {
+                focusId = id
+                localClockShift = StudioNewGame.localShift(id)
+                map.cityLayer = installed
+                map.invalidate()
+            }
+            if (id in detailedSurfaces) return
+        }
+        loadingSurface = true
+        info.text = "Memuat peta ${cityStore.city(id).name}…"
+        val candidate = CitySurface.fork(handle)
+        viewWorker.execute {
+            val result = runCatching { CitySurface.load(candidate,cityStore.load(id)) }
+            runOnUiThread {
+                try {
+                    if (closed || isFinishing || handle == 0L) return@runOnUiThread
+                    if (id == wantedZone) result.onSuccess { layer ->
+                        surfaces[id] = layer
+                        detailedSurfaces.add(id)
+                        if (detailedSurfaces.size > 2) {
+                            val oldest = detailedSurfaces.first()
+                            detailedSurfaces.remove(oldest)
+                            surfaces[oldest]?.let { surfaces[oldest] = it.overview() }
+                        }
+                        map.cityLayers = surfaces.values.toList()
+                        map.cityLayer = layer
+                        focusId = id
+                        localClockShift = StudioNewGame.localShift(id)
+                        map.invalidate()
+                        updateViewportSummary()
+                        if (installed == null) {
+                            CitySurface.copy(candidate,handle)
+                            val before = if (parked != null || warming != null) Engine.save(handle,clock) else null
+                            CitySurface.visitViewport(handle,homeCity,id)
+                            visitedThisSession.add(id)
+                            openedCities = openedCities + id
+                            worldChanged = true
+                            val after = Engine.save(handle,clock)
+                            if (before != null) {
+                                if (parkedBytes?.contentEquals(before) == true) parkedBytes = after
+                                if (warmBytes?.contentEquals(before) == true) warmBytes = after
+                            }
+                            if (reference == null && !drawing) persistBytes(after)
+                            map.overlay.zoneAdded()
+                        }
+                        android.util.Log.i("WorldViewport","Kota terbuka: $id (${surfaces.size} paket)")
+                    }.onFailure {
+                        Toast.makeText(this,"Peta ${cityStore.city(id).name} belum tersedia. Geser untuk mencoba lagi.",Toast.LENGTH_SHORT).show()
+                    }
+                } finally {
+                    Engine.close(candidate)
+                    loadingSurface = false
+                    if (!closed && !isFinishing && (id != wantedZone || id in detailedSurfaces)) loadViewedZone()
+                }
+            }
+        }
+    }
+
+    private fun updateViewportSummary() {
         val day = ((referenceTime ?: clock) / 86400).toInt() + 1
-        info.text = "Hari $day · ${map.routeCount} jalur · ${map.stationCount} stasiun"
+        info.text = (if (viewportLabel.isEmpty()) "" else "$viewportLabel · ") + "Hari $day · ${map.routeCount} jalur · ${map.stationCount} stasiun"
+    }
+
+    private fun updateSummary(cash: Double = map.balance) {
+        updateViewportSummary()
         showBalance(cash)
     }
 
@@ -2289,6 +2405,7 @@ class NativeWorldActivity : Activity() {
     }
     override fun onDestroy() {
         closed = true
+        viewWorker.shutdown()
         draftVersion++
         draftWorker.shutdown()
         cancelWarm()
@@ -2314,7 +2431,60 @@ internal class NetworkView(context: Context):View(context) {
     val overlay = StudioPassengerOverlay(context as? Activity){ invalidate() }
     private var baseLayer: StudioBaseLayer? = null
     override fun onAttachedToWindow() { super.onAttachedToWindow(); if(baseLayer==null)baseLayer=StudioBaseLayer(context){invalidate()} }
-    override fun onDetachedFromWindow() { overlay.stop(); baseLayer?.close();baseLayer=null;super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() { cameraRevision++; removeCallbacks(settled); boundaryWorker.queue.clear(); overlay.stop(); baseLayer?.close();baseLayer=null;super.onDetachedFromWindow() }
+    var outlineFocus: String? = null
+        set(value) { if (field != value) { field = value; invalidate() } }
+    var zones: ViewportZones? = null
+    var onCameraMoving: (() -> Unit)? = null
+    var onViewSettled: ((String?,Float) -> Unit)? = null
+    private val boundaryWorker = java.util.concurrent.ThreadPoolExecutor(1,1,30,TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue<Runnable>()).apply { allowCoreThreadTimeOut(true) }
+    private var cameraRevision = 0
+    private val settled = Runnable {
+        val h = trainEngine()
+        val registry = zones
+        if (h != 0L && registry != null && isAttachedToWindow) {
+            val ll = CitySurface.lonLat(h,centerX,centerY)
+            val zoom = stationZoom()
+            val revision = cameraRevision
+            val coarse = registry.place(ll[0],ll[1])
+            onViewSettled?.invoke(coarse,zoom)
+            if (zoom > 7.5f) {
+                boundaryWorker.queue.clear()
+                boundaryWorker.execute {
+                    val exact = registry.place(ll[0],ll[1],true)
+                    post {
+                        if (isAttachedToWindow && cameraRevision == revision) {
+                            if (exact != coarse) onViewSettled?.invoke(exact,zoom)
+                            invalidate()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    fun cameraMoved() {
+        cameraRevision++
+        onCameraMoving?.invoke()
+        removeCallbacks(settled)
+        if (onViewSettled != null) postDelayed(settled,200)
+    }
+    private fun scaleAtZoom(zoom: Double) =
+        (density * trainPainter.mercatorPerFrame * 512.0 * Math.pow(2.0,zoom)/40075016.7).toFloat()
+    fun locateWorld() {
+        val built = stops.filter { it.id >= 0 }
+        val points = if (built.isEmpty()) plannedStops.map { it.second } else built.map { PointF(it.x,it.y) }
+        if (points.isEmpty()) {
+            val xy = CitySurface.project(trainEngine(),doubleArrayOf(20.0,30.0))
+            scale = scaleAtZoom(1.8)
+            focusAt(xy[0],xy[1])
+        } else showBounds(floatArrayOf(points.minOf { it.x },points.minOf { it.y },points.maxOf { it.x },points.maxOf { it.y }))
+    }
+    fun showBounds(xy: FloatArray) {
+        if (xy.size != 4) return
+        scale = min(scaleAtZoom(6.75), .72f * min(width/max(1500f,abs(xy[2]-xy[0])),height/max(1500f,abs(xy[3]-xy[1]))))
+        focusAt((xy[0]+xy[2])/2,(xy[1]+xy[3])/2)
+    }
     var cityLayers: List<CitySurface.Layer> = emptyList()
     var cityLayer: CitySurface.Layer? = null
     private var cityCenter: PointF? = null
@@ -2616,16 +2786,18 @@ internal class NetworkView(context: Context):View(context) {
     fun focusAt(x: Float, y: Float) {
         centerX = x
         centerY = y
+        cameraMoved()
         invalidate()
     }
     fun zoom(factor: Float, pivotX: Float = width / 2f, pivotY: Float = height / 2f) {
         val old = scale
-        scale = (scale * factor).coerceIn(homeScale * .25f, max(homeScale * 35f,6.7f * density * trainPainter.mercatorPerFrame))
+        scale = (scale * factor).coerceIn(scaleAtZoom(1.0), max(homeScale * 35f,6.7f * density * trainPainter.mercatorPerFrame))
         centerX += (pivotX - width / 2f) * (1f/old - 1f/scale)
+        cameraMoved()
         centerY -= (pivotY - height / 2f) * (1f/old - 1f/scale)
         invalidate()
     }
-    fun resetCamera() { fit(); invalidate() }
+    fun resetCamera() { fit(); cameraMoved(); invalidate() }
     fun saveView(out: Bundle) {
         out.putString("mapPurpose",overlay.purpose)
         out.putStringArray("mapLayers",overlay.selection.copyOf())
@@ -2710,6 +2882,28 @@ internal class NetworkView(context: Context):View(context) {
             }
         }
         baseLayer?.draw(c,trainEngine(),centerX,centerY,scale,vw,vh,trainPainter.mercatorPerFrame,displaySettings.mapNames)
+        val h = trainEngine()
+        zones?.takeIf { h != 0L }?.let { registry ->
+            val sw = CitySurface.lonLat(h,centerX-vw/(2*scale),centerY-vh/(2*scale))
+            val ne = CitySurface.lonLat(h,centerX+vw/(2*scale),centerY+vh/(2*scale))
+            c.save()
+            c.translate(vw/2f,vh/2f)
+            c.scale(scale,-scale)
+            c.translate(-centerX,-centerY)
+            paint.style = Paint.Style.STROKE
+            val zoom = stationZoom()
+            val alpha = (92 * ((10.5f - zoom)/2).coerceIn(0f,1f)).toInt()
+            paint.strokeWidth = .7f*density/scale
+            for (zone in registry.visible(sw[0],sw[1],ne[0],ne[1])) {
+                val focus = zone.id == outlineFocus
+                if (!focus && alpha == 0) continue
+                if (zoom < 4 && (zone.box[2]-zone.box[0])*vw < (ne[0]-sw[0])*2) continue
+                paint.color = if (focus) 0x68657082 else Color.argb(alpha,115,121,139)
+                c.drawPath(registry.path(h,zone),paint)
+            }
+            c.restore()
+            paint.style = Paint.Style.FILL
+        }
         if (displaySettings.contrast < 1f) c.drawColor(Color.argb(((1-displaySettings.contrast)*255).toInt(),245,246,239))
         if (displaySettings.mapNames) {
             val cells = mutableSetOf<Long>()

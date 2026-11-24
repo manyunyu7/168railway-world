@@ -18,7 +18,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     var allowTap: (() -> Boolean)? = null
     var snapshot: (() -> ByteArray?)? = null
     private val main = Handler(Looper.getMainLooper())
-    var manifest: ((ByteArray) -> String)? = null
+    var manifest: ((ByteArray, Boolean) -> String)? = null
     private var nativeTask: java.util.concurrent.Future<*>? = null
     companion object {
         private val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -102,6 +102,15 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         busiest.fill(0f)
         gridKey = ""
     }
+    fun zoneAdded() {
+        if (loading == "trips") stop()
+        cells.clear()
+        discs.clear()
+        loaded.remove("trips")
+        gridKey = ""
+        error = null
+        startNeeded()
+    }
     fun startNeeded() {
         val activity = activity ?: return
         if (activity.isDestroyed || activity.isFinishing || loading.isNotEmpty() || error != null) return
@@ -125,7 +134,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             val inputs = requireNotNull(manifest)
             nativeTask = executor.submit {
                 val result = runCatching {
-                    val packed = NativeRidership.tripCells(bytes,inputs(bytes),zone)
+                    val packed = NativeRidership.tripCells(bytes,inputs(bytes,true),zone)
                     require(packed.size % STRIDE == 0)
                     List(packed.size / STRIDE) { i -> packed.copyOfRange(i*STRIDE,i*STRIDE+STRIDE) }
                 }
@@ -145,7 +154,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         val inputs = requireNotNull(manifest)
         nativeTask = executor.submit {
             val result = runCatching {
-                val data = org.json.JSONObject(NativeRidership.networkLayers(bytes,inputs(bytes)))
+                val data = org.json.JSONObject(NativeRidership.networkLayers(bytes,inputs(bytes,false)))
                 mapOf("stops" to 4, "edges" to 2, "spans" to 5, "rail" to 6, "road" to 4, "purpose_spans" to PURPOSES.size - 1).mapValues { (name,stride) ->
                     val packed = data.optJSONArray(name) ?: org.json.JSONArray()
                     require(packed.length() % stride == 0)

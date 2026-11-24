@@ -228,13 +228,16 @@ pub(super) fn plan(bytes: &[u8], dir: &Path) -> Result<Value, String> {
             local.push(id);
         }
     }
+    let viewed: Vec<&str> = world.header["androidViewed"].as_array().into_iter().flatten()
+        .filter_map(Value::as_str).filter(|id| bounds(id).is_some()).collect();
     for zone in world.header["opened"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        if viewed.contains(&zone) { continue; }
         if let Some(&(id, _)) = ZONE_BOXES.iter().find(|row| row.0 == zone) {
             if !local.contains(&id) { local.push(id); }
             if !markets.contains(&id) { markets.push(id); }
         }
     }
-    Ok(json!({"local":local,"markets":markets,"missing":missing}))
+    Ok(json!({"local":local,"markets":markets,"missing":missing,"viewed":viewed}))
 }
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_NativeRidership_plan(

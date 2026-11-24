@@ -15,11 +15,12 @@ internal object StudioZonePicker {
 
     fun show(
         activity: Activity, catalog: CityPackStore, current: String,
-        title: String = "Jelajahi dunia", allowCurrent: Boolean = false, sourceCredits: (() -> Unit)? = null, opened: Set<String>? = null, select: (String) -> Unit
+        title: String = "Jelajahi dunia", allowCurrent: Boolean = false, sourceCredits: (() -> Unit)? = null, opened: Set<String>? = null, allCities: (() -> Unit)? = null, select: (String) -> Unit
     ) {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         val cities = catalog.cities().sortedBy { it.name }
         StudioUi.sheet(activity, title) { column, dialog ->
+            if (allCities != null) column.addView(StudioUi.button(activity,"Semua kota") { dialog.dismiss(); allCities() })
             val query = EditText(activity).apply {
                 setSingleLine()
                 hint = "Cari kota"
