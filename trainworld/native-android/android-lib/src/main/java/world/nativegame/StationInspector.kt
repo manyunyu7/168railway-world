@@ -17,6 +17,29 @@ internal object StationInspector {
     @JvmStatic external fun structure(handle: Long, node: Int, clock: Double, command: String): String
     @JvmStatic external fun upgrade(handle:Long,node:Int,bit:Int,on:Int,clock:Double):String
     @JvmStatic external fun read(handle: Long, node: Int, line: Int, run: Int, clock: Double): String
+    /**
+     * Removes a station (a platform node) as the demolition panel commits one: the web inspector's
+     * "Hapus stasiun" (StationInspector.tsx `remove`). The button shows only while it is set; the
+     * host records the undo step and redraws (`commitDemolition(1, node, label)`).
+     */
+    var onRemove: ((node: Int, label: String) -> Unit)? = null
+    /** Web `levelLabel` (format.ts): "+1", "0", "−2". */
+    private fun levelLabel(l: Int) = if (l > 0) "+$l" else if (l < 0) "−${-l}" else "0"
+    /** Web `levelName` (format.ts LEVEL_NAMES). */
+    private fun levelName(l: Int) = when {
+        l >= 3 -> "Viaduk tinggi"; l > 0 -> "Viaduk"; l == 0 -> "Permukaan tanah"
+        l == -1 -> "Galian terbuka"; l == -2 -> "Terowongan"; else -> "Terowongan dalam"
+    }
+    /** Web `CAR_M` (boarding.ts): a car's length along a platform. */
+    private const val CAR_M = 20.0
+    /** Web upgrade names and what each does (id.json `upgrades.*`), by facility bit. */
+    private val UPGRADE_NAMES = mapOf(1 to "Jalur balik", 2 to "Tempat parkir", 4 to "Ruang tunggu", 8 to "Rel penyusulan")
+    private val UPGRADE_DOES = mapOf(
+        1 to "Kereta yang berbalik di sini memakai kedua peron. Kapasitas putar balik naik dari 15 kereta per jam jadi 30.",
+        2 to "Datang ke stasiun ini dari jauh terasa 10 menit lebih singkat.",
+        4 to "Menunggu kereta di sini terasa 20% lebih singkat.",
+        8 to "Kereta yang lebih cepat bisa menyusul kereta lebih lambat yang berhenti di sini.",
+    )
     private fun JSONArray.rows() = List(length()) { getJSONObject(it) }
     private fun clock(seconds: Double): String {
         val minute = Math.floorMod(kotlin.math.floor(seconds/60).toLong(),1440L)
@@ -91,9 +114,10 @@ internal object StationInspector {
         }, LinearLayout.LayoutParams(dp(60),dp(60)))
         val names = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         names.addView(StudioUi.title(activity,station.getString("name"),26f).apply { maxLines = 2 })
-        val lineNames = lines.map { it.getString("name") }.distinct()
+        // web: "Stasiun, level +1", or "Kompleks 3 stasiun" for a complex
+        val here = platforms.firstOrNull { it.getInt("id") == node } ?: platforms.firstOrNull()
         names.addView(StudioUi.text(activity,
-            (if (lineNames.size in 1..2) lineNames.joinToString(" · ") + " · " else "${lines.size} layanan · ") + "${platforms.size} peron",
+            if (platforms.size > 1) "Kompleks ${platforms.size} stasiun" else "Stasiun, level ${levelLabel(here?.getInt("level") ?: 0)}",
             13f,true,StudioUi.MUTED).apply { maxLines = 2 })
         header.addView(names, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
         sheet.add(header,0)
@@ -185,12 +209,24 @@ internal object StationInspector {
                 sheet.add(more,8)
             }
         }
-        sheet.text("Peron",true)
+        // web StationDetails: each station's length in cars and its level, then the upkeep a day
+        sheet.text(if (platforms.size > 1) "Stasiun" else "Panjang stasiun",true)
+        val currency = StudioCurrency.current(activity)
         for (platform in platforms) {
             val level = platform.getInt("level")
-            val location = when { level==0 -> "Permukaan"; level>0 -> "Layang · tingkat $level"; else -> "Bawah tanah · tingkat ${-level}" }
+            val cars = Math.round(platform.getInt("meters") / CAR_M)
             sheet.add(StudioUi.row(activity,StudioUi.Icon.PIN,StudioUi.TINT_BLUE,platform.getString("name"),
-                "${platform.getInt("meters")} m · $location"),6)
+                "$cars gerbong · ${levelName(level)} (level ${levelLabel(level)})"),6)
+        }
+        if (platforms.isNotEmpty()) {
+            val upkeep = platforms.sumOf { it.optDouble("upkeep",0.0) }
+            val rates = station.optJSONArray("upkeepRates")
+            val value = StudioUi.text(activity,StudioFormat.money(upkeep,currency)+"/hari",15f,color = StudioUi.BAD).apply {
+                typeface = StudioUi.heavy(activity)
+            }
+            sheet.add(StudioUi.row(activity,null,StudioUi.TINT_GREY,"Perawatan",
+                rates?.let { "Perawatan stasiun bawah tanah ${StudioFormat.money(it.getDouble(0),currency)} per hari, yang lain ${StudioFormat.money(it.getDouble(1),currency)}." },
+                value),6)
         }
         if(lines.isNotEmpty()) sheet.text("Diagram rute",true)
         for(line in lines) for(direction in line.getJSONArray("runs").rows()) {
@@ -200,31 +236,46 @@ internal object StationInspector {
         }
         // Actions: structure (white) and facility upgrades (orange).
         val actions = LinearLayout(activity)
-        actions.addView(StudioUi.button(activity,"Bangunan") {
+        actions.addView(StudioUi.button(activity,"Gedung stasiun") {
             sheet.dismiss(); StationStructurePanel(activity,handle,node,time,transaction,changed).show()
         }, LinearLayout.LayoutParams(0,-2,1f).apply { marginEnd = dp(5) })
-        actions.addView(StudioUi.button(activity,"Upgrade",StudioUi.Tone.PRIMARY) {
+        actions.addView(StudioUi.button(activity,"Peningkatan stasiun",StudioUi.Tone.PRIMARY) {
             sheet.dismiss(); facilities(activity,handle,node,time,platforms,transaction,changed)
         }, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(5) })
         sheet.add(actions,16)
+        // web: "Hapus stasiun" at the foot of a station's own view, asking first with what it takes
+        val remove = onRemove
+        if (remove != null && platforms.any { it.getInt("id") == node }) {
+            val name = station.getString("name")
+            val button = StudioUi.button(activity,"Hapus stasiun") {
+                val preview = JSONObject(DemolitionPanel.remove(handle,1,node,time,false))
+                if (preview.has("error")) {
+                    android.widget.Toast.makeText(activity,preview.getString("error"),android.widget.Toast.LENGTH_LONG).show()
+                    return@button
+                }
+                val confirm = StudioDialogBuilder(activity).setTitle("Hapus $name?")
+                    .setView(DemolitionPanel.impact(activity,1,preview))
+                    .setNegativeButton("Batal",null)
+                    .setPositiveButton("Hapus") { _,_ -> sheet.dismiss(); remove(node,name) }
+                    .show()
+                DemolitionPanel.danger(confirm.getButton(android.content.DialogInterface.BUTTON_POSITIVE))
+            }
+            DemolitionPanel.danger(button)
+            sheet.add(button,10)
+        }
         sheet.show()
     }
     private fun facilities(activity: Activity,handle: Long,node: Int,time: Double,platforms: List<JSONObject>,
                            transaction: PanelEdit, changed: () -> Unit) {
-        val names = mapOf(1 to "Terminal", 2 to "Parkir & lanjut naik kereta", 4 to "Ruang tunggu", 8 to "Jalur susul")
+        val names = UPGRADE_NAMES
         val symbols = mapOf(1 to R.drawable.studio_upgrade_terminal, 2 to R.drawable.studio_upgrade_park_ride,
             4 to R.drawable.studio_upgrade_waiting_room, 8 to R.drawable.studio_upgrade_passing)
-        val effects = mapOf(
-            1 to "Kereta yang berbalik arah lebih cepat membebaskan peron.",
-            2 to "Penumpang lebih mudah menjangkau stasiun dengan kendaraan.",
-            4 to "Penumpang menganggap waktu tunggu di stasiun ini lebih singkat.",
-            8 to "Kereta cepat bisa mendahului kereta yang berhenti di sini."
-        )
+        val effects = UPGRADE_DOES
         fun reopen() {
             val station = JSONObject(read(handle,node,-1,0,time))
             facilities(activity,handle,node,time,station.getJSONArray("platforms").rows(),transaction,changed)
         }
-        val sheet = Sheet(activity,"Upgrade stasiun")
+        val sheet = Sheet(activity,"Peningkatan stasiun")
         fun dp(n: Int) = StudioUi.dp(activity,n)
         val banner = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -247,21 +298,22 @@ internal object StationInspector {
                 val bit = option.getInt("bit")
                 val name = names[bit] ?: continue
                 val installed = option.getBoolean("on")
-                val price = StudioCurrency.current(activity).compact(option.getDouble("price"))
+                // web stationUpgrades: "Biaya {price}"; a built one removed gives no money back
+                val price = StudioFormat.money(option.getDouble("price") * 1e6, StudioCurrency.current(activity))
                 sheet.action(name, icon=symbols[bit], subtitle=effects[bit],
-                    trailing=priceTag(activity,if (installed) "Terpasang" else price,installed).apply {
+                    trailing=priceTag(activity,if (installed) "Dibangun" else price,installed).apply {
                         (layoutParams as? LinearLayout.LayoutParams)?.marginStart = dp(8)
                     }) {
-                    StudioDialogBuilder(activity).setTitle(if (installed) "Lepas $name?" else "Pasang $name?")
+                    StudioDialogBuilder(activity).setTitle(if (installed) "Hapus $name?" else "Bangun $name?")
                         .setView(StudioDecision(activity,platform.getString("name"),effects[bit]).apply {
                             fact("Panjang peron",platform.getInt("meters").toString()+" m")
-                            fact("Status setelah konfirmasi",if(installed) "Dilepas" else "Terpasang")
-                            if(installed) fact("Pengembalian dana", StudioCurrency.current(activity).compact(0.0))
-                            else fact("Biaya pemasangan",price)
+                            fact("Status setelah konfirmasi",if(installed) "Dihapus" else "Dibangun")
+                            if(installed) fact("Pengembalian dana","Uang tidak kembali")
+                            else fact("Biaya",price)
                         })
                         .setNegativeButton("Batal") { _,_ -> reopen() }
                         .setOnCancelListener { reopen() }
-                        .setPositiveButton(if (installed) "Lepas" else "Pasang") { _,_ ->
+                        .setPositiveButton(if (installed) "Hapus" else "Bangun") { _,_ ->
                             transaction { now ->
                                 val result = JSONObject(upgrade(handle,platform.getInt("id"),bit,if (installed) 0 else 1,now))
                                 if (result.optBoolean("changed")) changed()
@@ -272,8 +324,8 @@ internal object StationInspector {
                 }
             }
         }
-        sheet.text("Bangunan",true)
-        sheet.action("Bangunan & lorong",icon=R.drawable.studio_upgrade_passage,subtitle="Denah bangunan dan lorong antarperon",
+        sheet.text("Gedung stasiun",true)
+        sheet.action("Gedung stasiun dan lorong",icon=R.drawable.studio_upgrade_passage,subtitle="Denah bangunan dan lorong antarperon",
             trailing=StudioDepot.symbol(activity,StudioUi.Icon.ROUTE,18f,StudioUi.MUTED)) { StationStructurePanel(activity,handle,node,time,transaction,changed).show() }
         sheet.show()
     }

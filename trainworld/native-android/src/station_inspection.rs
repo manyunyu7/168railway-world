@@ -16,6 +16,27 @@ fn served_nodes(w: &World, line: usize, run: usize) -> Vec<(usize, u32)> {
         .collect()
 }
 
+/// A built station's upkeep a game day, US$, as the web's `stationUpkeepOf` (regionMoney.ts) and
+/// the track model's `station_upkeep`: a kind's own figure (a tram stop, a port), else dearer below
+/// ground, a one-platform station its share.
+fn upkeep(net: &trainworld_sim::track::net::Network, id: u32) -> f64 {
+    use trainworld_sim::track::params::{ECONOMY, UPKEEP_ONE_PLATFORM_SHARE};
+    let share = if net.one_platform(id) {
+        UPKEEP_ONE_PLATFORM_SHARE
+    } else {
+        1.0
+    };
+    net.node_kind(id).spec().station_upkeep.unwrap_or_else(|| {
+        trainworld_sim::track::cost::station_upkeep(net.node_level[id as usize]) * share
+    }) * ECONOMY
+}
+
+/// The web's `stationUpkeep` hover: an underground station's and any other's a day, US$.
+fn upkeep_rates() -> [f64; 2] {
+    use trainworld_sim::track::params::{ECONOMY, UPKEEP_STATION, UPKEEP_STATION_UNDER};
+    [UPKEEP_STATION_UNDER * ECONOMY, UPKEEP_STATION * ECONOMY]
+}
+
 fn station(w: &World, node: u32, now: f64) -> Value {
     let net = &w.api.world().net;
     let complex = net.complex_of(node);
@@ -64,9 +85,10 @@ fn station(w: &World, node: u32, now: f64) -> Value {
     }
     departures.sort_by(|a, b| a.0.total_cmp(&b.0));
     let platforms:Vec<_>=complex.iter().filter(|&&id|net.node_built[id as usize]).map(|&id|json!({
-        "facilities":super::station_facilities::offered(w,id),"id":id, "name":w.api.node_name(id), "meters":net.node_platform[id as usize], "level":net.node_level[id as usize]
+        "facilities":super::station_facilities::offered(w,id),"id":id, "name":w.api.node_name(id), "meters":net.node_platform[id as usize], "level":net.node_level[id as usize],
+        "upkeep":upkeep(net,id)
     })).collect();
-    json!({"id":node,"name":w.api.node_name(node),"platforms":platforms,"lines":lines,
+    json!({"id":node,"name":w.api.node_name(node),"platforms":platforms,"lines":lines,"upkeepRates":upkeep_rates(),
         "departures":departures.into_iter().map(|(_,d)|d).collect::<Vec<_>>()})
 }
 
@@ -166,6 +188,24 @@ mod tests {
             .all(|pair| pair[0]["arrival"].as_f64() <= pair[1]["arrival"].as_f64()));
         assert!(steps.last().unwrap()["departure"].is_null());
         assert!(route(&w, line, 2, now).is_null());
+        // upkeep as web stationUpkeepOf: 500 (2000 below ground) × economy 100, a one-platform station 60%
+        assert_eq!(s["upkeepRates"], json!([200000.0, 50000.0]));
+        for p in s["platforms"].as_array().unwrap() {
+            let id = p["id"].as_u64().unwrap() as u32;
+            let base = if p["level"].as_i64().unwrap() < 0 {
+                200000.
+            } else {
+                50000.
+            };
+            let want = net
+                .node_kind(id)
+                .spec()
+                .station_upkeep
+                .map_or(base * if net.one_platform(id) { 0.6 } else { 1. }, |v| {
+                    v * 100.
+                });
+            assert!((p["upkeep"].as_f64().unwrap() - want).abs() < 1e-6, "{p}");
+        }
         println!(
             "{}: {} platforms, {} lines; {} timed stops on {}",
             s["name"],
