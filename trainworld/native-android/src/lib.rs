@@ -11,6 +11,8 @@ mod passenger_account;
 mod timed_account;
 mod train_loads;
 mod train_riders;
+mod line_summary;
+mod station_names;
 mod trip_cells;
 mod network_layers;
 mod demolition;

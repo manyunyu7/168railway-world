@@ -205,7 +205,7 @@ object StudioAllCities {
             tip = splitTip("di semua kota", t))
         figure("Kota", StudioFormat.exact(t.optDouble("cities")))
         figure("Stasiun", StudioFormat.exact(t.optDouble("stations")))
-        figure("Lini", StudioFormat.exact(t.optDouble("lines")))
+        figure("Line", StudioFormat.exact(t.optDouble("lines")))
         figure("Perjalanan angkutan umum", if (seen) StudioFormat.count(t.optDouble("rail")) + "/hari" else "–",
             tip = if (seen) StudioFormat.exact(t.optDouble("rail")) + " perjalanan angkutan umum per hari di semua kota" else null)
         val points = t.optDouble("points", 0.0)

@@ -29,7 +29,7 @@ internal object StudioCityStart {
         "indo" to "KA penumpang Jawa dan Sumatera mengikuti GAPEKA 2026, bersama jaringan perkotaan Jabodetabek.",
         "jak" to "28 layanan mencakup KRL, MRT, LRT, Kalayang, dan TransJakarta.",
         "jak_2019" to "Kembangkan Jabodetabek dari jaringan yang beroperasi pada 2019.",
-        "jak_krl" to "Mulai dengan sembilan lini KRL Jabodetabek.",
+        "jak_krl" to "Mulai dengan sembilan line KRL Jabodetabek.",
         "jak_tj" to "Mulai dengan 14 koridor TransJakarta, lalu bangun jaringan rel pertama.",
         "jak_bogor" to "Mulai dengan Commuter Line Bogor dan Nambo."
     )
@@ -134,8 +134,8 @@ internal object StudioCityStart {
                 preview.visibility = if (preview.childCount == 0) View.GONE else View.VISIBLE
                 originHint.text = when {
                     showScenarios -> scenarioDetails.getValue(scenario)
-                    preset.isChecked -> "Lini dan stasiun sudah tersedia."
-                    else -> "Bangun stasiun dan lini pertama sendiri."
+                    preset.isChecked -> "Line dan stasiun sudah tersedia."
+                    else -> "Bangun stasiun dan line pertama sendiri."
                 }
             }
             network.setOnCheckedChangeListener { _, _ -> updateNetwork() }

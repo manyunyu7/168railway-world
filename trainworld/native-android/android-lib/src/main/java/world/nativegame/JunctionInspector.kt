@@ -97,7 +97,7 @@ internal object JunctionInspector {
                 }
             }
             if (moves.isEmpty()) {
-                column.addView(StudioUi.text(activity, "Tidak ada lini aktif yang lewat sini.", 14f, true, StudioUi.MUTED).apply { setPadding(dp(2), dp(12), 0, 0) })
+                column.addView(StudioUi.text(activity, "Tidak ada line aktif yang lewat sini.", 14f, true, StudioUi.MUTED).apply { setPadding(dp(2), dp(12), 0, 0) })
                 return@sheet
             }
             column.addView(JunctionMap(activity, ports, moves).apply {
@@ -156,7 +156,7 @@ internal object JunctionInspector {
             LinearLayout.LayoutParams(dp(58), -2))
         row.contentDescription = m.getString("label") + ", ${Math.round(m.optDouble("tph"))} kereta per jam" +
             (if (delay > 0) ", tunggu ${duration(delay)} per kereta" else "") +
-            ", lini " + lines.joinToString { it.optString("name") }
+            ", line " + lines.joinToString { it.optString("name") }
         return row
     }
 

@@ -15,7 +15,7 @@ internal object CitySurface {
     @JvmStatic external fun attach(handle: Long, header: String, cells: ByteArray, terrain: ByteArray): IntArray?
     @JvmStatic external fun lonLat(handle:Long,x:Float,y:Float):DoubleArray
     @JvmStatic external fun project(handle: Long, lonlat: DoubleArray): FloatArray
-    data class Place(val name: String, val kind: Int, val x: Float, val y: Float)
+    data class Place(val name: String, val kind: Int, val x: Float, val y: Float, val pop: Double = 0.0)
     data class Layer(val bitmap: Bitmap, val bounds: FloatArray, val places: List<Place>) {
         fun overview(): Layer {
             val span = maxOf(bitmap.width,bitmap.height)
@@ -37,7 +37,7 @@ internal object CitySurface {
         val xy = project(handle, coordinates)
         return List(rows.length()) { i ->
             val row = rows.getJSONArray(i)
-            Place(row.getString(0), row.getInt(1), xy[i*2], xy[i*2+1])
+            Place(row.getString(0), row.getInt(1), xy[i*2], xy[i*2+1], row.optDouble(4, 0.0).takeIf { it.isFinite() } ?: 0.0)
         }
     }
     fun load(handle: Long, pack: CityPackStore.CityPack, overview: Boolean = false): Layer {

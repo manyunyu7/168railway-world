@@ -12,7 +12,7 @@ impl World {
             .chunks_exact(22)
             .map(|r| {
                 let id = r[0] as u32;
-                json!({"id":id,"name":self.api.line_name(id),"running":r[3]==1.})
+                json!({"id":id,"name":self.api.line_name(id),"running":r[3]==1.,"group":self.api.line_group(id),"groupName":self.api.line_group_name(id)})
             })
             .collect()
     }

@@ -66,7 +66,7 @@ internal object LineProfileView {
                     apply(if (limit > 0) 0 else max(least, min(kindTop, (reached / step).toInt() * step)))
                 }.apply {
                     minHeight = dp(48); minimumHeight = dp(48)
-                    contentDescription = if (limit > 0) "Batasi, aktif. Ketuk untuk melepas batas laju" else "Batasi kecepatan lini ini"
+                    contentDescription = if (limit > 0) "Batasi, aktif. Ketuk untuk melepas batas laju" else "Batasi kecepatan line ini"
                 }
             }
             val top = StudioUi.row(c, null, 0, "Kecepatan puncak", speed(reached), toggle)
@@ -91,7 +91,7 @@ internal object LineProfileView {
         val points = p.getJSONArray("points")
         if (points.length() >= 2) {
             box.addView(StudioUi.section(c, "Penampang"), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(if (box.childCount > 0) 14 else 0) })
-            val readout = StudioUi.text(c, "Geser di grafik untuk melihat tiap tempat di lini.", 12.5f, true, StudioUi.MUTED).apply {
+            val readout = StudioUi.text(c, "Geser di grafik untuk melihat tiap tempat di line.", 12.5f, true, StudioUi.MUTED).apply {
                 minHeight = dp(54)
                 setPadding(dp(4), dp(4), dp(4), 0)
             }
@@ -121,7 +121,7 @@ internal object LineProfileView {
 
         init {
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-            contentDescription = "Penampang lini sepanjang ${distance(len)}: kecepatan tertinggi ${speed(pts.maxOf { it[1] })}, " +
+            contentDescription = "Penampang line sepanjang ${distance(len)}: kecepatan tertinggi ${speed(pts.maxOf { it[1] })}, " +
                 stops.size + " pemberhentian dari " + (stops.firstOrNull()?.second ?: "") + " ke " + (stops.lastOrNull()?.second ?: "")
         }
 

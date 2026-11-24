@@ -170,7 +170,7 @@ class StudioLibraryActivity : Activity() {
             fun chip(text: String, tint: Int, ink: Int) =
                 chips.addView(StudioUi.chip(this,text,tint,ink),LinearLayout.LayoutParams(-2,-2).apply { marginEnd = dp(6) })
             if (cover != null) {
-                chip("${cover.lines} lini",StudioUi.TINT_ORANGE,0xff9a3a0b.toInt())
+                chip("${cover.lines} line",StudioUi.TINT_ORANGE,0xff9a3a0b.toInt())
                 chip("${cover.stations} stasiun",StudioUi.TINT_PURPLE,0xff3f2aa8.toInt())
                 // web savesPanel.cash: the cash when saved, as the money tab writes it
                 if (cover.cash.isFinite()) chip(StudioFormat.cash(cover.cash * 1e6, StudioCurrency.current(this)),StudioUi.TINT_YELLOW,0xff7a5600.toInt())
@@ -213,7 +213,7 @@ class StudioLibraryActivity : Activity() {
         val tiles = shown.map { (slot, link) ->
             val cover = covers[slot.id]
             // web SlotFacts: lines and when it was saved
-            val detail = cover?.let { "${it.lines} lini · " + WorldDocuments.savedWhen(slot.at) } ?: details(slot,link)
+            val detail = cover?.let { "${it.lines} line · " + WorldDocuments.savedWhen(slot.at) } ?: details(slot,link)
             (KScene.worldCard(this,slot.title,detail,0xffb5e08f.toInt(),cover?.image) {
                 if (!locked) open(slot)
             } as LinearLayout).apply {

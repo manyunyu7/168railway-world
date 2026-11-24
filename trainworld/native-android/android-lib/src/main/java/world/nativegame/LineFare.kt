@@ -30,7 +30,7 @@ internal object LineFare {
         box.addView(StudioUi.text(host, "Kelipatan tarif", 15f, true))
         line.addView(View(host), LinearLayout.LayoutParams(0, 1, 1f))
         box.addView(line)
-        box.addView(StudioUi.text(host, "Mengalikan tarif untuk naik di lini ini, termasuk tarif dasar. Perjalanan lewat beberapa lini membayar tarif dasar tertinggi di antaranya.",
+        box.addView(StudioUi.text(host, "Mengalikan tarif untuk naik di line ini, termasuk tarif dasar. Perjalanan lewat beberapa line membayar tarif dasar tertinggi di antaranya.",
             12f, true, StudioUi.MUTED).apply { setPadding(0, dp(4), dp(6), 0) })
         if (!editable) {
             line.addView(StudioUi.text(host, text(mul), 16f).apply { typeface = StudioUi.heavy(host) })

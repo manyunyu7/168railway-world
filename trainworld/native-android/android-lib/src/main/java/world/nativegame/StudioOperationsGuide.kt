@@ -21,14 +21,14 @@ internal class StudioOperationsGuide(
         Task(1,"Tempatkan tiga stasiun","Pilih tiga lokasi di atas rel, masing-masing berjarak setidaknya 500 meter.","station","Pasang stasiun"),
         Task(2,"Konfirmasi pembangunan","Tinjau biaya dan konfirmasi ruas serta stasiun sebelum membuat layanan.","rail","Buka alat rel"),
         Task(3,"Buat layanan","Pilih stasiun yang akan dilayani sesuai urutan perjalanan.","line","Buat layanan"),
-        Task(4,"Hubungkan tiga pemberhentian","Periksa urutan stasiun pada layanan yang baru dibuat.","services","Buka lini")
+        Task(4,"Hubungkan tiga pemberhentian","Periksa urutan stasiun pada layanan yang baru dibuat.","services","Buka line")
     )
     private val operate = listOf(
         Task(5,"Siapkan rangkaian","Buka layanan lalu alokasikan sedikitnya satu kereta.","services","Atur layanan"),
         Task(13,"Jalankan waktu","Mulai simulasi agar kereta bergerak dan penumpang bisa naik.","play","Jalankan simulasi"),
         Task(7,"Periksa kepadatan","Buka detail layanan dan periksa beban penumpangnya.","services","Lihat layanan"),
         Task(8,"Atur tiga tingkat permintaan","Sediakan sedikitnya satu kereta untuk setiap tingkat permintaan.","services","Atur armada"),
-        Task(15,"Baca lalu lintas rel","Pilih warna lini Lalu lintas untuk melihat ruas yang sering dilalui.","layers","Pilih lapisan"),
+        Task(15,"Baca lalu lintas rel","Pilih warna line Lalu lintas untuk melihat ruas yang sering dilalui.","layers","Pilih lapisan"),
         Task(12,"Capai 1% perjalanan dengan angkutan umum","Periksa pembagian moda kota setelah simulasi berjalan.","summary","Lihat perjalanan")
     )
     fun show() = checkpoint(-1,0,::render)

@@ -81,7 +81,7 @@ impl World {
         }
         self.hour = i64::MIN;
         self.operating = None;
-        self.line_profile(id).ok_or_else(|| "Lini tidak ditemukan.".into())
+        self.line_profile(id).ok_or_else(|| "Line tidak ditemukan.".into())
     }
 }
 

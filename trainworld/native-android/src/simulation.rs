@@ -307,6 +307,41 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_lineRiders(
         .map_or(std::ptr::null_mut(), |s| s.into_raw())
 }
 
+/// Web LinesTab's figures for every line at game time `time` (`line_summary::summary`); JSON,
+/// `null` before the riders are in.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_lineSummary(
+    env: JNIEnv,
+    _: JClass,
+    id: jlong,
+    time: jdouble,
+) -> jni::sys::jstring {
+    let value = SESSIONS.with_borrow_mut(|s| {
+        let clock = s.active.get_mut(&id)?;
+        if !time.is_finite() {
+            return None;
+        }
+        let world = &mut clock.world;
+        if world.operating.is_none() {
+            world.operating = Some(crate::operating::Costs::new(&mut world.api));
+        }
+        let account = clock.passengers.as_ref()?;
+        let costs = world.operating.as_ref()?;
+        Some(crate::line_summary::summary(
+            world,
+            time,
+            |l| account.day_fares(l, time),
+            |l| {
+                let country = account.country(l);
+                crate::line_summary::past_day_running(time, |epoch| costs.line_hour(l, epoch, country))
+            },
+        ))
+    });
+    let text = value.unwrap_or(serde_json::Value::Null).to_string();
+    env.new_string(text)
+        .map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
+
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_SimulationEngine_close(
     _: JNIEnv,

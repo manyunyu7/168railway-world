@@ -13,7 +13,7 @@ internal object TroubleList {
     fun kindWords(kind: Int, tram: Boolean = false): Pair<String, Boolean> = when (kind) {
         1 -> "Rel tunggal" to false; 2 -> (if (tram) "Halte trem" else "Peron") to true; 3 -> "Putar balik" to true
         4 -> "Persimpangan" to false; 5 -> "Persilangan sebidang" to false
-        6 -> (if (tram) "Berbalik di halte" else "Berbalik di peron") to true; 7 -> "Rel bersama lini lain" to false
+        6 -> (if (tram) "Berbalik di halte" else "Berbalik di peron") to true; 7 -> "Rel bersama line lain" to false
         8 -> "Berbalik memotong rel" to true; 9 -> "Berbalik arah" to true; 10 -> "Sepur simpan jalur balik" to true
         12 -> "Titik gabung" to false; 14 -> "Stasiun ujung" to true; else -> "Rel" to false
     }
@@ -22,7 +22,7 @@ internal object TroubleList {
     fun describe(item: org.json.JSONObject): Pair<String, String> {
         val name = item.optString("name")
         return when (item.optInt("tier")) {
-            0 -> "$name rusak" to "Rute lini terputus. Sambungkan lagi relnya atau ubah pemberhentiannya."
+            0 -> "$name rusak" to "Rute line terputus. Sambungkan lagi relnya atau ubah pemberhentiannya."
             1 -> "Berbalik di ${item.optString("place")}" to "Kereta $name berbalik arah di tengah lintasan. Tambah jalur balik atau ubah rute agar lurus."
             2, 4 -> {
                 val (title, at) = kindWords(item.optInt("kind"))
@@ -35,7 +35,7 @@ internal object TroubleList {
                 else if (item.optInt("tier") == 4) "Hampir penuh oleh $name. Satu kereta tambahan bisa membuat kereta menunggu; siapkan rel ganda atau peron."
                 else "$name dijadwalkan ${"%.0f".format(id, item.optDouble("tph"))} kereta/jam, relnya hanya muat ${"%.0f".format(id, item.optDouble("most"))}. Selebihnya menunggu di ujung."
             }
-            6 -> name to "Lini ini belum punya stasiun."
+            6 -> name to "Line ini belum punya stasiun."
             else -> name to ""
         }
     }

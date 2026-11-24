@@ -48,7 +48,7 @@ internal object StudioAchievements {
         Tiered("cities", "Kota terlayani", doubleArrayOf(2.0, 10.0, 25.0, 100.0), 0xff3a78c9.toInt()),
         Tiered("trips", "Perjalanan per hari", doubleArrayOf(1e6, 10e6, 100e6, 300e6, 1e9), 0xffc8423b.toInt()),
         Tiered("station", "Stasiun tersibuk", doubleArrayOf(500e3, 1e6, 2e6, 5e6), 0xffc97a12.toInt()),
-        Tiered("line", "Lini tersibuk", doubleArrayOf(500e3, 1e6, 3e6, 10e6), 0xff2f8f5b.toInt()),
+        Tiered("line", "Line tersibuk", doubleArrayOf(500e3, 1e6, 3e6, 10e6), 0xff2f8f5b.toInt()),
     )
     private const val FIRST_COLOR = 0xff8558c2.toInt()
     /** a tier's metal by its place in the ladder (web `METALS`): face and rim */
@@ -61,7 +61,7 @@ internal object StudioAchievements {
         "cities" -> if (toast) "${tier.toLong()} kota" else "${tier.toLong()} kota terlayani"
         "trips" -> "${short(tier)} perjalanan/hari"
         "station" -> "${short(tier)} naik/hari di ${a?.optString("of")?.ifBlank { null } ?: "satu stasiun"}"
-        else -> "${short(tier)} penumpang/hari di ${a?.optString("of")?.ifBlank { null } ?: "satu lini"}"
+        else -> "${short(tier)} penumpang/hari di ${a?.optString("of")?.ifBlank { null } ?: "satu line"}"
     }
 
     private fun currency(c: Context) = StudioCurrency.current(c)
@@ -73,13 +73,13 @@ internal object StudioAchievements {
         val nations = listOf("JP", "US", "ES", "GB", "IT", "DE", "KR", "TW", "CN", "ID", "MX", "BR", "AU", "TR")
         fun share(a: JSONObject) = num(v(a), 1) + "%"
         return listOf(
-            First("border", "Lintas batas", "Lini dengan perhentian di dua negara") { "${of(it)} berhenti di ${places(it)}" },
-            First("continents", "Dua benua", "Lini dengan perhentian di dua benua") { "${of(it)} berhenti di ${it.optJSONArray("in")?.let { a -> List(a.length()) { i -> a.getString(i) }.joinToString(" dan ") }.orEmpty()}" },
-            First("long", "Jalan terpanjang", "Lini sepanjang ${bigDistance(5e6)}") { "${of(it)} panjangnya ${bigDistance(v(it))}" },
-            First("pearls", "Untaian mutiara", "Lini yang untung, panjangnya minimal ${bigDistance(3e6)}") { "${of(it)} panjangnya ${bigDistance(v(it))} dan untung" },
-            First("money", "Kereta uang", "Lini dengan laba ${money.compact(200.0)} dalam sehari") { "${of(it)} meraih laba ${money.compact(v(it) / 1e6)} hari ini" },
+            First("border", "Lintas batas", "Line dengan perhentian di dua negara") { "${of(it)} berhenti di ${places(it)}" },
+            First("continents", "Dua benua", "Line dengan perhentian di dua benua") { "${of(it)} berhenti di ${it.optJSONArray("in")?.let { a -> List(a.length()) { i -> a.getString(i) }.joinToString(" dan ") }.orEmpty()}" },
+            First("long", "Jalan terpanjang", "Line sepanjang ${bigDistance(5e6)}") { "${of(it)} panjangnya ${bigDistance(v(it))}" },
+            First("pearls", "Untaian mutiara", "Line yang untung, panjangnya minimal ${bigDistance(3e6)}") { "${of(it)} panjangnya ${bigDistance(v(it))} dan untung" },
+            First("money", "Kereta uang", "Line dengan laba ${money.compact(200.0)} dalam sehari") { "${of(it)} meraih laba ${money.compact(v(it) / 1e6)} hari ini" },
             First("bullet", "Kereta peluru", "Kereta yang melaju 300 km/h") { "${of(it)} mencapai ${Math.round(v(it))} km/h" },
-            First("circle", "Lingkar kota", "Lini lingkar dengan 10 perhentian") { "${of(it)} melingkar dengan ${v(it).toLong()} perhentian" },
+            First("circle", "Lingkar kota", "Line lingkar dengan 10 perhentian") { "${of(it)} melingkar dengan ${v(it).toLong()} perhentian" },
             First("change", "Serba pindah", "Rata-rata satu kali pindah per perjalanan, dengan ${short(100e3)} perjalanan/hari") { "${num(v(it), 2)} pindah per perjalanan" },
             First("city", "Kota angkutan umum", "Kota yang 20% perjalanannya naik angkutan umum") { "${v(it).toInt()}% perjalanan di dalam ${of(it)} naik angkutan umum" },
             First("intercity", "Tetap di darat", "Kota yang 20% perjalanannya ke tempat lain naik angkutan umum") { "${v(it).toInt()}% perjalanan antara ${of(it)} dan tempat lain naik angkutan umum" },

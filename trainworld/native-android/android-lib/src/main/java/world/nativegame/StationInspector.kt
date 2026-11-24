@@ -320,7 +320,23 @@ internal object StationInspector {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         }
-        val box = LinearLayout(activity).apply { setPadding(StudioUi.dp(activity,20),StudioUi.dp(activity,8),StudioUi.dp(activity,20),0); addView(field,LinearLayout.LayoutParams(-1,-2)) }
+        // web StationInspector's cycle button beside the name: the next suggested name, wrapping round
+        val suggest = StudioUi.button(activity, "↻") {
+            val next = StationNames.nextFor(handle, node, field.text.toString().trim())
+            if (next != null) { field.setText(next); field.setSelection(next.length) }
+            else android.widget.Toast.makeText(activity, "Tidak ada usulan nama lain di sini.", android.widget.Toast.LENGTH_SHORT).show()
+        }.apply {
+            contentDescription = "Nama usulan berikutnya"
+            minWidth = StudioUi.dp(activity,48); minimumWidth = StudioUi.dp(activity,48)
+            minHeight = StudioUi.dp(activity,48); minimumHeight = StudioUi.dp(activity,48)
+            setPadding(0,0,0,0)
+        }
+        val box = LinearLayout(activity).apply {
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(StudioUi.dp(activity,20),StudioUi.dp(activity,8),StudioUi.dp(activity,20),0)
+            addView(field,LinearLayout.LayoutParams(0,-2,1f))
+            addView(suggest,LinearLayout.LayoutParams(StudioUi.dp(activity,48),StudioUi.dp(activity,48)).apply { marginStart = StudioUi.dp(activity,8) })
+        }
         var answered = false
         fun commit() {
             if (answered) return
