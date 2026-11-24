@@ -134,6 +134,7 @@ class NativeWorldActivity : Activity() {
     private var reportDay = -1
     private var dayStartCash = Double.NaN
     private var progressTick = 0L
+    private lateinit var periodStatus: TextView
     private lateinit var localTime: TextView
     private lateinit var balance: TextView
     private lateinit var balanceUnit: TextView
@@ -238,6 +239,8 @@ class NativeWorldActivity : Activity() {
             includeFontPadding = false
         }
         timeColumn.addView(localTime)
+        periodStatus = StudioUi.text(this, "", 11f, true, StudioUi.MUTED).apply { singleLine() }
+        timeColumn.addView(periodStatus)
         info = StudioUi.text(this, "Membuka jaringan…", 11f, true, StudioUi.MUTED).apply { singleLine() }
         timeColumn.addView(info)
         timeColumn.contentDescription = "Ringkasan semua kota"
@@ -1074,7 +1077,21 @@ class NativeWorldActivity : Activity() {
         updateControls()
     }
 
+    private fun updatePeriodStatus(second: Int) {
+        val period = when (second / 3600) {
+            in 6..9 -> "Puncak pagi"
+            in 10..15 -> "Siang"
+            in 16..19 -> "Puncak sore"
+            in 20..23 -> "Malam"
+            else -> "Dini hari"
+        }
+        val state = if (running || referenceState == ReferenceState.PLAYING) "Berjalan" else "Dijeda"
+        val label = "$period · $state"
+        if (periodStatus.text != label) periodStatus.text = label
+    }
+
     private fun updateControls() {
+        updatePeriodStatus(Math.floorMod((referenceTime ?: clock).toLong() + localClockShift, 86400L).toInt())
         val openBend = map.bends.lastOrNull()?.first == map.draft.lastIndex
         val ready = handle != 0L && !placingRail && !restoringEdit &&
             referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING
@@ -1626,6 +1643,7 @@ class NativeWorldActivity : Activity() {
         val second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         if(second!=lastStatus) {
             lastStatus=second
+            updatePeriodStatus(second)
             localTime.text = "%02d:%02d:%02d".format(java.util.Locale.ROOT,second/3600%24,second/60%60,second%60)
             if (!drawing && !selectingInfrastructure && !removingTrack && !restoringEdit && referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING) {
                 val service = if (workshop && lastService.isNotEmpty()) " · $lastService" else ""
