@@ -678,7 +678,7 @@ class NativeWorldActivity : Activity() {
             dayStartCash = cash
             updateSummary()
             if (referenceState == ReferenceState.PLAYING && foreground && hasWindowFocus() && !drawing &&
-                speedChip.rate <= 86400.0 / 60 && cash.isFinite() && start.isFinite())
+                speedChip.multiple <= 24.0 && cash.isFinite() && start.isFinite())
                 StudioProgress.report(this, currency, finished, snap.trains, start, cash, null, next?.goal)
         }
     }
@@ -2099,7 +2099,7 @@ class NativeWorldActivity : Activity() {
                     setOnClickListener { popup.dismiss(); pick() }
                     addView(View(context).apply { background = swatch(colors, 12) }, LinearLayout.LayoutParams(-1, dp(38)))
                     addView(StudioUi.text(context, label, 12.5f, color = if (selected) StudioUi.WHITE else StudioUi.INK).apply {
-                        typeface = StudioUi.heavy(context); gravity = Gravity.CENTER; singleLine()
+                        typeface = StudioUi.heavy(context); gravity = Gravity.CENTER; maxLines = 2
                     }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
                 }
                 line.addView(tile, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(7) })
