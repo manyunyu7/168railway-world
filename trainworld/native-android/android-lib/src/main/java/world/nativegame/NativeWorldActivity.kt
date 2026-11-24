@@ -502,6 +502,10 @@ class NativeWorldActivity : Activity() {
                 drawing -> selectPoint(point)
             }
         }
+        map.onLineTap = { id ->
+            if (!drawing && !removingTrack && !restoringEdit && !selectingInfrastructure && handle != 0L)
+                withCommittedWorld(pause = false) { openServiceDetails(id) }
+        }
         map.onTrainTap = { profile, dep, fill, engine, time ->
             if (!drawing && !removingTrack && !restoringEdit && engine != 0L) openTrain(profile, dep, fill, engine, time)
         }
@@ -2881,6 +2885,26 @@ internal class NetworkView(context: Context):View(context) {
     val draft = mutableListOf<PointF>()
     val routeNames = mutableMapOf<Int,String>()
     val lines = mutableListOf<Pair<Int,Path>>()
+    /** Each service's polyline in world units, for picking a line by a tap (web: click a line). */
+    private val routeXY = mutableListOf<Pair<Int,FloatArray>>()
+    var onLineTap: ((Int) -> Unit)? = null
+    private fun lineAt(x: Float, y: Float, radius: Float): Int? {
+        val wx = centerX + (x-width/2f)/scale; val wy = centerY - (y-height/2f)/scale
+        val r = radius/scale
+        var best: Int? = null; var bestD = r
+        for ((id, xy) in routeXY) {
+            var i = 0
+            while (i + 3 < xy.size) {
+                val ax = xy[i]; val ay = xy[i+1]; val bx = xy[i+2]; val by = xy[i+3]
+                val dx = bx-ax; val dy = by-ay; val l2 = dx*dx+dy*dy
+                val t = if (l2 > 0f) (((wx-ax)*dx+(wy-ay)*dy)/l2).coerceIn(0f,1f) else 0f
+                val d = kotlin.math.hypot(ax+t*dx-wx, ay+t*dy-wy)
+                if (d < bestD) { bestD = d; best = id }
+                i += 2
+            }
+        }
+        return best
+    }
     private data class RailStyle(val level: Int, val kind: Int, val tracks: Int)
     data class RailInfo(val low:Int,val high:Int,val kind:Int,val tracks:Int,val length:Double,val speed:Double)
     private data class RailPiece(val id: Int, val points: FloatArray, val info:RailInfo) {
@@ -3025,6 +3049,7 @@ internal class NetworkView(context: Context):View(context) {
         requiresStudioClock = data.optBoolean("requiresStudioClock", true)
         routeNames.clear()
         lines.clear()
+        routeXY.clear()
         stops.clear()
         cityCenter = data.optJSONArray("homePoint")?.takeIf { it.length() == 2 }?.let {
             PointF(it.getDouble(0).toFloat(), it.getDouble(1).toFloat())
@@ -3072,10 +3097,13 @@ internal class NetworkView(context: Context):View(context) {
         for(i in 0 until routes.length()) {
             val row=routes.getJSONObject(i);val points=row.getJSONArray("points")
             val path=Path()
+            val xy=FloatArray(points.length())
             for(j in 0 until points.length() step 2) {
                 val x=points.getDouble(j).toFloat();val y=points.getDouble(j+1).toFloat()
+                xy[j]=x; xy[j+1]=y
                 if(j==0) path.moveTo(x,y) else path.lineTo(x,y)
             }
+            routeXY.add(row.getInt("id") to xy)
             val color = row.getInt("color") or Color.BLACK
             routeNames[row.getInt("id")] = row.optString("name")
             lines.add(color to path)
@@ -3559,6 +3587,8 @@ internal class NetworkView(context: Context):View(context) {
             if (displaySettings.trains) trainPainter.trainAt(x,y,scale,width,height,22*density)?.let { (profile,dep,fill) ->
                 onTrainTap?.invoke(profile,dep,fill,trainPainter.engine(),trainPainter.time); return
             }
+            // web: a click on a line selects it and opens its panel
+            if (onLineTap != null) lineAt(x,y,14*density)?.let { onLineTap?.invoke(it); return }
         }
         onLocation?.invoke(PointF(centerX + (x-width/2f)/scale, centerY - (y-height/2f)/scale))
     }
