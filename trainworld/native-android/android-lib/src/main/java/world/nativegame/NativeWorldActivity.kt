@@ -2259,7 +2259,7 @@ class NativeWorldActivity : Activity() {
             contentDescription = "Kembali ke peta normal"
             isClickable = true
             setOnClickListener { applyLens(Lens.NORMAL) }
-        }, LinearLayout.LayoutParams(dp(36), dp(36)))
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
     }
 
     /** The web's purpose filter (`PurposeSelect`): every purpose or one, for the trip bubbles and the

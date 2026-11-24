@@ -244,7 +244,8 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 // the purpose filter's riders against its busiest span; train loads and money stay every purpose's
                 val riders = if (shown == 0) s.riders else s.purposes.getOrElse(shown-1) { 0f }
                 val top = busiest[shown]
-                paint.strokeWidth=width*(.5f + 4.2f*(if(top>0) riders/top else 0f))
+                val share = if (top > 0) (riders / top).coerceIn(0f,1f) else 0f
+                paint.strokeWidth = width * (.85f / 1.3f) * (.5f + 6.1f * share)
                 paint.color=s.color
             } else if(track == "profit" && s.profit >= 0) {
                 paint.strokeWidth=width
