@@ -350,12 +350,49 @@ internal object StationInspector {
             minHeight = StudioUi.dp(activity,48); minimumHeight = StudioUi.dp(activity,48)
             setPadding(0,0,0,0)
         }
-        val box = LinearLayout(activity).apply {
+        val top = LinearLayout(activity).apply {
             gravity = android.view.Gravity.CENTER_VERTICAL
             setPadding(StudioUi.dp(activity,20),StudioUi.dp(activity,8),StudioUi.dp(activity,20),0)
             addView(field,LinearLayout.LayoutParams(0,-2,1f))
             addView(suggest,LinearLayout.LayoutParams(StudioUi.dp(activity,48),StudioUi.dp(activity,48)).apply { marginStart = StudioUi.dp(activity,8) })
         }
+        val box = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; addView(top) }
+        fun dp(n: Int) = StudioUi.dp(activity, n)
+        // At least five names ready to tap: the web generator's suggestions in order, then the
+        // nearest place with the usual Indonesian station words (owner: "minimal 5").
+        val seen = linkedSetOf<String>()
+        var probe = current
+        repeat(8) { StationNames.nextFor(handle, node, probe)?.let { n -> if (!seen.add(n)) return@repeat; probe = n } }
+        val base = (seen.firstOrNull() ?: current).replace(Regex(" (Baru|Timur|Barat|Utara|Selatan|\\d+)$"), "")
+        for (w in listOf("$base Baru", "$base Timur", "$base Barat", "$base Raya", "Pasar $base")) if (seen.size < 8) seen.add(w)
+        val ready = seen.filter { it != current }.take(8)
+        if (ready.isNotEmpty()) {
+            box.addView(StudioUi.text(activity, "Usulan nama", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
+            ready.chunked(2).forEach { pair ->
+                val line = LinearLayout(activity).apply { setPadding(dp(16), dp(3), dp(16), dp(3)) }
+                pair.forEach { n ->
+                    line.addView(StudioUi.text(activity, n, 13f, true, StudioUi.INK).apply {
+                        gravity = android.view.Gravity.CENTER_VERTICAL; minHeight = dp(44); maxLines = 2
+                        setPadding(dp(12), dp(4), dp(10), dp(4)); background = StudioUi.pill(activity, 0x1422204a, 14); isClickable = true
+                        setOnClickListener { field.setText(n); field.setSelection(n.length) }
+                    }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+                }
+                if (pair.size == 1) line.addView(android.view.View(activity), LinearLayout.LayoutParams(0, 1, 1f))
+                box.addView(line)
+            }
+        }
+        // suffixes to add to whatever is typed
+        box.addView(StudioUi.text(activity, "Tambah akhiran", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
+        val sufs = LinearLayout(activity).apply { setPadding(dp(16), 0, dp(16), 0) }
+        for (x in listOf("Baru", "Timur", "Barat", "Utara", "Selatan", "Kota", "Raya")) sufs.addView(StudioUi.text(activity, x, 13f, true).apply {
+            gravity = android.view.Gravity.CENTER; minHeight = dp(40); setPadding(dp(12), 0, dp(12), 0)
+            background = StudioUi.pill(activity, 0x1422204a, 14); isClickable = true
+            setOnClickListener {
+                val t = field.text.toString().trim().replace(Regex(" (Baru|Timur|Barat|Utara|Selatan|Kota|Raya)$"), "")
+                val n = "$t $x".take(100); field.setText(n); field.setSelection(n.length)
+            }
+        }, LinearLayout.LayoutParams(-2, dp(40)).apply { marginEnd = dp(6) })
+        box.addView(android.widget.HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false; addView(sufs) })
         var answered = false
         fun commit() {
             if (answered) return

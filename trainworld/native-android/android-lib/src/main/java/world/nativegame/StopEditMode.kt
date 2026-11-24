@@ -171,6 +171,10 @@ internal object StopEditMode {
         root.addView(head)
         s.status = StudioUi.text(a, HINT, 13f, true, StudioUi.MUTED).apply { setPadding(dp(2), dp(6), dp(2), dp(6)) }
         root.addView(s.status)
+        // asked for by the owner: every station the line passes made a stop in one step
+        root.addView(StudioUi.button(a, "Singgahi semua stasiun yang dilewati", icon = StudioUi.Icon.PLUS) {
+            edit(s, Mark(-1, "", 0f, 0f, "all", 0f)) { h, now -> JSONObject(LineStops.stopAll(h, s.id, now)) }
+        }.apply { minHeight = dp(48); textSize = 14f }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
         val foot = LinearLayout(a)
         s.undoButton = StudioUi.button(a, "Urungkan", icon = StudioUi.Icon.UNDO) { undoStep(s) }
         foot.addView(s.undoButton, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(6) })
@@ -425,6 +429,7 @@ internal object StopEditMode {
                 val charge = r.optDouble("charge", 0.0)
                 val cost = if (charge > 0) " · biaya ${StudioFormat.money(charge * 1e6, StudioCurrency.current(s.activity))}" else ""
                 val what = when {
+                    m.tier == "all" -> "${r.optInt("added")} stasiun ditambahkan"
                     r.has("added") -> if (r.optBoolean("added")) "${m.name} ditambahkan" else "${m.name} dihapus"
                     else -> "Putaran ${m.name} diubah"
                 }

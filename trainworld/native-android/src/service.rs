@@ -319,6 +319,57 @@ impl World {
     }
 }
 
+impl World {
+    /// Rename a line, keeping its colour; 1–48 characters as the schedule form allows.
+    pub(super) fn rename_line(&mut self, id: u32, name: &str, now: f64) -> Result<Value, String> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 48 {
+            return Err("Nama line 1–48 huruf.".into());
+        }
+        let color = self.api.lines_info().chunks_exact(22).find(|r| r[0] as u32 == id).map(|r| r[1] as u32).ok_or("Line tidak ditemukan.")?;
+        let mut next = self.edit_candidate(now).ok_or("Gagal membaca permainan.")?;
+        next.api.set_now(now);
+        if next.api.set_line_look(id, name.to_owned(), color) != 0 {
+            return Err(crate::issue_text::describe(&next.api.issue_kinds()));
+        }
+        next.book_service_edit(self, now);
+        *self = next;
+        self.inspect_service(id, now).ok_or("Layanan tidak ditemukan.".into())
+    }
+
+    /// Name ideas for a line, after the way real Indonesian services are named: its ends
+    /// ("Bogor – Jakarta Kota"), "Commuter Line {end}", "KRL {end}", "Lin {end}", an area word
+    /// with its middle stop, and the engine's next free name. Names already taken are skipped.
+    pub(super) fn line_name_ideas(&mut self, id: u32) -> Vec<String> {
+        let stops = self.api.line_stops(id);
+        let names: Vec<String> = stops.iter().map(|&n| self.api.node_name(n)).filter(|n| !n.is_empty()).collect();
+        let taken: std::collections::HashSet<String> = self.api.lines_info().chunks_exact(22)
+            .map(|r| self.api.line_name(r[0] as u32).to_lowercase()).collect();
+        let short = |n: &str| n.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+        let mut out: Vec<String> = Vec::new();
+        let mut push = |s: String| { if !s.is_empty() && s.chars().count() <= 48 && !taken.contains(&s.to_lowercase()) && !out.contains(&s) { out.push(s) } };
+        if let (Some(a), Some(b)) = (names.first(), names.last()) {
+            let vehicle = if self.api.is_bus(id) { "Bus" } else if self.api.is_ferry(id) { "Feri" } else if self.api.line_tram(id) { "Trem" } else { "Commuter Line" };
+            if a != b {
+                push(format!("{} – {}", short(a), short(b)));
+                push(format!("{vehicle} {}", short(b)));
+                push(format!("{vehicle} {}", short(a)));
+                push(format!("KRL {} – {}", short(a), short(b)));
+                push(format!("Lin {}", short(b)));
+            } else {
+                push(format!("Lingkar {}", short(a)));
+                push(format!("{vehicle} Lingkar {}", short(a)));
+            }
+            if let Some(mid) = names.get(names.len() / 2) {
+                push(format!("{vehicle} {} via {}", short(b), short(mid)));
+                push(format!("Ekspres {} – {}", short(a), short(b)));
+            }
+        }
+        push(self.api.next_line_name());
+        out
+    }
+}
+
 fn string(env: &JNIEnv, v: Value) -> jstring {
     env.new_string(v.to_string())
         .map_or(std::ptr::null_mut(), |a| a.into_raw())
@@ -422,6 +473,20 @@ mod tests {
                 println!("{} tph {:?} held {:?}", w.api.line_name(id), &r[5..8], w.api.line_held(id));
             }
         }
+    }
+    #[test]
+    fn rename_line_and_offer_names() {
+        let mut w = World::workshop();
+        let t = 111600.;
+        w.build_service([0., 0.], [3500., 600.], "Hudson", t).unwrap();
+        let ideas = w.line_name_ideas(0);
+        assert!(!ideas.is_empty());
+        assert!(ideas.iter().all(|n| n != "Hudson"));
+        let renamed = w.rename_line(0, &ideas[0], t).unwrap();
+        assert_eq!(renamed["name"], ideas[0].as_str());
+        assert!(w.rename_line(0, "  ", t).is_err());
+        let w = World::open(&w.save(t).unwrap()).unwrap();
+        assert_eq!(w.api.line_name(0), ideas[0]);
     }
     #[test]
     fn troubles_list_track_that_holds_trains_back() {
@@ -657,4 +722,18 @@ mod tests {
 pub extern "system" fn Java_world_nativegame_TroubleList_query(env: JNIEnv, _: JClass, handle: jlong, now: f64) -> jstring {
     let data = unsafe { (handle as *const World).as_ref() }.map(|w| w.troubles(now));
     string(&env, data.unwrap_or(Value::Null))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_ServicePanel_rename(mut env: JNIEnv, _: JClass, handle: jlong, id: i32, now: f64, name: JString) -> jstring {
+    let name: String = env.get_string(&name).map(|s| s.into()).unwrap_or_default();
+    let value = unsafe { (handle as *mut World).as_mut() }
+        .map(|w| w.rename_line(id as u32, &name, now).unwrap_or_else(|e| json!({"error": e})))
+        .unwrap_or(Value::Null);
+    string(&env, value)
+}
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_ServicePanel_nameIdeas(env: JNIEnv, _: JClass, handle: jlong, id: i32) -> jstring {
+    let value = unsafe { (handle as *mut World).as_mut() }.map(|w| json!(w.line_name_ideas(id as u32))).unwrap_or(Value::Null);
+    string(&env, value)
 }

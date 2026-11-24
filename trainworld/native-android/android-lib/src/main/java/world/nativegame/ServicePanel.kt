@@ -12,6 +12,8 @@ internal object ServicePanel {
     @JvmStatic private external fun services(handle: Long): String
     @JvmStatic private external fun inspect(handle: Long, id: Int, now: Double): String
     @JvmStatic private external fun update(handle: Long, id: Int, now: Double, params: String): String
+    @JvmStatic private external fun rename(handle: Long, id: Int, now: Double, name: String): String
+    @JvmStatic private external fun nameIdeas(handle: Long, id: Int): String
 
     /** Line colour from the archive (0xRRGGBB); falls back to the Studio purple. */
     /** What the last edit from a line's panel changed, for its undo entry. */
@@ -144,6 +146,105 @@ internal object ServicePanel {
         }
     }
 
+    /** "Ganti nama" for a line, with ↻ cycling name ideas (the station rename's generator, asked for lines too). */
+    private fun askRename(host: Activity, handle: Long, id: Int, current: String, stops: JSONArray, transaction: PanelEdit, done: (String) -> Unit) {
+        fun dp(n: Int) = StudioUi.dp(host, n)
+        // Pieces for a name built from the line's own stops: a prefix, the ends, a suffix.
+        val names = (0 until stops.length()).mapNotNull { stops.optString(it).takeIf { n -> n.isNotBlank() } }
+        fun short(n: String) = n.split(' ').take(2).joinToString(" ")
+        val first = names.firstOrNull()?.let(::short).orEmpty()
+        val last = names.lastOrNull()?.let(::short).orEmpty()
+        val mid = names.getOrNull(names.size / 2)?.let(::short).orEmpty()
+        val prefixes = listOf("", "Commuter Line", "KRL", "MRT", "LRT", "Lin", "Ekspres", "Bus", "Trem")
+        val bodies = listOfNotNull(
+            "$first – $last".takeIf { first.isNotEmpty() && first != last },
+            last.takeIf { it.isNotEmpty() }, first.takeIf { it.isNotEmpty() },
+            "Lingkar $first".takeIf { first.isNotEmpty() },
+        ).distinct()
+        val suffixes = listOf("", "Ekspres", "Lokal", "via $mid", "Raya", "Feeder", "Malam")
+        var pre = 0; var body = 0; var suf = 0
+        val ideas = runCatching { JSONArray(nameIdeas(handle, id)) }.getOrDefault(JSONArray())
+        var next = 0
+        val field = EditText(host).apply {
+            setText(current); setSingleLine(); setSelectAllOnFocus(true)
+            typeface = StudioUi.face(host, true); textSize = 17f; setTextColor(StudioUi.INK)
+            filters = arrayOf(android.text.InputFilter.LengthFilter(48))
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+        val box = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
+        val row = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL; setPadding(dp(20), dp(8), dp(12), 0) }
+        box.addView(row)
+        row.addView(field, LinearLayout.LayoutParams(0, -2, 1f))
+        fun compose() {
+            val text = listOf(prefixes[pre], bodies.getOrNull(body).orEmpty(), suffixes[suf]).filter { it.isNotBlank() }.joinToString(" ")
+            if (text.isNotBlank()) { field.setText(text.take(48)); field.setSelection(field.text.length) }
+        }
+        fun chips(title: String, options: List<String>, selected: () -> Int, pick: (Int) -> Unit) {
+            box.addView(StudioUi.text(host, title, 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
+            val line = LinearLayout(host).apply { setPadding(dp(16), 0, dp(16), 0) }
+            val views = mutableListOf<android.widget.TextView>()
+            fun paint() = views.forEachIndexed { i, v -> val on = i == selected(); v.background = StudioUi.pill(host, if (on) StudioUi.INK else 0x1422204a, 14); v.setTextColor(if (on) StudioUi.WHITE else StudioUi.INK) }
+            options.forEachIndexed { i, o ->
+                val v = StudioUi.text(host, o.ifEmpty { "Tanpa" }, 13f, true).apply {
+                    gravity = android.view.Gravity.CENTER; minHeight = dp(40); setPadding(dp(12), 0, dp(12), 0); isClickable = true
+                    setOnClickListener { pick(i); paint(); compose() }
+                }
+                views += v
+                line.addView(v, LinearLayout.LayoutParams(-2, dp(40)).apply { marginEnd = dp(6) })
+            }
+            paint()
+            box.addView(android.widget.HorizontalScrollView(host).apply { isHorizontalScrollBarEnabled = false; addView(line) })
+        }
+        // At least five ready names to tap, not only the ↻ cycle (owner: "kok terbatas banget? minimal 5")
+        val ready = buildList {
+            for (i in 0 until ideas.length()) add(ideas.getString(i))
+            for (p in listOf("Commuter Line", "KRL", "Lin")) for (b in bodies) add("$p $b")
+            for (b in bodies) for (x in listOf("Ekspres", "Lokal")) add("$b $x")
+        }.map { it.trim().take(48) }.filter { it.isNotBlank() && it != current }.distinct().take(8)
+        if (ready.isNotEmpty()) {
+            box.addView(StudioUi.text(host, "Usulan nama", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
+            ready.chunked(2).forEach { pair ->
+                val line = LinearLayout(host).apply { setPadding(dp(16), dp(3), dp(16), dp(3)) }
+                pair.forEach { n ->
+                    line.addView(StudioUi.text(host, n, 13f, true, StudioUi.INK).apply {
+                        gravity = android.view.Gravity.CENTER_VERTICAL; minHeight = dp(44); maxLines = 2
+                        setPadding(dp(12), dp(4), dp(10), dp(4)); background = StudioUi.pill(host, 0x1422204a, 14); isClickable = true
+                        setOnClickListener { field.setText(n); field.setSelection(n.length) }
+                    }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+                }
+                if (pair.size == 1) line.addView(View(host), LinearLayout.LayoutParams(0, 1, 1f))
+                box.addView(line)
+            }
+        }
+        if (bodies.isNotEmpty()) {
+            chips("Awalan", prefixes, { pre }) { pre = it }
+            chips("Rute", bodies, { body }) { body = it }
+            chips("Akhiran", suffixes, { suf }) { suf = it }
+        }
+        row.addView(StudioUi.iconButton(host, "Nama usulan berikutnya", StudioUi.Icon.UNDO) {
+            if (ideas.length() == 0) { android.widget.Toast.makeText(host, "Tidak ada usulan nama lain.", android.widget.Toast.LENGTH_SHORT).show(); return@iconButton }
+            field.setText(ideas.getString(next % ideas.length())); field.selectAll(); next++
+        }.apply { rotationY = 180f }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(6) })
+        lateinit var dlg: StudioPrompt
+        fun save() {
+            val name = field.text.toString().trim()
+            if (name.isEmpty() || name == current) { dlg.dismiss(); return }
+            dlg.dismiss()
+            transaction { now ->
+                editLabel = "Nama line"
+                val r = JSONObject(rename(handle, id, now, name))
+                if (r.has("error")) android.widget.Toast.makeText(host, r.getString("error"), android.widget.Toast.LENGTH_LONG).show()
+                else done(name)
+            }
+        }
+        dlg = StudioDialogBuilder(host).setTitle("Ganti nama line").setView(box)
+            .setPositiveButton("Selesai") { _, _ -> save() }.setNegativeButton("Batal", null).create()
+        field.setOnEditorActionListener { _, _, _ -> save(); true }
+        dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dlg.show()
+        field.requestFocus()
+    }
+
     fun details(host: Activity, handle: Long, id: Int, clock: Double, editable: Boolean, transaction: PanelEdit, changed: (String) -> Unit) {
         val service = JSONObject(inspect(handle,id,clock))
         val route = ServiceStops(service)
@@ -175,6 +276,25 @@ internal object ServicePanel {
                 stats.addView(StudioUi.stat(host, caption, value), LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(8) })
             }
             column.addView(stats, lp(12, host))
+            // owner's request: every station the line runs through without stopping, made a stop at once
+            if (editable && route.vehicleUnit == "kereta") column.addView(StudioUi.button(host, "Singgahi semua stasiun", icon = StudioUi.Icon.PLUS) {
+                dialog.dismiss()
+                transaction { now ->
+                    editLabel = LineStops.LABEL
+                    val r = JSONObject(LineStops.stopAll(handle, id, now))
+                    if (r.has("error")) android.widget.Toast.makeText(host, r.getString("error"), android.widget.Toast.LENGTH_LONG).show()
+                    else { android.widget.Toast.makeText(host, "${r.optInt("added")} stasiun ditambahkan sebagai perhentian.", android.widget.Toast.LENGTH_SHORT).show(); changed(service.getString("name")) }
+                    details(host, handle, id, clock, editable, transaction, changed)
+                }
+            }, lp(10, host))
+            if (editable) column.addView(StudioUi.button(host, "Hapus line", icon = StudioUi.Icon.DELETE) {
+                dialog.dismiss(); (host as? NativeWorldActivity)?.removeLine(id, service.getString("name"))
+            }.also(DemolitionPanel::danger), lp(10, host))
+            if (editable) column.addView(StudioUi.button(host, "Ganti nama", icon = StudioUi.Icon.EDIT) {
+                askRename(host, handle, id, service.getString("name"), service.optJSONArray("stops") ?: JSONArray(), transaction) {
+                    dialog.dismiss(); changed(it); details(host, handle, id, clock, editable, transaction, changed)
+                }
+            }, lp(10, host))
             // web LineInspector "Ubah perhentian" (toggleEditStops): the stops edited on the map (StopEditMode.kt)
             if (editable && StopEditMode.available && route.vehicleUnit == "kereta") {
                 column.addView(StudioUi.button(host, "Ubah perhentian", icon = StudioUi.Icon.EDIT) {

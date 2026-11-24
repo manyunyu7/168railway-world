@@ -1101,6 +1101,19 @@ class NativeWorldActivity : Activity() {
         DemolitionPanel.show(this,handle,clock,::commitDemolition)
     }
 
+    /** Web LineInspector "Hapus line": the line's panel asks with the demolition preview, then removes it. */
+    internal fun removeLine(id: Int, name: String) {
+        withCommittedWorld {
+            val preview = runCatching { JSONObject(DemolitionPanel.remove(handle, 0, id, clock, false)) }.getOrNull()
+            if (preview == null || preview.has("error")) { Toast.makeText(this, preview?.optString("error") ?: "Line tidak bisa dihapus.", Toast.LENGTH_LONG).show(); return@withCommittedWorld }
+            StudioDialogBuilder(this).setTitle("Hapus $name?")
+                .setView(DemolitionPanel.impact(this, 0, preview))
+                .setMessage("Line dan jadwalnya dihapus. Rel dan stasiun tetap ada. Bisa diurungkan.")
+                .setPositiveButton("Hapus line") { _, _ -> stopClock(); commitDemolition(0, id, name) }
+                .setNegativeButton("Batal", null).show()
+        }
+    }
+
     internal fun removeInspectedStation(node: Int, name: String) {
         withCommittedWorld {
             stopClock()

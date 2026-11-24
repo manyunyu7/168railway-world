@@ -31,6 +31,7 @@ internal object LineStops {
     @JvmStatic private external fun skip(handle: Long, id: Int, index: Int, now: Double): String
     @JvmStatic private external fun stop(handle: Long, id: Int, node: Int, now: Double): String
     /** Web `tools.loopStop`: `action` close, open, turn or unturn at station `node`. */
+    @JvmStatic external fun stopAll(handle: Long, id: Int, now: Double): String
     @JvmStatic private external fun loop(handle: Long, id: Int, action: String, node: Int, now: Double): String
 
     /** The running simulation's stop rows for a line (SimulationClock.lineRiders); null without one. */

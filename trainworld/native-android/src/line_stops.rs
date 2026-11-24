@@ -164,6 +164,28 @@ impl World {
 
     /// Web `dropStop` (Lewati) or `stopPassed` (Berhenti di sini), booked as the other panel edits
     /// are: the trains a longer or shorter round trip needs are bought or sold at once.
+    /// Every station the line passes without stopping made a stop, one after another; those the
+    /// engine refuses are left passed. Booked as one edit.
+    fn stop_at_all(&mut self, id: u32, clock: f64) -> Result<Value, String> {
+        let clock = self.native_clock(clock);
+        if !clock.is_finite() { return Err("Jam permainan tidak valid.".into()); }
+        if !self.api.world().net.line_ok(id) { return Err("Line sudah tidak tersedia.".into()); }
+        finance::tick(self, clock);
+        self.api.set_now(clock);
+        let mut added = 0;
+        let mut tried = std::collections::HashSet::new();
+        loop {
+            let passed = self.api.passed_stations(id);
+            let Some(node) = passed.chunks_exact(2).map(|p| p[1] as u32).find(|n| !tried.contains(n)) else { break };
+            tried.insert(node);
+            if self.api.stop_passed(id, node) == 0 { added += 1; }
+        }
+        if added == 0 { return Err("Tidak ada stasiun yang dilewati line ini.".into()); }
+        let mut v = self.booked(clock, format!("{added} stasiun"), id);
+        v["added"] = json!(added);
+        Ok(v)
+    }
+
     fn edit_line_stop(&mut self, id: u32, stop: Option<usize>, station: Option<u32>, clock: f64) -> Result<Value, String> {
         let clock = self.native_clock(clock);
         if !clock.is_finite() {
@@ -210,6 +232,13 @@ fn string(env: &JNIEnv, v: Value) -> jstring {
     env.new_string(v.to_string()).map_or(std::ptr::null_mut(), |s| s.into_raw())
 }
 
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_LineStops_stopAll(env: JNIEnv, _: JClass, handle: jlong, id: jint, now: jdouble) -> jstring {
+    let value = unsafe { (handle as *mut World).as_mut() }
+        .map(|w| w.stop_at_all(id as u32, now).unwrap_or_else(|e| json!({"error": e})))
+        .unwrap_or(Value::Null);
+    string(&env, value)
+}
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_LineStops_read(env: JNIEnv, _: JClass, handle: jlong, id: jint) -> jstring {
     let v = unsafe { (handle as *const World).as_ref() }.and_then(|w| w.line_stop_edits(id.max(0) as u32));
@@ -293,6 +322,20 @@ mod tests {
         assert_eq!(again.line_stop_edits(id).unwrap()["passed"], json!([]));
     }
 
+    #[test]
+    fn stop_at_all_passed_stations() {
+        let mut w = World::workshop();
+        let t = 111600.;
+        w.build_path(&[[0., 0.], [3000., 0.], [6000., 0.], [9000., 0.], [12000., 0.]], "Uji", t).unwrap();
+        let id = 0;
+        w.edit_line_stop(id, Some(1), None, t).unwrap();
+        w.edit_line_stop(id, Some(2), None, t).unwrap();
+        let before = w.api.line_stops(id).len();
+        let r = w.stop_at_all(id, t).unwrap();
+        assert!(r["added"].as_i64().unwrap() >= 1);
+        assert!(w.api.line_stops(id).len() > before);
+        assert!(w.stop_at_all(id, t).is_err());
+    }
     #[test]
     fn ends_unknown_stations_and_two_stop_lines_are_refused() {
         let mut w = World::workshop();
