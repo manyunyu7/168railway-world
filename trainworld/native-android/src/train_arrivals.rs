@@ -9,8 +9,11 @@ use jni::{
 };
 use trainworld_sim::track::profile;
 
-/// x, y (relative to the camera, as train_scene), line, note (0..11), profile, departure ×100.
-pub(crate) const STRIDE: usize = 6;
+/// x, y (relative to the camera, as train_scene), line, note (0..11), profile, departure ×100,
+/// the stop's index in the run, its node, and the side its riders stand on (web stationLife
+/// `platformSpot`: right of the train's travel where trains keep right, left where they keep
+/// left), a unit vector, 0, 0 where the track gives no direction.
+pub(crate) const STRIDE: usize = 10;
 /// Web `MAX_GAP_S`: a longer jump of the clock (a seek, a resume) sounds nothing.
 const MAX_GAP_S: f64 = 150.;
 
@@ -60,6 +63,7 @@ impl World {
         let net = &model.net;
         let notes = self.line_notes(model.svc.lines.len());
         let hidden = self.header["hidden"].as_array();
+        let keep = if net.right_hand { 1. } else { -1. };
         for trip in self.trips.chunks_exact(4) {
             let dep = epoch + f64::from(trip[1]);
             let tau = now - dep;
@@ -85,7 +89,7 @@ impl World {
             if s_now <= s_prev {
                 continue;
             }
-            for &at in &r.stop_s {
+            for (k, &at) in r.stop_s.iter().enumerate() {
                 // the train's offset passes the stop's (web: within 2 m of it)
                 if at <= 2. || s_prev >= at - 2. || s_now < at - 2. {
                     continue;
@@ -94,6 +98,12 @@ impl World {
                 if (px - x).abs() > hw || (py - y).abs() > hh {
                     continue;
                 }
+                let (ax, ay) = model.svc.position(net, id as u32, run, (at - 5.).clamp(0., r.len));
+                let (bx, by) = model.svc.position(net, id as u32, run, (at + 5.).clamp(0., r.len));
+                let (tx, ty) = (bx - ax, by - ay);
+                let l = tx.hypot(ty);
+                let (rx, ry) = if l > 1e-6 { (keep * ty / l, -keep * tx / l) } else { (0., 0.) };
+                let node = r.stop_idx.get(k).and_then(|&i| r.nodes.get(i as usize)).map_or(-1., |&n| n as f32);
                 out.extend_from_slice(&[
                     (px - x) as f32,
                     (py - y) as f32,
@@ -101,6 +111,10 @@ impl World {
                     notes.get(id).copied().unwrap_or(0) as f32,
                     profile as f32,
                     (trip[1] * 100.).round(),
+                    k as f32,
+                    node,
+                    rx as f32,
+                    ry as f32,
                 ]);
             }
         }

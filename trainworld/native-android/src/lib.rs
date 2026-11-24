@@ -38,6 +38,7 @@ mod passages;
 mod track_inspection;
 mod train_scene;
 mod train_arrivals;
+mod station_life;
 mod issue_text;
 mod line_bands;
 mod rail_detail;

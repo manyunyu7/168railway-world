@@ -11,6 +11,12 @@ pub(super) struct Loads {
     offsets: Vec<f32>,
     loads: Vec<f32>,
     stands: Vec<[f64; 3]>,
+    /// The hour's boarding buffer and where its queues, events, pulses and arrivals start in it,
+    /// for the riders at an arrival (station_life.rs, web stationLife `boardedAt`).
+    board: Vec<f32>,
+    at: [usize; 5],
+    /// Web `queueOf`: (node, line, run) → queue.
+    queues: HashMap<(u32, u32, u32), usize>,
 }
 
 struct Platforms<'a> {
@@ -131,11 +137,19 @@ impl Loads {
                 });
             stands[i] = [stop, dep, aboard];
         }
+        let mut by_key = HashMap::new();
+        for (k, q) in queues.chunks_exact(12).enumerate() {
+            by_key.entry((q[0] as u32, q[1] as u32, q[2] as u32)).or_insert(k);
+        }
+        let end = a0 + b[3] as usize;
         Some(Self {
             epoch,
             offsets: b[5..o].to_vec(),
             loads: b[o..q0].to_vec(),
             stands,
+            queues: by_key,
+            at: [q0, e0, p0, a0, end],
+            board: b,
         })
     }
     pub(super) fn rows(&self, world: &World, time: f64) -> Vec<i32> {
@@ -215,6 +229,50 @@ impl Loads {
         (o >= 0.)
             .then(|| self.loads.get(o as usize + k).copied().map(f64::from))
             .flatten()
+    }
+    /// Web stationLife `boardedAt`: at the platform where `line`'s run `run` stops at `node`, the
+    /// riders who got on a train arriving at game time `time`, the average time the riders
+    /// waiting had waited, s, and how many the train before left behind. The newcomers arrived
+    /// evenly since that train left (half the gap each); those it left behind add the gap before
+    /// it, again half on average. Nothing is known of the hour's first arrival: 0. None for a
+    /// platform the account has no queue for.
+    pub(super) fn boarded_at(&self, node: u32, line: u32, run: u32, time: f64) -> Option<(f64, f64, f64)> {
+        let &k = self.queues.get(&(node, line, run))?;
+        let [q0, e0, p0, a0, end] = self.at;
+        let b = &self.board;
+        let p = Platforms { events: &b[e0..p0], pulses: &b[p0..a0], arrivals: &b[a0..end] };
+        let q = &b[q0 + 12 * k..q0 + 12 * (k + 1)];
+        let (ev, arr) = (p.events, p.arrivals);
+        let t = time - self.epoch;
+        let first = q[8] as usize;
+        let last = first + q[9] as usize;
+        let dep = |e: usize| f64::from(ev[2 * e]);
+        let mut e = first;
+        // events are departures; the one a train arriving at `t` makes comes a little after it
+        while e < last && dep(e) < t - 8. {
+            e += 1;
+        }
+        // the crowd just before it stopped (T-1123: it boards as the train stops)
+        let stop = if e < last { t.min(f64::from(arr[e])) } else { t };
+        let waiting = p.wait(q, stop - 1e-3);
+        let boarded = if e < last {
+            (waiting + f64::from(q[4]) * (dep(e) - stop).max(0.) + p.pulses(q, stop, dep(e))
+                - f64::from(ev[2 * e + 1]))
+            .max(0.)
+        } else {
+            0.
+        };
+        if e == first {
+            return Some((boarded, 0., 0.));
+        }
+        let prev = e - 1;
+        let gap = (stop - dep(prev)).max(0.);
+        let left = f64::from(ev[2 * prev + 1]);
+        let before = if prev > first { dep(prev) - dep(prev - 1) } else { gap };
+        let fresh = (waiting - left).max(0.);
+        let riders = left + fresh;
+        let waited = if riders > 0. { (left * (gap + before / 2.) + fresh * gap / 2.) / riders } else { 0. };
+        Some((boarded, waited, left))
     }
     pub(super) fn current(&self, time: f64) -> bool {
         time >= self.epoch && time < self.epoch + 3600.
