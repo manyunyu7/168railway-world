@@ -419,4 +419,22 @@ internal object StudioUi {
         seek.splitTrack = false
         seek.setPadding(dp(c, 16), dp(c, 10), dp(c, 16), dp(c, 10))
     }
+
+    /**
+     * Charts inside a scrolling sheet: the chart only keeps the finger once the drag is clearly sideways,
+     * so a vertical swipe that starts on it still scrolls the sheet.
+     */
+    class SidewaysDrag {
+        private var x0 = 0f; private var y0 = 0f; private var claimed = false
+        fun track(view: View, e: android.view.MotionEvent) {
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; claimed = false }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val dx = kotlin.math.abs(e.x - x0); val dy = kotlin.math.abs(e.y - y0)
+                    if (!claimed && dx > dy && dx > dp(view.context, 6)) { claimed = true; view.parent?.requestDisallowInterceptTouchEvent(true) }
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> view.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+        }
+    }
 }

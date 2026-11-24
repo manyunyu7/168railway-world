@@ -232,13 +232,14 @@ internal object FinanceHistory {
             pen.color = 0x3322204a; pen.alpha = 0x33
             canvas.drawLine(0f, bottom, width.toFloat(), bottom, pen)
         }
+        private val drag = StudioUi.SidewaysDrag()
         override fun onTouchEvent(e: MotionEvent): Boolean {
             if (cols.isEmpty()) return false
+            drag.track(this, e)
             if (e.action == MotionEvent.ACTION_DOWN || e.action == MotionEvent.ACTION_MOVE) {
                 val col = width.toFloat() / slots(); val x0 = width - cols.size * col
                 val i = ((e.x - x0) / col).toInt().coerceIn(0, cols.lastIndex)
                 pick(cols, i)
-                parent?.requestDisallowInterceptTouchEvent(e.action == MotionEvent.ACTION_MOVE)
                 return true
             }
             return e.action == MotionEvent.ACTION_UP

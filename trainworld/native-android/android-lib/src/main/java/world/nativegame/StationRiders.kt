@@ -103,39 +103,41 @@ internal object StationRiders {
         if (forecast != null) head.addView(StudioUi.text(activity, "perkiraan hari biasa", 12f, true, StudioUi.MUTED))
         box.addView(head)
         if (lines.isEmpty()) {
-            box.addView(StudioUi.text(activity, "Belum ada layanan yang berhenti di sini.", 14f, true, StudioUi.MUTED)
+            box.addView(StudioUi.text(activity, "Belum ada line yang berhenti di sini.", 14f, true, StudioUi.MUTED)
                 .apply { setPadding(0, dp(6), 0, 0) })
             return
         }
         // the three figures side by side: on, off and (when there are any) changes between lines
-        val tiles = LinearLayout(activity).apply { setPadding(0, dp(8), 0, dp(4)) }
+        val tiles = LinearLayout(activity).apply { setPadding(0, dp(4), 0, dp(2)) }
         fun tile(label: String, value: String, tint: Int) {
             val t = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
-                background = StudioUi.pill(activity, tint, 16)
-                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = StudioUi.pill(activity, tint, 12)
+                setPadding(dp(10), dp(5), dp(10), dp(5))
                 contentDescription = "$label $value penumpang per hari"
             }
-            t.addView(StudioUi.text(activity, value, 19f, true, StudioUi.INK).apply { typeface = StudioUi.heavy(activity); maxLines = 1 })
-            t.addView(StudioUi.text(activity, label, 12.5f, true, StudioUi.MUTED))
+            t.addView(StudioUi.text(activity, value, 16f, true, StudioUi.INK).apply { typeface = StudioUi.heavy(activity); maxLines = 1 })
+            t.addView(StudioUi.text(activity, label, 11.5f, true, StudioUi.MUTED).apply { maxLines = 1 })
             tiles.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
         }
         val none = "—"
         tile("Naik", forecast?.let { whole(it.optDouble("on")) } ?: none, StudioUi.TINT_BLUE)
         tile("Turun", forecast?.let { whole(it.optDouble("off")) } ?: none, StudioUi.TINT_GREEN)
-        if (transfers >= .5) tile("Pindah layanan", whole(transfers), StudioUi.TINT_PURPLE)
+        if (transfers >= .5) tile("Pindah line", whole(transfers), StudioUi.TINT_PURPLE)
         box.addView(tiles)
-        if (forecast == null) box.addView(StudioUi.text(activity, "Perkiraan harian belum tersedia untuk layanan di sini.", 12.5f, true, StudioUi.MUTED))
+        if (forecast == null) box.addView(StudioUi.text(activity, "Perkiraan harian belum tersedia untuk line di sini.", 12.5f, true, StudioUi.MUTED))
         fun row(label: String, value: String, color: Int? = null, bold: Boolean = false) {
-            val line = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(40) }
+            val line = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(32) }
             if (color != null) line.addView(View(activity).apply {
                 background = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Color.BLACK or color)
                 }
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(dp(12), dp(12)).apply { marginEnd = dp(10) })
-            line.addView(StudioUi.text(activity, label, 14f, true, if (bold || color != null) StudioUi.INK else StudioUi.MUTED), LinearLayout.LayoutParams(0, -2, 1f))
-            line.addView(StudioUi.text(activity, value, if (bold) 17f else 15f, true, StudioUi.INK).apply {
+            }, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(8) })
+            line.addView(StudioUi.text(activity, label, 13f, true, if (bold || color != null) StudioUi.INK else StudioUi.MUTED).apply {
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            line.addView(StudioUi.text(activity, value, if (bold) 15f else 13f, true, StudioUi.INK).apply {
                 if (bold) typeface = StudioUi.heavy(activity)
             })
             box.addView(line)

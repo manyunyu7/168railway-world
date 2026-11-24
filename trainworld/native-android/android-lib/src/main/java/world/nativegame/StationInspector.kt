@@ -89,7 +89,7 @@ internal object StationInspector {
         }
         fun dismiss() { dialog?.dismiss() }
         fun show() {
-            dialog = StudioUi.sheet(activity,title ?: "",heightFraction = if (title == null) .47f else .78f) { column, _ -> column.addView(root) }
+            dialog = StudioUi.sheet(activity,title ?: "",heightFraction = if (title == null) .6f else .78f) { column, _ -> column.addView(root) }
         }
     }
     /** Dark price pill for facility rows, green when the facility is already installed. */
@@ -110,25 +110,38 @@ internal object StationInspector {
         fun dp(n: Int) = StudioUi.dp(activity,n)
         // Header: thick blue station tile, name in display type, platforms and services.
         val header = LinearLayout(activity).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-        header.addView(StudioDepot.symbol(activity,StudioUi.Icon.TRAIN,28f,StudioUi.WHITE).apply {
-            val blue = 0xff3e7bfa.toInt()
-            background = android.graphics.drawable.LayerDrawable(arrayOf(
-                StudioUi.panel(activity,StudioUi.darker(blue),20,StudioUi.darker(blue)),StudioUi.panel(activity,blue,20,blue))).apply {
-                setLayerInset(1,0,0,0,dp(4))
-            }
-            setPadding(0,0,0,dp(4))
-        }, LinearLayout.LayoutParams(dp(60),dp(60)))
+        header.addView(StudioDepot.symbol(activity,StudioUi.Icon.TRAIN,20f,StudioUi.WHITE).apply {
+            background = StudioUi.panel(activity,0xff3e7bfa.toInt(),12,0xff3e7bfa.toInt())
+        }, LinearLayout.LayoutParams(dp(40),dp(40)))
         val names = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        names.addView(StudioUi.title(activity,station.getString("name"),26f).apply { maxLines = 2 })
-        // web: "Stasiun, level +1", or "Kompleks 3 stasiun" for a complex
+        names.addView(StudioUi.title(activity,station.getString("name"),20f).apply {
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        // web: "Stasiun, level +1" in Indonesian words, or "Kompleks 3 stasiun" for a complex
         val here = platforms.firstOrNull { it.getInt("id") == node } ?: platforms.firstOrNull()
         names.addView(StudioUi.text(activity,
-            if (platforms.size > 1) "Kompleks ${platforms.size} stasiun" else "Stasiun, level ${levelLabel(here?.getInt("level") ?: 0)}",
-            13f,true,StudioUi.MUTED).apply { maxLines = 2 })
-        header.addView(names, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
+            if (platforms.size > 1) "Kompleks ${platforms.size} stasiun" else "Stasiun · ${levelName(here?.getInt("level") ?: 0)} (tingkat ${levelLabel(here?.getInt("level") ?: 0)})",
+            12f,true,StudioUi.MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+        header.addView(names, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(10) })
         sheet.add(header,0)
+        // the station's actions in one row of small equal buttons under the name (filled further down)
+        val bar = LinearLayout(activity).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        fun barAction(label: String, icon: StudioUi.Icon, ink: Int = StudioUi.INK, description: String = label, click: () -> Unit) =
+            StudioUi.text(activity, label, 13f, true, ink).apply {
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                background = StudioUi.panel(activity, StudioUi.WHITE, 12)
+                minHeight = dp(40)
+                setPadding(dp(10), 0, dp(12), 0)
+                compoundDrawablePadding = dp(4)
+                setCompoundDrawablesRelative(StudioUi.glyph(activity, icon, ink), null, null, null)
+                isClickable = true; isFocusable = true
+                contentDescription = description
+                setOnClickListener { click() }
+                bar.addView(this, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6); topMargin = dp(4); bottomMargin = dp(4) })
+            }
+        sheet.add(android.widget.HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false; addView(bar) }, 4)
         // riders a day on, off and changing here, always at the top (StationRiders.kt)
-        sheet.add(StationRiders.section(activity, node, passengers, simulating), 10)
+        sheet.add(StationRiders.section(activity, node, passengers, simulating), 6)
         // web NameEdit: "Ganti nama" beside the name (a tap on the name too), the station tapped
         val rename = {
             sheet.dismiss()
@@ -142,9 +155,7 @@ internal object StationInspector {
             contentDescription = station.getString("name") + ". Ketuk untuk ganti nama"
             setOnClickListener { rename() }
         }
-        sheet.add(StudioUi.button(activity,"Ganti nama") { rename() }.apply {
-            minHeight = dp(48); minimumHeight = dp(48)
-        }.also { it.layoutParams = LinearLayout.LayoutParams(-2,-2) },6)
+        barAction("Ganti nama", StudioUi.Icon.EDIT) { rename() }
         // Platform crowding, only when the engine reports who is waiting.
         val waiting = station.optInt("waiting",-1)
         val daily = if (waiting < 0) riders?.invoke(node) else null
@@ -155,15 +166,14 @@ internal object StationInspector {
             val unit = if (daily != null) "penumpang/hari" else "orang"
             val crowd = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
-                background = StudioUi.card(activity,22)
-                setPadding(dp(14),dp(12),dp(14),dp(14))
+                background = StudioUi.card(activity,14)
+                setPadding(dp(10),dp(6),dp(10),dp(8))
             }
-            val top = LinearLayout(activity)
-            top.addView(StudioUi.text(activity,if (daily != null) "Keramaian stasiun" else "Keramaian peron",14f,true),LinearLayout.LayoutParams(0,-2,1f))
-            top.addView(StudioUi.text(activity,when { share > .75 -> "Padat"; share > .4 -> "Ramai"; else -> "Lengang" } + " · $count $unit",
-                14f,true,if (share > .75) 0xffb4500f.toInt() else StudioUi.MUTED))
-            crowd.addView(top)
-            val dots = LinearLayout(activity).apply { setPadding(0,dp(10),0,0) }
+            // label above the value so neither is squeezed into a narrow column
+            crowd.addView(StudioUi.text(activity,if (daily != null) "Keramaian stasiun" else "Keramaian peron",12f,true,StudioUi.MUTED))
+            crowd.addView(StudioUi.text(activity,when { share > .75 -> "Padat"; share > .4 -> "Ramai"; else -> "Lengang" } + " · $count $unit",
+                14f,true,if (share > .75) 0xffb4500f.toInt() else StudioUi.INK))
+            val dots = LinearLayout(activity).apply { setPadding(0,dp(6),0,0) }
             val filled = Math.round(share*12).toInt()
             repeat(12) { k ->
                 dots.addView(android.view.View(activity).apply {
@@ -171,11 +181,11 @@ internal object StationInspector {
                         shape = android.graphics.drawable.GradientDrawable.OVAL
                         setColor(if (k < filled) StudioUi.YELLOW else 0x1a22204a)
                     }
-                }, LinearLayout.LayoutParams(dp(20),dp(20)).apply { marginEnd = dp(5) })
+                }, LinearLayout.LayoutParams(dp(14),dp(14)).apply { marginEnd = dp(4) })
             }
             crowd.addView(dots)
             crowd.contentDescription = "Keramaian, $count $unit"
-            sheet.add(crowd,12)
+            sheet.add(crowd,8)
         }
         val upcoming = departures.filter { byId.containsKey(it.getInt("line")) }
         fun destination(d: JSONObject): String {
@@ -187,16 +197,18 @@ internal object StationInspector {
         if (first != null) {
             val card = LinearLayout(activity).apply {
                 gravity = android.view.Gravity.CENTER_VERTICAL
-                background = StudioUi.pill(activity,StudioUi.INK,22)
-                setPadding(dp(16),dp(14),dp(16),dp(14))
+                background = StudioUi.pill(activity,StudioUi.INK,14)
+                setPadding(dp(12),dp(8),dp(12),dp(8))
             }
-            card.addView(StudioUi.title(activity,clock(first.getDouble("at")+first.optDouble("shift",0.0)),32f,Color.WHITE))
+            card.addView(StudioUi.title(activity,clock(first.getDouble("at")+first.optDouble("shift",0.0)),22f,Color.WHITE))
             val labels = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-            labels.addView(StudioUi.text(activity,"Kereta berikutnya",12f,true,0xffbeb6e8.toInt()))
-            labels.addView(StudioUi.text(activity,"ke "+destination(first),16f,color = Color.WHITE).apply { typeface = StudioUi.heavy(activity) })
-            labels.addView(StudioUi.text(activity,byId.getValue(first.getInt("line")).getString("name"),12f,true,0xffbeb6e8.toInt()))
-            card.addView(labels,LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(14) })
-            sheet.add(card,12)
+            labels.addView(StudioUi.text(activity,"Kereta berikutnya",11f,true,0xffbeb6e8.toInt()))
+            labels.addView(StudioUi.text(activity,"ke "+destination(first),14f,color = Color.WHITE).apply {
+                typeface = StudioUi.heavy(activity); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            labels.addView(StudioUi.text(activity,byId.getValue(first.getInt("line")).getString("name"),11f,true,0xffbeb6e8.toInt()).apply { maxLines = 1 })
+            card.addView(labels,LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
+            sheet.add(card,8)
         } else sheet.text("Belum ada keberangkatan dalam dua jam ke depan.")
         if (upcoming.size>1) {
             sheet.text("Jadwal berikutnya",true)
@@ -206,18 +218,18 @@ internal object StationInspector {
                 val line = byId.getValue(d.getInt("line"))
                 val row = LinearLayout(activity).apply {
                     gravity = android.view.Gravity.CENTER_VERTICAL
-                    background = StudioUi.card(activity,18)
-                    setPadding(dp(14),dp(9),dp(14),dp(9))
-                    minimumHeight = dp(52)
+                    background = StudioUi.card(activity,12)
+                    setPadding(dp(10),dp(5),dp(10),dp(5))
+                    minimumHeight = dp(44)
                 }
-                row.addView(StudioUi.text(activity,clock(d.getDouble("at")+d.optDouble("shift",0.0)),16f).apply { typeface = StudioUi.heavy(activity) },
-                    LinearLayout.LayoutParams(dp(56),-2))
-                row.addView(dot(activity,line.getInt("color")).apply { (layoutParams as LinearLayout.LayoutParams).marginEnd = dp(10) })
+                row.addView(StudioUi.text(activity,clock(d.getDouble("at")+d.optDouble("shift",0.0)),14f).apply { typeface = StudioUi.heavy(activity) },
+                    LinearLayout.LayoutParams(dp(50),-2))
+                row.addView(dot(activity,line.getInt("color"),10).apply { (layoutParams as LinearLayout.LayoutParams).marginEnd = dp(8) })
                 val labels=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL }
-                labels.addView(StudioUi.text(activity,destination(d),15f,true))
-                labels.addView(StudioUi.text(activity,line.getString("name"),12f,true,StudioUi.MUTED))
+                labels.addView(StudioUi.text(activity,destination(d),14f,true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+                labels.addView(StudioUi.text(activity,line.getString("name"),11.5f,true,StudioUi.MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
                 row.addView(labels,LinearLayout.LayoutParams(0,-2,1f))
-                rows.addView(row,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
+                rows.addView(row,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
             }
             upcoming.drop(1).take(2).forEach(::appendDeparture)
             if(upcoming.size>3) {
@@ -240,17 +252,17 @@ internal object StationInspector {
             val level = platform.getInt("level")
             val cars = Math.round(platform.getInt("meters") / CAR_M)
             sheet.add(StudioUi.row(activity,StudioUi.Icon.PIN,StudioUi.TINT_BLUE,platform.getString("name"),
-                "$cars gerbong · ${levelName(level)} (level ${levelLabel(level)})"),6)
+                "$cars gerbong · ${levelName(level)} (tingkat ${levelLabel(level)})"),4)
         }
         if (platforms.isNotEmpty()) {
             val upkeep = platforms.sumOf { it.optDouble("upkeep",0.0) }
             val rates = station.optJSONArray("upkeepRates")
-            val value = StudioUi.text(activity,StudioFormat.money(upkeep,currency)+"/hari",15f,color = StudioUi.BAD).apply {
+            val value = StudioUi.text(activity,StudioFormat.money(upkeep,currency)+"/hari",13f,color = StudioUi.BAD).apply {
                 typeface = StudioUi.heavy(activity)
             }
             sheet.add(StudioUi.row(activity,null,StudioUi.TINT_GREY,"Perawatan",
                 rates?.let { "Perawatan stasiun bawah tanah ${StudioFormat.money(it.getDouble(0),currency)} per hari, yang lain ${StudioFormat.money(it.getDouble(1),currency)}." },
-                value),6)
+                value),4)
         }
         // 168Railway's own paid parking and station adverts (WorldExtras.kt; not in the web)
         sheet.add(WorldExtras.stationSection(activity,handle,node,time,transaction,changed),4)
@@ -272,7 +284,7 @@ internal object StationInspector {
                 val chips = lines.take(6).joinToString(" · ") { it.getString("name") } + if (lines.size > 6) " +${lines.size - 6}" else ""
                 val minutes = maxOf(1, Math.round(r.getDouble("minutes")).toInt())
                 val m = r.getDouble("metres")
-                val walk = StudioUi.text(activity,"$minutes mnt",15f,color = if (built) StudioUi.INK else StudioUi.MUTED).apply {
+                val walk = StudioUi.text(activity,"$minutes mnt",13f,color = if (built) StudioUi.INK else StudioUi.MUTED).apply {
                     typeface = StudioUi.heavy(activity)
                     contentDescription = "${if (m >= 1000) String.format(Locale.forLanguageTag("id-ID"),"%.1f km",m/1000) else metres.format(Math.round(m)) + " m"} jalan kaki, $minutes menit"
                 }
@@ -288,32 +300,30 @@ internal object StationInspector {
         sheet.action("Lorong",icon=R.drawable.studio_upgrade_passage,subtitle=PassagePick.tip(activity)) {
             PassagePick.start(activity,handle,node,station.getString("name"),transaction,changed) { now -> show(activity,handle,node,now,transaction,changed) }
         }
-        // Actions: structure (white) and facility upgrades (orange).
-        val actions = LinearLayout(activity)
-        // both open the station design on the map (StationDesign.kt): length, tracks, upgrades, building
+        // Actions in the row under the name: Rancang (length, tracks, upgrades) and Gedung, both on the
+        // map (StationDesign.kt), with short labels so neither is cut.
         val design = map?.takeIf { platforms.any { it.getInt("id") == node } }
-        actions.addView(StudioUi.button(activity,"Gedung stasiun") {
-            sheet.dismiss()
-            if (design != null) StationDesign.start(activity,design,handle,node,time,transaction,changed,
-                { now -> show(activity,handle,node,now,transaction,changed) }, building = true)
-            else StationStructurePanel(activity,handle,node,time,transaction,changed).show()
-        }, LinearLayout.LayoutParams(0,-2,1f).apply { marginEnd = dp(5) })
-        actions.addView(StudioUi.button(activity,"Peningkatan stasiun",StudioUi.Tone.PRIMARY) {
+        barAction("Rancang", StudioUi.Icon.BUILD, description = "Rancang stasiun: panjang, jalur dan peningkatan") {
             sheet.dismiss()
             if (design != null) StationDesign.start(activity,design,handle,node,time,transaction,changed,
                 { now -> show(activity,handle,node,now,transaction,changed) })
             else facilities(activity,handle,node,time,platforms,transaction,changed)
-        }, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(5) })
-        sheet.add(actions,16)
-        // web: "Hapus stasiun" at the foot of a station's own view, asking first with what it takes
+        }
+        barAction("Gedung", StudioUi.Icon.LAYERS, description = "Gedung stasiun") {
+            sheet.dismiss()
+            if (design != null) StationDesign.start(activity,design,handle,node,time,transaction,changed,
+                { now -> show(activity,handle,node,now,transaction,changed) }, building = true)
+            else StationStructurePanel(activity,handle,node,time,transaction,changed).show()
+        }
+        // web: "Hapus stasiun", asking first with what it takes; last in the row, only its text red
         val host = activity as? NativeWorldActivity
         if (host != null && platforms.any { it.getInt("id") == node }) {
             val name = station.getString("name")
-            val button = StudioUi.button(activity,"Hapus stasiun") {
+            barAction("Hapus", StudioUi.Icon.DELETE, StudioUi.BAD, "Hapus stasiun") {
                 val preview = JSONObject(DemolitionPanel.remove(handle,1,node,time,false))
                 if (preview.has("error")) {
                     android.widget.Toast.makeText(activity,preview.getString("error"),android.widget.Toast.LENGTH_LONG).show()
-                    return@button
+                    return@barAction
                 }
                 val confirm = StudioDialogBuilder(activity).setTitle("Hapus $name?")
                     .setView(DemolitionPanel.impact(activity,1,preview))
@@ -322,9 +332,6 @@ internal object StationInspector {
                     .show()
                 DemolitionPanel.danger(confirm.getButton(android.content.DialogInterface.BUTTON_POSITIVE))
             }
-            StudioUi.danger(button)
-            button.layoutParams = LinearLayout.LayoutParams(-2,-2)
-            sheet.add(button,6)
         }
         sheet.show()
     }
@@ -338,28 +345,25 @@ internal object StationInspector {
             setText(current)
             setSingleLine()
             setSelectAllOnFocus(true)
+            StudioUi.field(this)
             contentDescription = "Nama"
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         }
         // web StationInspector's cycle button beside the name: the next suggested name, wrapping round
-        val suggest = StudioUi.button(activity, "↻") {
+        // same look as the line's rename (ServicePanel.askRename): field + cycle icon pinned above the ideas
+        val suggest = StudioUi.iconButton(activity, "Nama usulan berikutnya", StudioUi.Icon.UNDO) {
             val next = StationNames.nextFor(handle, node, field.text.toString().trim())
             if (next != null) { field.setText(next); field.setSelection(next.length) }
             else android.widget.Toast.makeText(activity, "Tidak ada usulan nama lain di sini.", android.widget.Toast.LENGTH_SHORT).show()
-        }.apply {
-            contentDescription = "Nama usulan berikutnya"
-            minWidth = StudioUi.dp(activity,48); minimumWidth = StudioUi.dp(activity,48)
-            minHeight = StudioUi.dp(activity,48); minimumHeight = StudioUi.dp(activity,48)
-            setPadding(0,0,0,0)
-        }
+        }.apply { rotationY = 180f }
         val top = LinearLayout(activity).apply {
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(StudioUi.dp(activity,20),StudioUi.dp(activity,8),StudioUi.dp(activity,20),0)
+            setPadding(0,StudioUi.dp(activity,2),0,StudioUi.dp(activity,4))
             addView(field,LinearLayout.LayoutParams(0,-2,1f))
-            addView(suggest,LinearLayout.LayoutParams(StudioUi.dp(activity,48),StudioUi.dp(activity,48)).apply { marginStart = StudioUi.dp(activity,8) })
+            addView(suggest,LinearLayout.LayoutParams(StudioUi.dp(activity,48),StudioUi.dp(activity,48)).apply { marginStart = StudioUi.dp(activity,6) })
         }
-        val box = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; addView(top) }
+        val box = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         fun dp(n: Int) = StudioUi.dp(activity, n)
         // At least five names ready to tap: the web generator's suggestions in order, then the
         // nearest place with the usual Indonesian station words (owner: "minimal 5").
@@ -370,29 +374,29 @@ internal object StationInspector {
         for (w in listOf("$base Baru", "$base Timur", "$base Barat", "$base Raya", "Pasar $base")) if (seen.size < 8) seen.add(w)
         val ready = seen.filter { it != current }.take(6)
         if (ready.isNotEmpty()) {
-            box.addView(StudioUi.text(activity, "Usulan nama", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
+            box.addView(StudioUi.text(activity, "Usulan nama", 12f, true, StudioUi.MUTED).apply { setPadding(0, dp(6), 0, dp(2)) })
             // one neat column: every idea one line high, cut with "…" when long
-            val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), 0, dp(16), 0) }
+            val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
             ready.forEach { n ->
                 list.addView(StudioUi.text(activity, n, 14f, true, StudioUi.INK).apply {
                     gravity = android.view.Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-                    setPadding(dp(14), 0, dp(12), 0); background = StudioUi.pill(activity, 0x1422204a, 14); isClickable = true
+                    setPadding(dp(12), 0, dp(12), 0); background = StudioUi.pill(activity, 0x1422204a, 12); isClickable = true
                     setOnClickListener { field.setText(n); field.setSelection(n.length) }
-                }, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(6) })
+                }, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(4) })
             }
             box.addView(list)
         }
         // suffixes to add to whatever is typed
-        box.addView(StudioUi.text(activity, "Tambah akhiran", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
-        val sufs = LinearLayout(activity).apply { setPadding(dp(16), 0, dp(16), 0) }
+        box.addView(StudioUi.text(activity, "Tambah akhiran", 12f, true, StudioUi.MUTED).apply { setPadding(0, dp(8), 0, dp(2)) })
+        val sufs = LinearLayout(activity)
         for (x in listOf("Baru", "Timur", "Barat", "Utara", "Selatan", "Kota", "Raya")) sufs.addView(StudioUi.text(activity, x, 13f, true).apply {
-            gravity = android.view.Gravity.CENTER; minHeight = dp(40); setPadding(dp(12), 0, dp(12), 0)
+            gravity = android.view.Gravity.CENTER; minHeight = dp(36); setPadding(dp(12), 0, dp(12), 0)
             background = StudioUi.pill(activity, 0x1422204a, 14); isClickable = true
             setOnClickListener {
                 val t = field.text.toString().trim().replace(Regex(" (Baru|Timur|Barat|Utara|Selatan|Kota|Raya)$"), "")
                 val n = "$t $x".take(100); field.setText(n); field.setSelection(n.length)
             }
-        }, LinearLayout.LayoutParams(-2, dp(40)).apply { marginEnd = dp(6) })
+        }, LinearLayout.LayoutParams(-2, dp(36)).apply { marginEnd = dp(6); topMargin = dp(2); bottomMargin = dp(2) })
         box.addView(android.widget.HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false; addView(sufs) })
         var answered = false
         fun commit() {
@@ -406,7 +410,7 @@ internal object StationInspector {
                 done(result.optBoolean("changed"))
             }
         }
-        val dialog = StudioDialogBuilder(activity).setTitle("Ganti nama").setView(box)
+        val dialog = StudioDialogBuilder(activity).setTitle("Ganti nama stasiun").setPinned(top).setView(box)
             .setNegativeButton("Batal") { _,_ -> if (!answered) { answered = true; done(false) } }
             .setOnCancelListener { if (!answered) { answered = true; done(false) } }
             .setPositiveButton("Selesai") { _,_ -> commit() }

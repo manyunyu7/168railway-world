@@ -176,8 +176,9 @@ class WorldArchiveActivity : Activity() {
             filters = arrayOf(android.text.InputFilter.LengthFilter(80))
             contentDescription = "Nama"
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            StudioUi.field(this)
         }
-        val box = LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(field, LinearLayout.LayoutParams(-1, -2)) }
+        val box = LinearLayout(this).apply { setPadding(0, dp(2), 0, 0); addView(field, LinearLayout.LayoutParams(-1, -2)) }
         val save = { job({ WorldDocuments.rename(this, slot.id, field.text.toString()) }) { if (it) feedback.text = "Nama diganti." } }
         val dialog = StudioDialogBuilder(this).setTitle("Ganti nama").setView(box)
             .setNegativeButton("Batal", null).setPositiveButton("Selesai") { _, _ -> save() }.show()

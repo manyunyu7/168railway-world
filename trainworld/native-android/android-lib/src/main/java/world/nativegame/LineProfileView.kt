@@ -188,11 +188,12 @@ internal object LineProfileView {
             }
         }
 
+        private val drag = StudioUi.SidewaysDrag()
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouchEvent(e: MotionEvent): Boolean {
+            drag.track(this, e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                    parent?.requestDisallowInterceptTouchEvent(true)
                     val pad = d(10f); val w = width - 2 * pad
                     var s = ((e.x - pad) / w * len).coerceIn(0.0, len)
                     // a stop this near the finger takes the place (web SNAP_PX)
@@ -201,7 +202,6 @@ internal object LineProfileView {
                     describe(s)
                     invalidate()
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> parent?.requestDisallowInterceptTouchEvent(false)
             }
             return true
         }

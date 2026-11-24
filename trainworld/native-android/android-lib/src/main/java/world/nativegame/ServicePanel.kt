@@ -173,30 +173,31 @@ internal object ServicePanel {
         var next = 0
         val field = EditText(host).apply {
             setText(current); setSingleLine(); setSelectAllOnFocus(true)
-            typeface = StudioUi.face(host, true); textSize = 17f; setTextColor(StudioUi.INK)
+            StudioUi.field(this)
+            contentDescription = "Nama"
             filters = arrayOf(android.text.InputFilter.LengthFilter(48))
             imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         }
         val box = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
-        val row = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL; setPadding(dp(20), dp(8), dp(12), 0) }
-        box.addView(row)
+        // the field stays put above the suggestions (StudioDialogBuilder.setPinned), same as the station's
+        val row = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(4)) }
         row.addView(field, LinearLayout.LayoutParams(0, -2, 1f))
         fun compose() {
             val text = listOf(prefixes[pre], bodies.getOrNull(body).orEmpty(), suffixes[suf]).filter { it.isNotBlank() }.joinToString(" ")
             if (text.isNotBlank()) { field.setText(text.take(48)); field.setSelection(field.text.length) }
         }
         fun chips(title: String, options: List<String>, selected: () -> Int, pick: (Int) -> Unit) {
-            box.addView(StudioUi.text(host, title, 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
-            val line = LinearLayout(host).apply { setPadding(dp(16), 0, dp(16), 0) }
+            box.addView(StudioUi.text(host, title, 12f, true, StudioUi.MUTED).apply { setPadding(0, dp(8), 0, dp(2)) })
+            val line = LinearLayout(host)
             val views = mutableListOf<android.widget.TextView>()
             fun paint() = views.forEachIndexed { i, v -> val on = i == selected(); v.background = StudioUi.pill(host, if (on) StudioUi.INK else 0x1422204a, 14); v.setTextColor(if (on) StudioUi.WHITE else StudioUi.INK) }
             options.forEachIndexed { i, o ->
                 val v = StudioUi.text(host, o.ifEmpty { "Tanpa" }, 13f, true).apply {
-                    gravity = android.view.Gravity.CENTER; minHeight = dp(40); setPadding(dp(12), 0, dp(12), 0); isClickable = true
+                    gravity = android.view.Gravity.CENTER; minHeight = dp(36); setPadding(dp(12), 0, dp(12), 0); isClickable = true
                     setOnClickListener { pick(i); paint(); compose() }
                 }
                 views += v
-                line.addView(v, LinearLayout.LayoutParams(-2, dp(40)).apply { marginEnd = dp(6) })
+                line.addView(v, LinearLayout.LayoutParams(-2, dp(36)).apply { marginEnd = dp(6); topMargin = dp(2); bottomMargin = dp(2) })
             }
             paint()
             box.addView(android.widget.HorizontalScrollView(host).apply { isHorizontalScrollBarEnabled = false; addView(line) })
@@ -208,15 +209,15 @@ internal object ServicePanel {
             for (b in bodies) for (x in listOf("Ekspres", "Lokal")) add("$b $x")
         }.map { it.trim().take(48) }.filter { it.isNotBlank() && it != current }.distinct().take(6)
         if (ready.isNotEmpty()) {
-            box.addView(StudioUi.text(host, "Usulan nama", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
+            box.addView(StudioUi.text(host, "Usulan nama", 12f, true, StudioUi.MUTED).apply { setPadding(0, dp(6), 0, dp(2)) })
             // one neat column: every idea one line high, cut with "…" when long
-            val list = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), 0, dp(16), 0) }
+            val list = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
             ready.forEach { n ->
                 list.addView(StudioUi.text(host, n, 14f, true, StudioUi.INK).apply {
                     gravity = android.view.Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-                    setPadding(dp(14), 0, dp(12), 0); background = StudioUi.pill(host, 0x1422204a, 14); isClickable = true
+                    setPadding(dp(12), 0, dp(12), 0); background = StudioUi.pill(host, 0x1422204a, 12); isClickable = true
                     setOnClickListener { field.setText(n); field.setSelection(n.length) }
-                }, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(6) })
+                }, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(4) })
             }
             box.addView(list)
         }
@@ -241,7 +242,7 @@ internal object ServicePanel {
                 else done(name)
             }
         }
-        dlg = StudioDialogBuilder(host).setTitle("Ganti nama line").setView(box)
+        dlg = StudioDialogBuilder(host).setTitle("Ganti nama line").setPinned(row).setView(box)
             .setPositiveButton("Selesai") { _, _ -> save() }.setNegativeButton("Batal", null).create()
         field.setOnEditorActionListener { _, _, _ -> save(); true }
         dlg.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
@@ -263,13 +264,13 @@ internal object ServicePanel {
         StudioUi.sheet(host, service.getString("name"), .75f, pinnedAction = { footer }) { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
             val head = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-            head.addView(StudioUi.badge(host, code(service.getString("name")), color, 44), LinearLayout.LayoutParams(dp(44), dp(44)))
+            head.addView(StudioUi.badge(host, code(service.getString("name")), color, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
             val copy = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
-            copy.addView(StudioUi.text(host, if (route.names.isEmpty()) "Belum ada pemberhentian" else route.endpoints, 15f, color = StudioUi.INK).apply {
-                typeface = StudioUi.heavy(host)
+            copy.addView(StudioUi.text(host, if (route.names.isEmpty()) "Belum ada pemberhentian" else route.endpoints, 14f, color = StudioUi.INK).apply {
+                typeface = StudioUi.heavy(host); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             })
             copy.addView(StudioUi.text(host, service.getString("vehicle") + " · " +
-                if (service.optBoolean("running")) "Beroperasi" else "Belum beroperasi", 13f, true, StudioUi.MUTED))
+                if (service.optBoolean("running")) "Beroperasi" else "Belum beroperasi", 12f, true, StudioUi.MUTED))
             // the fleet, length and round trip in one short line (owner: the three stat cards took the panel)
             val fleet = service.optJSONArray("count")
             val cycle = service.optDouble("cycle", 0.0)
@@ -278,20 +279,20 @@ internal object ServicePanel {
                 String.format(Locale.forLanguageTag("id-ID"), "%.1f km", service.getDouble("length") / 1000),
                 if (cycle > 0) "±${Math.round(cycle / 60)} mnt putaran" else null,
             )
-            copy.addView(StudioUi.text(host, figures.joinToString(" · "), 13f, true, StudioUi.INK).apply {
+            copy.addView(StudioUi.text(host, figures.joinToString(" · "), 12f, true, StudioUi.INK).apply {
                 contentDescription = listOfNotNull(fleet?.optInt(0)?.let { "Armada sibuk $it" }, figures.getOrNull(1)?.let { "panjang $it" },
                     if (cycle > 0) "putaran sekitar ${Math.round(cycle / 60)} menit" else null).joinToString(", ")
             })
-            head.addView(copy, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+            head.addView(copy, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
             column.addView(head)
             // the line's actions in one row of small buttons, scrolling sideways; Hapus last and only its text red
             if (editable) {
                 val actions = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
                 fun action(label: String, icon: StudioUi.Icon, ink: Int = StudioUi.INK, description: String? = null, click: () -> Unit) {
-                    actions.addView(StudioUi.text(host, label, 13.5f, true, ink).apply {
+                    actions.addView(StudioUi.text(host, label, 13f, true, ink).apply {
                         gravity = android.view.Gravity.CENTER_VERTICAL
-                        background = StudioUi.panel(host, StudioUi.WHITE, 14)
-                        minHeight = dp(46)
+                        background = StudioUi.panel(host, StudioUi.WHITE, 12)
+                        minHeight = dp(40)
                         setPadding(dp(10), 0, dp(12), 0)
                         compoundDrawablePadding = dp(4)
                         setCompoundDrawablesRelative(StudioUi.glyph(host, icon, ink), null, null, null)
@@ -320,7 +321,7 @@ internal object ServicePanel {
                 column.addView(android.widget.HorizontalScrollView(host).apply {
                     isHorizontalScrollBarEnabled = false
                     addView(actions)
-                }, lp(10, host))
+                }, lp(8, host))
             }
             // Owner's tabs under the head: Ringkasan (riders graph, fare, money, speed profile), Perhentian
             // (the stop rows with the passed stations between them), Jadwal (the next departures).
@@ -329,14 +330,14 @@ internal object ServicePanel {
             val (summaryTab, stopsTab, scheduleTab) = pages
             val track = LinearLayout(host).apply {
                 background = StudioUi.pill(host, 0x1422204a, 18)
-                setPadding(dp(4), dp(4), dp(4), dp(4))
+                setPadding(dp(3), dp(3), dp(3), dp(3))
             }
             val tabs = tabNames.mapIndexed { i, name ->
                 StudioUi.text(host, name, 13.5f, true, StudioUi.MUTED).apply {
                     gravity = android.view.Gravity.CENTER
                     isClickable = true
                     isFocusable = true
-                    track.addView(this, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(2); marginEnd = dp(2) })
+                    track.addView(this, LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginStart = dp(2); marginEnd = dp(2) })
                 }
             }
             fun show(k: Int) {
@@ -351,7 +352,7 @@ internal object ServicePanel {
                 pages.forEachIndexed { i, p -> p.visibility = if (i == k) View.VISIBLE else View.GONE }
             }
             tabs.forEachIndexed { i, t -> t.setOnClickListener { show(i) } }
-            column.addView(track, lp(12, host))
+            column.addView(track, lp(8, host))
             pages.forEach { column.addView(it, lp(4, host)) }
 
             if (route.names.isNotEmpty()) {
@@ -381,11 +382,11 @@ internal object ServicePanel {
                 }
                 if (entries.isEmpty()) {
                     scheduleTab.addView(StudioUi.text(host, if (service.optBoolean("running")) "Belum ada jadwal dari pemberhentian ini dalam satu jam ke depan."
-                        else "Layanan belum beroperasi.", 14f, true, StudioUi.MUTED).apply { setPadding(dp(4), 0, 0, 0) })
+                        else "Line belum beroperasi.", 13f, true, StudioUi.MUTED).apply { setPadding(dp(4), 0, 0, 0) })
                 } else entries.forEach { (time, destination) -> scheduleTab.addView(StudioTimetable.departure(host,time,destination), lp(6, host)) }
             } else {
                 val none = "Belum ada pemberhentian pada rute ini."
-                listOf(stopsTab, scheduleTab).forEach { it.addView(StudioUi.text(host, none, 15f, true, StudioUi.MUTED), lp(12, host)) }
+                listOf(stopsTab, scheduleTab).forEach { it.addView(StudioUi.text(host, none, 13f, true, StudioUi.MUTED), lp(8, host)) }
             }
             // web LineFare: the line's own fare multiple, above its money
             summaryTab.addView(LineFare.row(host, handle, id, editable, transaction) {

@@ -157,12 +157,10 @@ internal object LineRidersChart {
                 }
             }
 
+            private val drag = StudioUi.SidewaysDrag()
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 if (out.isEmpty()) return false
-                when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> parent?.requestDisallowInterceptTouchEvent(true)
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> parent?.requestDisallowInterceptTouchEvent(false)
-                }
+                drag.track(this, e)
                 pick(stretchAt(e.x), false)
                 if (e.actionMasked == MotionEvent.ACTION_UP) performClick()
                 return true

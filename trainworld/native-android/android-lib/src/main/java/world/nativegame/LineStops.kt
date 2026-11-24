@@ -60,8 +60,8 @@ internal object LineStops {
         val count = route.names.size
         val strip = LinearLayout(host).apply {
             orientation = LinearLayout.VERTICAL
-            background = StudioUi.card(host, 22)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = StudioUi.card(host, 16)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
         }
         val head = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
         head.addView(StudioUi.section(host, "Perhentian"), LinearLayout.LayoutParams(0, -2, 1f))
@@ -85,7 +85,7 @@ internal object LineStops {
             val pen = Paint(Paint.ANTI_ALIAS_FLAG)
             override fun onDraw(canvas: Canvas) {
                 val cx = width / 2f
-                val cy = dp(17).toFloat()
+                val cy = dp(19).toFloat()
                 pen.style = Paint.Style.FILL
                 pen.color = color
                 val top = if (!between && index == 0) cy else 0f
@@ -97,7 +97,7 @@ internal object LineStops {
                     return
                 }
                 val terminal = index == 0 || index == count - 1
-                val r = dp(if (terminal) 9 else 6).toFloat()
+                val r = dp(if (terminal) 8 else 6).toFloat()
                 pen.color = StudioUi.WHITE
                 canvas.drawCircle(cx, cy, r, pen)
                 pen.style = Paint.Style.STROKE
@@ -107,9 +107,9 @@ internal object LineStops {
             }
         }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
 
-        fun action(label: String, description: String, click: () -> Unit) = StudioUi.text(host, label, 13f, true, StudioUi.BLUE).apply {
+        fun action(label: String, description: String, click: () -> Unit) = StudioUi.text(host, label, 12.5f, true, StudioUi.BLUE).apply {
             gravity = Gravity.CENTER
-            minHeight = dp(48)
+            minHeight = dp(44)
             minWidth = dp(48)
             setPadding(dp(10), 0, dp(4), 0)
             isClickable = true
@@ -120,18 +120,23 @@ internal object LineStops {
 
         val todays = arrayOfNulls<TextView>(count)
         val details = arrayOfNulls<TextView>(count)
+        // One line per stop (name + riders today); the naik/turun detail opens when the row is tapped.
         fun stopRow(index: Int): View = LinearLayout(host).apply {
             val terminal = index == 0 || index == count - 1
-            addView(rail(index, false), LinearLayout.LayoutParams(dp(24), -1))
-            val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(7), 0, dp(6)) }
-            body.addView(StudioUi.text(host, route.numbered(index), if (terminal) 15f else 14f, terminal, StudioUi.INK).apply {
+            minimumHeight = dp(40)
+            addView(rail(index, false), LinearLayout.LayoutParams(dp(22), -1))
+            val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(9), 0, dp(7)) }
+            body.addView(StudioUi.text(host, route.numbered(index), 14f, terminal, StudioUi.INK).apply {
                 if (terminal) typeface = StudioUi.heavy(host)
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            val more = StudioUi.text(host, "", 12f, true, StudioUi.MUTED).apply { visibility = View.GONE; setPadding(0, dp(2), 0, 0) }
+            val more = StudioUi.text(host, "", 12f, false, StudioUi.MUTED).apply { visibility = View.GONE; setPadding(0, dp(2), 0, 0) }
             details[index] = more
             body.addView(more)
-            addView(body, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
-            val today = StudioUi.text(host, "", 14f, true, StudioUi.INK).apply { setPadding(dp(6), dp(8), 0, 0) }
+            addView(body, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
+            isClickable = true
+            setOnClickListener { if (!more.text.isNullOrEmpty()) more.visibility = if (more.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
+            val today = StudioUi.text(host, "", 13f, true, StudioUi.INK).apply { setPadding(dp(6), dp(10), 0, 0) }
             todays[index] = today
             addView(today, LinearLayout.LayoutParams(-2, -2))
             val node = nodes?.optInt(index, -1) ?: -1
@@ -231,7 +236,7 @@ internal object LineStops {
             val show = "+${count - VISIBLE} ${route.stopType} lagi · lihat urutan"
             lateinit var toggle: TextView
             toggle = StudioUi.text(host, show, 13f, true, StudioUi.BLUE).apply {
-                setPadding(dp(34), dp(6), 0, dp(2))
+                setPadding(dp(30), 0, 0, 0)
                 minHeight = dp(48)
                 gravity = Gravity.CENTER_VERTICAL
                 isClickable = true
@@ -261,7 +266,7 @@ internal object LineStops {
                         "${t.optString("name")} (${Math.round(t.optDouble("share") * 100)}%)"
                     }
                 }
-                details[k]?.apply { this.text = text; visibility = View.VISIBLE }
+                details[k]?.text = text
             }
             if (r.optBoolean("forecast")) {
                 status.text = "Angka per baris: perkiraan penumpang per hari."
