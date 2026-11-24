@@ -287,18 +287,22 @@ class NativeWorldActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             background = StudioUi.pill(context, StudioUi.GLASS_DARK, 22)
             elevation = dp(3).toFloat()
-            setPadding(dp(14), dp(10), dp(14), dp(12))
+            setPadding(dp(12), dp(8), dp(12), dp(9))
             isClickable = true
             visibility = View.GONE
+            contentDescription = "Misi, buka pencapaian"
             setOnClickListener { openProgress() }
         }
-        missionCard.addView(StudioUi.text(this, "MISI", 11f, true, 0xffd9d0ff.toInt()).apply { letterSpacing = .08f })
-        missionText = StudioUi.text(this, "", 14f, color = StudioUi.WHITE).apply { typeface = StudioUi.heavy(context); maxLines = 2 }
-        missionCard.addView(missionText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        // Compact: one line with a flag and a thin bar, so the mission does not cover a quarter of the map.
+        val missionRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        missionRow.addView(StudioDepot.symbol(this, StudioUi.Icon.FLAG, 16f, 0xffffd23f.toInt()), LinearLayout.LayoutParams(dp(20), dp(20)))
+        missionText = StudioUi.text(this, "", 13f, color = StudioUi.WHITE).apply { typeface = StudioUi.heavy(context); singleLine() }
+        missionRow.addView(missionText, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
+        missionCard.addView(missionRow)
         missionBar = StudioProgress.Bar(this, 0xffffd23f.toInt(), 0x40ffffff)
-        missionCard.addView(missionBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(8) })
+        missionCard.addView(missionBar, LinearLayout.LayoutParams(-1, dp(5)).apply { topMargin = dp(6) })
         val leftTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.START }
-        leftTools.addView(missionCard, LinearLayout.LayoutParams(dp(if (compact) 210 else 236), -2))
+        leftTools.addView(missionCard, LinearLayout.LayoutParams(dp(if (compact) 196 else 220), -2))
         warmChipRing = WarmRing(this)
         warmChipText = StudioUi.text(this, "", 12.5f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(context); singleLine() }
         warmChip = LinearLayout(this).apply {
