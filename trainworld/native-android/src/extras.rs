@@ -35,18 +35,29 @@ pub(crate) const FEE_STEP: f64 = 1000.;
 pub(crate) const FEE_CUT: f64 = 0.6;
 /// Car park sizes: name, slots, US$M to build from none (the small one comes with the park and
 /// ride's own price), US$M upkeep a day.
+/// Sized on the Jakarta scenario: its outer KRL stations draw 8.000 to 14.000 cars a day.
 pub(crate) const SIZES: [(&str, f64, f64, f64); 3] =
-    [("Kecil", 300., 0., 0.002), ("Sedang", 800., 15., 0.005), ("Besar", 2000., 40., 0.012)];
+    [("Kecil", 1000., 0., 0.001), ("Sedang", 4000., 5., 0.004), ("Besar", 12000., 15., 0.012)];
 /// An advert contract's game days.
 pub(crate) const AD_DAYS: f64 = 30.;
 /// Adverts' rupiah per person: at a station each boarding and alighting, in a train each rider.
 pub(crate) const AD_STATION_RP: f64 = 150.;
 pub(crate) const AD_TRAIN_RP: f64 = 200.;
-/// A contract's price, US$M, paid when signed.
-pub(crate) const AD_STATION_PRICE: f64 = 0.5;
-pub(crate) const AD_TRAIN_PRICE: f64 = 1.0;
-/// Minutes an advert adds to boarding there (the station) or on it (the line): about 1% fewer.
-pub(crate) const AD_MIN: f32 = 0.5;
+/// A contract's price, US$M, paid when signed: a base plus `AD_SHARE` of its money over the
+/// contract as the last forecast has it, so a quiet station's advert does not pay.
+pub(crate) const AD_STATION_BASE: f64 = 0.2;
+pub(crate) const AD_TRAIN_BASE: f64 = 0.5;
+pub(crate) const AD_SHARE: f64 = 0.4;
+/// Minutes an advert adds to boarding there (the station) or onto it (the line): about 1% fewer
+/// people at the busiest Jakarta station and on a KRL line (0,5 minutes took 2,9% and 1,8%;
+/// 0,2 and 0,3 took 1,4% and 0,6%).
+pub(crate) const AD_STATION_MIN: f32 = 0.15;
+pub(crate) const AD_TRAIN_MIN: f32 = 0.4;
+
+/// An advert contract's price, US$M, for money `day` a day (None: no forecast yet).
+pub(crate) fn ad_price(trains: bool, day: Option<f64>) -> f64 {
+    (if trains { AD_TRAIN_BASE } else { AD_STATION_BASE }) + AD_SHARE * AD_DAYS * day.unwrap_or(0.)
+}
 
 /// Rupiah from riders as engine money, US$M.
 pub(crate) fn rupiah(rp: f64) -> f64 {
@@ -141,12 +152,12 @@ pub(crate) fn demand_terms(
     let board = if stations.is_empty() {
         vec![]
     } else {
-        nodes.iter().map(|n| if stations.contains(n) { AD_MIN } else { 0. }).collect()
+        nodes.iter().map(|n| if stations.contains(n) { AD_STATION_MIN } else { 0. }).collect()
     };
     let line = if trains.is_empty() {
         vec![]
     } else {
-        lines.iter().map(|l| if trains.contains(l) { AD_MIN } else { 0. }).collect()
+        lines.iter().map(|l| if trains.contains(l) { AD_TRAIN_MIN } else { 0. }).collect()
     };
     Some((ride, board, line))
 }
@@ -298,13 +309,19 @@ pub(crate) fn set_ad(w: &mut World, trains: bool, id: u32, on: bool, clock: f64)
         set(&mut w.header, field, id, None);
         return Ok(json!({"charge":0,"cash":w.api.cash()}));
     }
-    let price = if trains { AD_TRAIN_PRICE } else { AD_STATION_PRICE };
+    let price = ad_price(trains, ad_day(w, trains, id));
     pay(w, clock, price)?;
     let from = ad_until(&w.header, trains, id).filter(|&u| u > clock).unwrap_or(clock);
     set(&mut w.header, field, id, Some(json!(from + AD_DAYS * 86400.)));
     Ok(json!({"charge":price,"cash":w.api.cash()}))
 }
 
+/// An advert's money a day at station or line `id` by the latest forecast.
+fn ad_day(w: &World, trains: bool, id: u32) -> Option<f64> {
+    let f = forecast_for(w)?;
+    let (stations, lines) = traffic(&f, &w.api);
+    Some(if trains { lines.get(&id).copied().unwrap_or(0.) * rupiah(AD_TRAIN_RP) } else { stations.get(&id).copied().unwrap_or(0.) * rupiah(AD_STATION_RP) })
+}
 /// The inspector's view of a contract: running, days left (whole, up), its end.
 fn contract(until: Option<f64>, clock: f64) -> Value {
     match until {
@@ -338,11 +355,12 @@ pub(crate) fn station(w: &World, node: u32, clock: f64) -> Value {
         parking["bonus"] = bonus(p.fee, p.slots(), cars).into();
     }
     let mut ad = contract(ad_until(&w.header, false, node), clock);
-    ad["price"] = AD_STATION_PRICE.into();
     ad["days"] = AD_DAYS.into();
-    if let Some(t) = people {
+    let day = people.map(|t| t * rupiah(AD_STATION_RP));
+    ad["price"] = ad_price(false, day).into();
+    if let (Some(t), Some(d)) = (people, day) {
         ad["people"] = t.into();
-        ad["incomeDay"] = (t * rupiah(AD_STATION_RP)).into();
+        ad["incomeDay"] = d.into();
     }
     json!({"parking":parking,"ad":ad,"built":net.node_built[node as usize],"forecast":f.is_some()})
 }
@@ -353,12 +371,13 @@ pub(crate) fn line(w: &World, id: u32, clock: f64) -> Value {
         return json!({"error":"Line tidak tersedia."});
     }
     let mut ad = contract(ad_until(&w.header, true, id), clock);
-    ad["price"] = AD_TRAIN_PRICE.into();
     ad["days"] = AD_DAYS.into();
-    if let Some(f) = forecast_for(w) {
-        let riders = traffic(&f, &w.api).1.get(&id).copied().unwrap_or(0.);
-        ad["riders"] = riders.into();
-        ad["incomeDay"] = (riders * rupiah(AD_TRAIN_RP)).into();
+    let riders = forecast_for(w).map(|f| traffic(&f, &w.api).1.get(&id).copied().unwrap_or(0.));
+    let day = riders.map(|r| r * rupiah(AD_TRAIN_RP));
+    ad["price"] = ad_price(true, day).into();
+    if let (Some(r), Some(d)) = (riders, day) {
+        ad["riders"] = r.into();
+        ad["incomeDay"] = d.into();
     }
     ad
 }
@@ -462,15 +481,16 @@ mod tests {
         assert_eq!(used, 120.);
         // Rp 5.000 = US$0,3125, x100 economy = US$31,25 a car
         assert!((money - 120. * 31.25e-6).abs() < 1e-12);
-        let (used, money) = park_day(p, 1000.);
-        assert_eq!(used, 300.);
-        assert!((money - 300. * 31.25e-6).abs() < 1e-12);
+        let (used, money) = park_day(p, 3000.);
+        assert_eq!(used, 1000.);
+        assert!((money - 1000. * 31.25e-6).abs() < 1e-12);
         assert_eq!(park_day(Park { fee: 0., size: 2 }, 900.).1, 0.);
     }
 
     #[test]
     fn a_higher_fee_or_a_full_park_takes_less_off_the_ride() {
         assert_eq!(bonus(0., 300., 100.), 10.);
+        assert!((ad_price(true, Some(1.)) - (AD_TRAIN_BASE + AD_SHARE * 30.)).abs() < 1e-12);
         assert!((bonus(5000., 300., 100.) - 8.5).abs() < 1e-6);
         assert!((bonus(FEE_MAX, 300., 100.) - 4.).abs() < 1e-6);
         assert!(bonus(10000., 300., 100.) < bonus(5000., 300., 100.));
@@ -488,21 +508,24 @@ mod tests {
         let before = w.save(clock).unwrap();
         assert!(split(&before).unwrap().1.is_none(), "no extras: the bytes as they are");
         assert_eq!(split(&before).unwrap().0, before);
-        assert!(set_park(&mut w, n, 7400., 1, clock).is_ok());
+        assert!(set_park(&mut w, n, 7400., 2, clock).is_ok());
         assert_eq!(w.api.cash(), 85.);
-        assert_eq!(park(&w.header, n), Park { fee: 7000., size: 1 });
+        assert_eq!(park(&w.header, n), Park { fee: 7000., size: 2 });
         // smaller refunds nothing
-        set_park(&mut w, n, 7000., 0, clock).unwrap();
-        assert_eq!(w.api.cash(), 85.);
         set_park(&mut w, n, 7000., 1, clock).unwrap();
-        assert_eq!(w.api.cash(), 70.);
+        assert_eq!(w.api.cash(), 85.);
+        set_park(&mut w, n, 7000., 2, clock).unwrap();
+        assert_eq!(w.api.cash(), 75.);
+        // no forecast of this world: the advert costs its base
+        let price = ad_price(false, ad_day(&w, false, n));
+        assert!(price >= AD_STATION_BASE);
         set_ad(&mut w, false, n, true, clock).unwrap();
-        assert_eq!(w.api.cash(), 69.5);
+        assert!((w.api.cash() - (75. - price)).abs() < 1e-9);
         let saved = w.save(clock).unwrap();
         let back = World::open(&saved).unwrap();
         // dense ids: the station keeps its place among live nodes
         let dense = (0..n).filter(|&i| w.api.world().net.node_ok(i)).count() as u32;
-        assert_eq!(park(&back.header, dense), Park { fee: 7000., size: 1 });
+        assert_eq!(park(&back.header, dense), Park { fee: 7000., size: 2 });
         assert_eq!(ad_until(&back.header, false, dense), Some(clock + 30. * 86400.));
         // on disk: the save without them reads as the web's, header and network alike
         let (disk, x) = split(&saved).unwrap();
@@ -541,7 +564,7 @@ mod tests {
         // the demand reads the advert while it runs, and not after
         let mut h = w.header.clone();
         let t = demand_terms(&h, &w.api, &[n], &[], &BTreeMap::new()).unwrap();
-        assert_eq!(t.1, vec![AD_MIN]);
+        assert_eq!(t.1, vec![AD_STATION_MIN]);
         h["clock"] = until.into();
         let t = demand_terms(&h, &w.api, &[n], &[], &BTreeMap::new()).unwrap();
         assert!(t.1.is_empty());

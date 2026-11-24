@@ -1202,6 +1202,8 @@ mod tests {
         let cars: f64 = parks.iter().map(|&n| f.parked(n)).sum();
         let daily = Daily::new(&back.header, &back.api, &f);
         let parking = daily.income(0., 86400.).0;
+        let uncapped: f64 = parks.iter().map(|&n| f.parked(n)).sum::<f64>() * extras::rupiah(extras::FEE_DEFAULT);
+        eprintln!("parking with room for every car: US$M {uncapped:.4}/day ({:.1}% of fares)", 100. * uncapped / f.map_lines().values().map(|l| l.fares).sum::<f64>());
         let boardings: f64 = lines.values().sum();
         eprintln!("stations {} parks {} boardings/day {boardings:.0} rail trips {rail_5k:.0}", stations.len(), parks.len());
         eprintln!("fares/day US$M {fares:.4}; parked cars/day {cars:.0}; parking/day US$M {parking:.4} ({:.1}% of fares)", 100. * parking / fares);
@@ -1215,8 +1217,8 @@ mod tests {
             // the station's share of the fares by its boardings and alightings
             let share = fares * people / (2. * boardings);
             eprintln!(
-                "  {} people/day {people:.0}: cars {:.0} (in slots {used:.0}) parking US$M {money:.4}; station advert US$M {ad:.4}/day = {:.1}% of its fares, {:.1} days pay the contract",
-                back.api.node_name(n), f.parked(n), 100. * ad / share, extras::AD_STATION_PRICE / ad
+                "  {} people/day {people:.0}: cars {:.0} (in slots {used:.0}) parking US$M {money:.4}; station advert US$M {ad:.4}/day = {:.1}% of its fares, contract US$M {:.2}",
+                back.api.node_name(n), f.parked(n), 100. * ad / share, extras::ad_price(false, Some(ad))
             );
         }
         let mut most: Vec<(u32, f64)> = parks.iter().map(|&n| (n, f.parked(n))).collect();
@@ -1226,9 +1228,13 @@ mod tests {
         }
         for (&l, &riders) in lines.iter().take(6) {
             let ad = riders * extras::rupiah(extras::AD_TRAIN_RP);
-            eprintln!("  line {} riders/day {riders:.0}: train advert US$M {ad:.4}/day = {:.1}% of fares/rider, {:.1} days pay the contract", back.api.line_name(l), 100. * ad / (fares * riders / boardings), extras::AD_TRAIN_PRICE / ad);
+            eprintln!("  line {} riders/day {riders:.0}: train advert US$M {ad:.4}/day = {:.1}% of fares/rider, contract US$M {:.2}", back.api.line_name(l), 100. * ad / (fares * riders / boardings), extras::ad_price(true, Some(ad)));
         }
         assert!(cars > 0., "Jakarta's commuters park at the stations");
+        for size in 1..3 {
+            let money: f64 = parks.iter().map(|&n| extras::park_day(extras::Park { fee: extras::FEE_DEFAULT, size }, f.parked(n)).1).sum();
+            eprintln!("every car park {}: parking US$M {money:.4}/day ({:.1}% of fares)", extras::SIZES[size].0, 100. * money / fares);
+        }
         // free parking rides more than the dearest
         set_fee(&mut w, 0., 2);
         let (free, rail_free, _) = run(&w);
