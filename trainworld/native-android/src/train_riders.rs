@@ -457,6 +457,94 @@ pub(crate) fn station(
         "to": top(&ends[0]), "from": top(&ends[1])})
 }
 
+/// One line's stops for its panel (web LineInspector's stop rows): at each stop the boardings in
+/// the past 24 hours (`StopToday`, `TrackApi::past_day`), and from the forecast's average day the
+/// riders getting on and off there, the riders on the stretch to the next stop in both directions
+/// (web `dailyRiders`) and where the riders boarding there get off most, by the alighting shares
+/// the web's OneRider draws from. `riders` None: the forecast is not in yet.
+pub(crate) fn line(world: &World, id: u32, time: f64, riders: Option<&LineRiders>) -> Value {
+    let api = &world.api;
+    let stops = api.line_stops(id);
+    let n = stops.len();
+    let day = api.past_day(time);
+    let mut today: Option<Vec<f64>> = None;
+    let mut at = 1;
+    for _ in 0..day.first().copied().unwrap_or(0.) as usize {
+        let Some(head) = day.get(at..at + 7) else { break };
+        let (l, m, spans) = (head[0] as u32, head[1] as usize, head[6] as usize);
+        let first = at + 7 + 2 * spans;
+        let Some(v) = day.get(first..first + m) else { break };
+        if l == id {
+            today = Some(v.to_vec());
+        }
+        at = first + m + 8;
+    }
+    let wrap = api.world().svc.lines.get(id as usize).is_some_and(|s| s.kind == LoopKind::Circle);
+    let fits = riders.filter(|lr| lr.fits(n));
+    let mut rows: Vec<Value> = (0..n)
+        .map(|k| json!({"today": today.as_ref().map(|v| v.get(k).copied().unwrap_or(0.))}))
+        .collect();
+    if let Some(lr) = fits {
+        let last = if wrap { n - 2 } else { n - 1 };
+        let mut board = vec![0f64; n];
+        let mut alight = vec![0f64; n];
+        let mut load = vec![0f64; n];
+        let mut to: Vec<std::collections::BTreeMap<u32, f64>> = vec![Default::default(); n];
+        for run in 0..2 {
+            let shares = alight_shares(lr, run, wrap);
+            // run 1 calls at the stops backwards
+            let stop = |j: usize| if run == 0 { j } else { n - 1 - j };
+            for p in 0..PERIODS {
+                let b = |j: usize| f64::from(lr.board[p][run * n + j]).max(0.);
+                let a = |j: usize| f64::from(lr.alight[p][run * n + j]).max(0.);
+                let mut on = 0.;
+                if wrap {
+                    let (mut x, mut low) = (0f64, 0f64);
+                    for j in 0..n {
+                        x -= a(j);
+                        low = low.min(x);
+                        x += b(j);
+                    }
+                    on = -low;
+                }
+                for j in 0..n {
+                    let k = stop(j);
+                    board[k] += b(j);
+                    alight[k] += a(j);
+                    on = (on + b(j) - a(j)).max(0.);
+                    // the stretch leaving travel stop j is stop k's next one way, its previous the other
+                    if j + 1 < n {
+                        load[if run == 0 { k } else { k - 1 }] += on;
+                    }
+                    let mut stay = b(j);
+                    for m in j + 1..=last {
+                        let off = stay * shares[p][m];
+                        stay -= off;
+                        if off > 0. && stops[stop(m)] != stops[k] {
+                            *to[k].entry(stops[stop(m)]).or_default() += off;
+                        }
+                    }
+                }
+            }
+        }
+        for (k, row) in rows.iter_mut().enumerate() {
+            let sum: f64 = to[k].values().sum();
+            let mut top: Vec<_> = to[k].iter().filter(|(_, v)| **v > 0.).collect();
+            top.sort_by(|a, b| b.1.total_cmp(a.1));
+            let top: Vec<Value> = top
+                .into_iter()
+                .take(2)
+                .map(|(&node, v)| json!({"name": api.node_name(node), "share": v / sum}))
+                .collect();
+            row["on"] = json!(board[k]);
+            row["off"] = json!(alight[k]);
+            row["next"] = if k + 1 < n { json!(load[k]) } else { Value::Null };
+            row["to"] = json!(top);
+        }
+    }
+    json!({"line": id, "forecast": fits.is_some(), "counted": today.is_some(), "stops": rows})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,6 +591,40 @@ mod tests {
             out.extend(&lr.alight[p]);
         }
         out
+    }
+
+    #[test]
+    fn a_line_lists_each_stops_riders_the_load_on_and_where_they_get_off() {
+        let mut world = World::workshop();
+        world.build_path(&[[0., 0.], [3000., 0.], [6000., 0.], [9000., 0.]], "Uji", 111600.).unwrap();
+        let n = world.api.line_stops(0).len();
+        let lr = figures(n, 400.);
+        let v = line(&world, 0, 111600., Some(&lr));
+        println!("{v}");
+        assert_eq!(v["forecast"], true);
+        let rows = v["stops"].as_array().unwrap();
+        assert_eq!(rows.len(), n);
+        let f = |k: usize, key: &str| rows[k][key].as_f64().unwrap();
+        // each way 400 a period get on at every stop but its last
+        assert!((f(0, "on") - 400. * PERIODS as f64).abs() < 1e-6);
+        assert!((f(1, "on") - 800. * PERIODS as f64).abs() < 1e-6);
+        // who gets on is who gets off, over the day
+        let (on, off): (f64, f64) = (0..n).map(|k| (f(k, "on"), f(k, "off"))).fold((0., 0.), |a, b| (a.0 + b.0, a.1 + b.1));
+        assert!((on - off).abs() < 1e-3, "{on} {off}");
+        // the first stretch carries the first stop's boardings one way and its alightings the other
+        assert!((f(0, "next") - f(0, "on") - f(0, "off")).abs() < 1e-3);
+        assert!(rows[n - 1]["next"].is_null());
+        // from the first stop half get off at the next, a quarter at the one after, then the end
+        let to = rows[0]["to"].as_array().unwrap();
+        assert_eq!(to.len(), 2);
+        assert_eq!(to[0]["name"], world.api.node_name(world.api.line_stops(0)[1]));
+        assert!((to[0]["share"].as_f64().unwrap() - 0.5).abs() < 1e-9);
+        // without the forecast only the counted boardings are there
+        let bare = line(&world, 0, 111600., None);
+        assert_eq!(bare["forecast"], false);
+        assert!(bare["stops"][0].get("on").is_none());
+        // a forecast for another stop count is not read
+        assert_eq!(line(&world, 0, 111600., Some(&figures(n + 1, 400.)))["forecast"], false);
     }
 
     #[test]
