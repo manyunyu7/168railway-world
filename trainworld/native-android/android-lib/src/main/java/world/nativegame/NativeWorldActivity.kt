@@ -306,8 +306,8 @@ class NativeWorldActivity : Activity() {
         zoomTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rightTools.addView(zoomTools)
         listOf(
-            Triple(StudioUi.Icon.PLUS, "Perbesar peta", { map.zoom(1.6f) }),
-            Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoom(1f / 1.6f) }),
+            Triple(StudioUi.Icon.PLUS, "Perbesar peta", { map.zoomStep(true) }),
+            Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoomStep(false) }),
             Triple(StudioUi.Icon.CENTER, "Tampilkan jaringan", { map.resetCamera() })
         ).forEach { (icon, description, click) ->
             zoomTools.addView(glassIcon(icon, description, 46, click),
@@ -1880,7 +1880,7 @@ class NativeWorldActivity : Activity() {
             }
         }) { task ->
             when (task) {
-                "zoom" -> map.zoom(1.6f)
+                "zoom" -> map.zoomStep(true)
                 "summary" -> showDemand()
                 "layers" -> passengerLayers()
                 "rail" -> withCommittedWorld { configureTool(BuildTool.RAIL) }
@@ -2804,6 +2804,20 @@ internal class NetworkView(context: Context):View(context) {
         cameraMoved()
         invalidate()
     }
+    private var zoomAnimation: android.animation.ValueAnimator? = null
+    private var zoomTarget = 0f
+    fun zoomStep(closer: Boolean, x: Float = width/2f, y: Float = height/2f) {
+        val start = scale
+        val base = if (zoomAnimation?.isRunning == true) zoomTarget else start
+        zoomAnimation?.cancel()
+        zoomTarget = (base * if (closer) 2f else .5f).coerceIn(scaleAtZoom(1.0), max(homeScale * 35f,6.7f * density * trainPainter.mercatorPerFrame))
+        val ratio = (zoomTarget/start).toDouble()
+        zoomAnimation = android.animation.ValueAnimator.ofFloat(0f,1f).apply {
+            duration = 300
+            addUpdateListener { zoom(start * Math.pow(ratio,(it.animatedValue as Float).toDouble()).toFloat()/scale,x,y) }
+            start()
+        }
+    }
     fun zoom(factor: Float, pivotX: Float = width / 2f, pivotY: Float = height / 2f) {
         val old = scale
         scale = (scale * factor).coerceIn(scaleAtZoom(1.0), max(homeScale * 35f,6.7f * density * trainPainter.mercatorPerFrame))
@@ -3275,11 +3289,12 @@ internal class NetworkView(context: Context):View(context) {
         }
         override fun onDoubleTap(e: MotionEvent): Boolean {
             if (isDrafting) return true
-            if (doubleTapZoom) zoom(1.6f, e.x, e.y) else resetCamera()
+            if (doubleTapZoom) zoomStep(true, e.x, e.y) else resetCamera()
             return true
         }
     })
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) zoomAnimation?.cancel()
         if(railTool!=null && draft.size==2 && e.actionMasked==MotionEvent.ACTION_DOWN) {
             val tip=draft.last()
             holdingRail=kotlin.math.hypot(e.x-sx(tip.x),e.y-sy(tip.y))<=24*density
