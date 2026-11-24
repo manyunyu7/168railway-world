@@ -1610,7 +1610,23 @@ class NativeWorldActivity : Activity() {
         }
         if (!legacyWorkshop && handle != 0L) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
     }
+    private fun writeCover() {
+        val slot = archiveSlot ?: return
+        if (!::map.isInitialized || handle == 0L) return
+        val image = runCatching { map.cover() }.getOrNull()
+        val lines = map.routeCount
+        val stations = map.stationCount
+        val cash = if (lastCash.isFinite()) lastCash else map.balance
+        val time = referenceTime ?: clock
+        val day = (time / 86400).toInt() + 1
+        val second = Math.floorMod(time.toLong() + localClockShift, 86400L).toInt()
+        // Written before the library resumes so it shows the fresh cover (a small JPEG, a few ms).
+        WorldCovers.write(this, slot.id, image, lines, stations, cash, day, second)
+        image?.recycle()
+    }
+
     override fun onPause() {
+        writeCover()
         super.onPause()
         foreground = false
         if (::map.isInitialized) map.overlay.stop()
@@ -1749,6 +1765,19 @@ internal class NetworkView(context: Context):View(context) {
         staticVersion = version
         staticCx = centerX; staticCy = centerY; staticScale = scale
         staleSince = 0L
+    }
+    /** Visible part of the cached static map, scaled down for the world library cover. */
+    fun cover(maxWidth: Int = 720): android.graphics.Bitmap? {
+        if (width <= 0 || height <= 0) return null
+        if (staticBitmap == null || staticVersion != contentVersion || staticCx != centerX || staticCy != centerY || staticScale != scale) renderStaticLayer()
+        val bmp = staticBitmap ?: return null
+        val mx = ((bmp.width - width) / 2).coerceAtLeast(0)
+        val my = ((bmp.height - height) / 2).coerceAtLeast(0)
+        val k = minOf(1f, maxWidth.toFloat() / width)
+        val out = android.graphics.Bitmap.createBitmap((width * k).toInt().coerceAtLeast(1), (height * k).toInt().coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
+        Canvas(out).drawBitmap(bmp, android.graphics.Rect(mx, my, mx + width, my + height),
+            android.graphics.Rect(0, 0, out.width, out.height), Paint(Paint.FILTER_BITMAP_FLAG))
+        return out
     }
     val trainCount get() = trainPainter.count
     private var trainFrom = Double.NaN

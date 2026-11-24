@@ -10,6 +10,7 @@ import java.util.UUID
 
 internal object WorldCloud {
     class Rejected(message: String) : IOException(message)
+    class Unavailable : IOException("Arsip atau layanan akun belum tersedia.")
     class Conflict : IOException("Dunia di Studio sudah berubah. Buka versi terbaru atau simpan perubahan HP sebagai dunia baru.")
     const val ORIGIN = "https://168railway.com"
     private fun call(path: String, method: String, session: JSONObject? = null, body: ByteArray? = null,
@@ -41,7 +42,7 @@ internal object WorldCloud {
                 }
                 401 -> throw Rejected("Sesi habis. Hubungkan akun lagi.")
                 409 -> throw Conflict()
-                404 -> throw IOException("Arsip atau layanan akun belum tersedia.")
+                404 -> throw Unavailable()
                 413 -> throw Rejected("Ukuran dunia melewati batas simpanan akun.")
                 422 -> {
                     val detail = runCatching {

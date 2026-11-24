@@ -75,7 +75,7 @@ class StudioLibraryActivity : Activity() {
         body.addView(button,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
         return button
     }
-    private fun <T> runJob(message: String, task: () -> T, allowNavigation: Boolean = false, done: (T) -> Unit) {
+    private fun <T> runJob(message: String, task: () -> T, allowNavigation: Boolean = false, failed: ((Throwable) -> Unit)? = null, done: (T) -> Unit) {
         val sequence = ++operation
         locked = !allowNavigation
         if (!allowNavigation) for (i in 0 until body.childCount) body.getChildAt(i).isEnabled = false
@@ -87,7 +87,7 @@ class StudioLibraryActivity : Activity() {
                 locked = false
                 for (i in 0 until body.childCount) body.getChildAt(i).isEnabled = true
                 if (owner != user()) { finish(); return@runOnUiThread }
-                result.onSuccess(done).onFailure { status.text = it.localizedMessage ?: "Coba lagi." }
+                result.onSuccess(done).onFailure { status.text = it.localizedMessage ?: "Coba lagi."; failed?.invoke(it) }
             }
         }
     }
@@ -117,6 +117,7 @@ class StudioLibraryActivity : Activity() {
             if (link?.optString("owner") == owner) slot to link else null
         }
         val active = mine.firstOrNull { it.first.id == source }
+        val covers = mine.associate { (slot, _) -> slot.id to WorldCovers.read(this, slot.id) }
         fun createWorld() {
             StudioCityStart.begin(this) { slot ->
                 remember(slot.id,JSONObject().put("id",UUID.randomUUID().toString()).put("version",0).put("name",slot.title))
@@ -141,26 +142,38 @@ class StudioLibraryActivity : Activity() {
         val hero = active ?: mine.firstOrNull()
         if (hero != null) {
             val (slot, link) = hero
-            val island = KScene.Island(this)
-            append(island,4,190)
+            val cover = covers[slot.id]
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 background = StudioUi.glass(context, 30)
                 elevation = dp(3).toFloat()
-                setPadding(dp(18),dp(16),dp(18),dp(18))
+                setPadding(dp(12),dp(12),dp(12),dp(16))
             }
-            card.addView(StudioUi.title(this,slot.title,27f).apply { maxLines = 2 })
-            val chips = LinearLayout(this).apply { setPadding(0,dp(8),0,dp(12)) }
-            cities.firstOrNull { it.id == slot.city }?.name?.let {
-                chips.addView(StudioUi.chip(this,it,StudioUi.TINT_ORANGE,0xff9a3a0b.toInt()),LinearLayout.LayoutParams(-2,-2).apply { marginEnd = dp(6) })
+            if (cover?.image != null) card.addView(KScene.mapCover(this,cover.image,22),LinearLayout.LayoutParams(-1,dp(300)))
+            else append(KScene.Island(this),4,190)
+            val heading = LinearLayout(this).apply {
+                gravity = Gravity.BOTTOM
+                setPadding(dp(6),dp(12),dp(6),0)
+                addView(StudioUi.title(context,slot.title,26f).apply { maxLines = 2 },LinearLayout.LayoutParams(0,-2,1f))
+                cover?.let { addView(StudioUi.text(context,it.dayTime,13f,true,StudioUi.MUTED).apply { gravity = Gravity.END },
+                    LinearLayout.LayoutParams(-2,-2).apply { marginStart = dp(8); bottomMargin = dp(4) }) }
             }
+            card.addView(heading)
+            val chips = LinearLayout(this).apply { setPadding(dp(6),dp(8),dp(6),dp(12)) }
+            fun chip(text: String, tint: Int, ink: Int) =
+                chips.addView(StudioUi.chip(this,text,tint,ink),LinearLayout.LayoutParams(-2,-2).apply { marginEnd = dp(6) })
+            if (cover != null) {
+                chip("${cover.lines} jalur",StudioUi.TINT_ORANGE,0xff9a3a0b.toInt())
+                chip("${cover.stations} stasiun",StudioUi.TINT_PURPLE,0xff3f2aa8.toInt())
+                if (cover.cash.isFinite()) chip(StudioCurrency.current(this).compact(cover.cash),StudioUi.TINT_YELLOW,0xff7a5600.toInt())
+            } else cities.firstOrNull { it.id == slot.city }?.name?.let { chip(it,StudioUi.TINT_ORANGE,0xff9a3a0b.toInt()) }
             val sync = syncLabel(slot,link)
-            chips.addView(StudioUi.chip(this,sync,if (sync.startsWith("Tersinkron")) StudioUi.TINT_GREEN else StudioUi.TINT_PURPLE,
-                if (sync.startsWith("Tersinkron")) StudioUi.GOOD else 0xff3f2aa8.toInt()))
+            if (sync.startsWith("Tersinkron")) chip(sync,StudioUi.TINT_GREEN,StudioUi.GOOD)
+            else if (cover == null) chip(sync,StudioUi.TINT_PURPLE,0xff3f2aa8.toInt())
             card.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) })
             card.addView(StudioUi.button(this,"Main lagi",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
                 if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
-            }.apply { minHeight = dp(56); textSize = 17f })
+            }.apply { minHeight = dp(56); textSize = 17f },LinearLayout.LayoutParams(-1,-2).apply { marginStart = dp(6); marginEnd = dp(6) })
             if (active != null) {
                 card.addView(StudioUi.button(this,"Simpan perubahan ke Studio",StudioUi.Tone.BLUE,StudioUi.Icon.SAVE) { if (!locked) upload(active.first, false) },
                     LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
@@ -178,13 +191,15 @@ class StudioLibraryActivity : Activity() {
         val others = mine.filter { it.first.id != hero?.first?.id }
         val shown = if (allLocal) others else others.take(3)
         val tiles = shown.map { (slot, link) ->
-            KScene.worldCard(this,slot.title,details(slot,link),0xffb5e08f.toInt()) {
+            val cover = covers[slot.id]
+            val detail = cover?.let { "${it.lines} jalur · ${it.dayTime}" } ?: details(slot,link)
+            KScene.worldCard(this,slot.title,detail,0xffb5e08f.toInt(),cover?.image) {
                 if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
             } as View
-        } + KScene.newIsland(this,"Pulau baru") { if (!locked) createWorld() }
+        } + KScene.newIsland(this,"Dunia baru") { if (!locked) createWorld() }
         if (others.isNotEmpty()) append(StudioUi.section(this,"Di perangkat · ${mine.size}"),12)
         for (pair in tiles.chunked(2)) {
-            val line = LinearLayout(this)
+            val line = LinearLayout(this).apply { minimumHeight = dp(150) }
             pair.forEachIndexed { i, tile ->
                 line.addView(tile, LinearLayout.LayoutParams(0,-1,1f).apply { if (i == 1) marginStart = dp(12) })
             }
@@ -195,14 +210,16 @@ class StudioLibraryActivity : Activity() {
             allLocal = !allLocal
             refresh()
         }
-        append(StudioUi.section(this,"Dunia di akun"),20)
+        val accountHeader = StudioUi.section(this,"Dunia di akun")
+        append(accountHeader,20)
         append(status,3)
         if (requestedAction == "save" && active != null) {
             requestedAction = null
             upload(active.first,false)
             return
         }
-        runJob("Mengambil dunia dari Studio…", { WorldCloud.list(session()) }, allowNavigation = true) { rows ->
+        runJob("Mengambil dunia dari Studio…", { WorldCloud.list(session()) }, allowNavigation = true,
+            failed = { error -> if (error is WorldCloud.Unavailable) { accountHeader.visibility = View.GONE; status.visibility = View.GONE } }) { rows ->
             status.text = if (rows.length() == 0) "Belum ada dunia di akun Studio." else ""
             for (i in 0 until rows.length()) {
                 val row = rows.getJSONObject(i)

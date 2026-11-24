@@ -187,25 +187,40 @@ internal object KScene {
             }
             setPadding(0, 0, 0, dp(c, 4))
         }, LinearLayout.LayoutParams(dp(c, 54), dp(c, 58)))
-        addView(StudioUi.text(c, label, 15f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(c); setPadding(0, dp(c, 8), 0, 0) })
+        addView(StudioUi.text(c, label, 15f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(c); gravity = Gravity.CENTER; setPadding(0, dp(c, 8), 0, 0) },
+            LinearLayout.LayoutParams(-1, -2))
         isFocusable = true
         contentDescription = label
         setOnClickListener { click() }
     }
 
     /** Small world card for the library grid: island thumbnail, title and detail. */
-    fun worldCard(c: Context, title: String, detail: String, grass: Int, click: () -> Unit) = LinearLayout(c).apply {
+    /** Map snapshot of a world with rounded corners, cropped to fill. */
+    fun mapCover(c: Context, image: android.graphics.Bitmap, radius: Int) = android.widget.ImageView(c).apply {
+        setImageBitmap(image)
+        scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, dp(c, radius).toFloat())
+        }
+        clipToOutline = true
+        setBackgroundColor(0xffeaf2ee.toInt())
+    }
+
+    fun worldCard(c: Context, title: String, detail: String, grass: Int, cover: android.graphics.Bitmap? = null, click: () -> Unit) = LinearLayout(c).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         background = android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x226c4df6),
             StudioUi.glass(c, 26), null)
         elevation = dp(c, 2).toFloat()
-        setPadding(dp(c, 8), dp(c, 4), dp(c, 8), dp(c, 12))
-        addView(Island(c, grass), LinearLayout.LayoutParams(-1, dp(c, 92)))
+        setPadding(dp(c, 8), dp(c, if (cover != null) 8 else 4), dp(c, 8), dp(c, 12))
+        if (cover != null) addView(mapCover(c, cover, 18), LinearLayout.LayoutParams(-1, dp(c, 96)).apply { bottomMargin = dp(c, 8) })
+        else addView(Island(c, grass), LinearLayout.LayoutParams(-1, dp(c, 92)))
         addView(StudioUi.text(c, title, 15f, color = StudioUi.INK).apply {
-            typeface = StudioUi.heavy(c); gravity = Gravity.CENTER; maxLines = 2
-        })
-        addView(StudioUi.text(c, detail, 12f, true, StudioUi.MUTED).apply { gravity = Gravity.CENTER; maxLines = 2 })
+            typeface = StudioUi.heavy(c); gravity = if (cover != null) Gravity.START else Gravity.CENTER; maxLines = 2
+        }, LinearLayout.LayoutParams(-1, -2))
+        addView(StudioUi.text(c, detail, 12f, true, StudioUi.MUTED).apply { gravity = if (cover != null) Gravity.START else Gravity.CENTER; maxLines = 2 },
+            LinearLayout.LayoutParams(-1, -2))
         isFocusable = true
         contentDescription = "$title. $detail"
         setOnClickListener { click() }
