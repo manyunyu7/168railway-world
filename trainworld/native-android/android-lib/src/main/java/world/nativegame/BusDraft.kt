@@ -39,6 +39,7 @@ internal object BusDraft {
         val points = map.draft.map { PointF(it.x, it.y) }
         val bends = map.bends.toList()
         if (points.size < 2) return
+        BusRoads.apply(activity)
         val via = points.flatMapIndexed { i, p -> listOf(p to 1.0) + bends.filter { it.first == i }.map { it.second to 0.0 } }
         val triples = via.flatMap { (p, kind) -> listOf(p.x.toDouble(), p.y.toDouble(), kind) }.toDoubleArray()
         val coords = via.flatMap { (p, _) -> listOf(p.x.toDouble(), p.y.toDouble()) }.toDoubleArray()
@@ -95,7 +96,7 @@ internal object BusDraft {
         }
         map.junctionMarks = labels
         val km = String.format(java.util.Locale.forLanguageTag("id-ID"), "%.1f", result.getDouble("km"))
-        title.text = "$specification · ≈ $km km lewat jalan"
+        title.text = "$specification · ≈ $km km ${BusRoads.via(title.context)}"
         status.text = "${points.size} halte · Ketuk tujuan berikutnya. Rute mengikuti jalan."
     }
 }
