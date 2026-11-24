@@ -24,6 +24,8 @@ mod station_facilities;
 mod station_inspection;
 mod station_map;
 mod train_scene;
+mod line_bands;
+mod achievements;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},
@@ -429,9 +431,10 @@ impl World {
         let mut routes = Vec::new();
         for row in lines.chunks_exact(22).filter(|r| r[2] == 1.) {
             let id = row[0] as u32;
-            let path = self.api.run_polyline(id, 0, 70.);
+            let path = self.api.run_polyline(id, 0, line_bands::ROUTE_STEP_M);
             let points: Vec<i32> = path.iter().map(|v| v.round() as i32).collect();
-            routes.push(json!({"id":id,"color":row[1] as u32,"points":points,"name":self.api.line_name(id)}));
+            let at = line_bands::route_entries(&self.api, id, row[9]);
+            routes.push(json!({"id":id,"color":row[1] as u32,"points":points,"name":self.api.line_name(id),"at":if at.len() * 2 == points.len() { at } else { vec![] }}));
         }
         // Infrastructure belongs to the map even before a passenger service uses it.
         let tracks: Vec<_> = self.api.edges_info().chunks_exact(10)
@@ -487,7 +490,7 @@ impl World {
             .from_lonlat(b[2].as_f64().unwrap(), b[3].as_f64().unwrap());
         let origin = self.api.frame_origin();
         let home = self.api.from_lonlat(origin[0], origin[1]);
-        json!({"opened":self.header["opened"],"viewed":self.header["androidViewed"],"mercatorPerFrame":if self.api.frame_kind() == 2 { 1. } else {1. / origin[1].to_radians().cos().max(0.01)},"cash":self.api.cash(),"requiresStudioClock":self.requires_studio_clock(),"homePoint":home,"waterBox":[sw[0],sw[1],ne[0],ne[1]],"looseEnds":loose_ends,"lastTrackEnd":self.header["androidTrackEnd"],"plannedStations":planned_stations,"routes":routes,"tracks":tracks,"stations":stops,"clock":self.header["clock"],"city":self.header["city"]})
+        json!({"opened":self.header["opened"],"viewed":self.header["androidViewed"],"mercatorPerFrame":if self.api.frame_kind() == 2 { 1. } else {1. / origin[1].to_radians().cos().max(0.01)},"cash":self.api.cash(),"requiresStudioClock":self.requires_studio_clock(),"homePoint":home,"waterBox":[sw[0],sw[1],ne[0],ne[1]],"looseEnds":loose_ends,"lastTrackEnd":self.header["androidTrackEnd"],"plannedStations":planned_stations,"routes":routes,"bands":line_bands::bands(&self.api, &lines).to_json(),"tracks":tracks,"stations":stops,"clock":self.header["clock"],"city":self.header["city"]})
     }
     fn load_trip_hour(&mut self, time: f64) -> f64 {
         let hour = (time / 3600.).floor() as i64;
