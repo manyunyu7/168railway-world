@@ -65,7 +65,7 @@ internal object StudioMapPreview {
 internal object KScene {
     private fun dp(c: Context, n: Int) = StudioUi.dp(c, n)
 
-    /** Sky gradient with clouds and a green hill at the bottom; sits behind the library and archive. */
+    /** Sky gradient and a green hill at the bottom; sits behind the library and archive. */
     class Sky(context: Context) : View(context) {
         private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
         init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
@@ -76,10 +76,8 @@ internal object KScene {
                 android.graphics.Shader.TileMode.CLAMP)
             canvas.drawRect(0f, 0f, w, h, paint)
             paint.shader = null
-            paint.color = 0xe6ffffff.toInt()
+            // No clouds: seen through the translucent cards they read as white smudges on the rows.
             val d = resources.displayMetrics.density
-            canvas.drawOval(w * .05f, 120 * d, w * .05f + 100 * d, 156 * d, paint)
-            canvas.drawOval(w * .68f, 200 * d, w * .68f + 120 * d, 240 * d, paint)
             paint.color = 0xffbfe6a8.toInt()
             canvas.drawOval(-w * .2f, h - 150 * d, w * 1.2f, h + 120 * d, paint)
         }

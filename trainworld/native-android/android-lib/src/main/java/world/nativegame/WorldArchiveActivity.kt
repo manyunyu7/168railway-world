@@ -88,10 +88,11 @@ class WorldArchiveActivity : Activity() {
         menu.addView(feedback)
         if (!localOnly) accountActions()
         menu.addView(StudioUi.section(this,"Berkas"))
-        item(StudioUi.Icon.FOLDER,StudioUi.TINT_YELLOW,"Impor berkas TWG1","Dari penyimpanan HP") {
+        item(StudioUi.Icon.OPEN_FILE,StudioUi.TINT_YELLOW,"Impor berkas dunia","Berkas .save dari penyimpanan HP") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),1)
         }
-        item(StudioUi.Icon.ROUTE,StudioUi.TINT_GREEN,"Ekspor dunia aktif","Simpan sebagai berkas .save",source()?.isFile==true) {
+        // a greyed-out row that can never be used here was noise: each world below has its own download
+        if (source()?.isFile==true) item(StudioUi.Icon.DOWNLOAD,StudioUi.TINT_GREEN,"Ekspor dunia aktif","Simpan sebagai berkas .save") {
             startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                 .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE,
                     WorldDocuments.list(this).firstOrNull { WorldDocuments.path(this,it.id).canonicalPath == source()?.canonicalPath }?.let { fileName(it.title) }
@@ -114,12 +115,11 @@ class WorldArchiveActivity : Activity() {
             val row = StudioUi.row(this,StudioUi.Icon.TRAIN,StudioUi.TINT_ORANGE,slot.title,
                 if (here) "Dimainkan · $facts" else facts) { if (!busy) { if (localOnly) actions(slot,here) else open(slot) } }
             // web SavesPanel card buttons: rename, copy and (not the game being played) delete
-            row.addView(StudioUi.iconButton(this,"Tindakan untuk ${slot.title}",StudioUi.Icon.MENU) {
+            row.addView(StudioUi.iconButton(this,"Tindakan untuk ${slot.title}",StudioUi.Icon.MORE_VERT) {
                 if (!busy) actions(slot, here)
             }, LinearLayout.LayoutParams(dp(48),dp(48)).apply { marginStart=dp(6) })
             menu.addView(row, LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
         }
-        button("Kembali") { finish() }
     }
     private fun accountActions() {
         val session=login.get("session")
@@ -154,17 +154,17 @@ class WorldArchiveActivity : Activity() {
             fun action(icon: StudioUi.Icon, tint: Int, label: String, detail: String?, go: () -> Unit) =
                 column.addView(StudioUi.row(this, icon, tint, label, detail) { sheet.dismiss(); go() },
                     LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-            action(StudioUi.Icon.MENU, StudioUi.TINT_BLUE, "Ganti nama", null) { askRename(slot) }
+            action(StudioUi.Icon.EDIT, StudioUi.TINT_BLUE, "Ganti nama", null) { askRename(slot) }
             // web exportSlot: "Unduh sebagai file", any world, named after it
-            action(StudioUi.Icon.ROUTE, StudioUi.TINT_GREEN, "Unduh sebagai file", fileName(slot.title)) {
+            action(StudioUi.Icon.DOWNLOAD, StudioUi.TINT_GREEN, "Unduh sebagai file", fileName(slot.title)) {
                 exporting = slot.id
                 startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                     .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, fileName(slot.title)), 3)
             }
-            action(StudioUi.Icon.FOLDER, StudioUi.TINT_YELLOW, "Buat salinan", "Salinan ${slot.title}") {
+            action(StudioUi.Icon.COPY, StudioUi.TINT_YELLOW, "Buat salinan", "Salinan ${slot.title}") {
                 job({ WorldDocuments.copy(this, slot) }) { feedback.text = "${it.title} dibuat di HP ini." }
             }
-            if (!playing) action(StudioUi.Icon.CLOSE, StudioUi.TINT_RED, "Hapus", "Dari HP ini") {
+            if (!playing) action(StudioUi.Icon.DELETE, StudioUi.TINT_RED, "Hapus", "Dari HP ini") {
                 WorldDeletion.ask(this, worker, slot) { render(); feedback.text = "${slot.title} dihapus dari HP ini." }
             }
         }

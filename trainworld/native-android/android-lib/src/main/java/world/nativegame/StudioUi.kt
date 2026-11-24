@@ -46,7 +46,11 @@ internal object StudioUi {
     enum class Icon(val code: Int) {
         TRAIN(0xf024a), SAVE(0xf0126), PLUS(0xf537), BACK(0xf572), FOLDER(0xf77d),
         CLOUD(0xf650), PLAY(0xf00a0), MENU(0xf0258), PIN(0xf884), CENTER(0xf8f0),
-        MINUS(0xf00f1), PAUSE(0xf0056), ROUTE(0xf0377), WALLET(0xf520), HELP(0xf7e5), UNDO(0xf0261), CLOSE(0xf647), LAYERS(0xf847)
+        MINUS(0xf00f1), PAUSE(0xf0056), ROUTE(0xf0377), WALLET(0xf520), HELP(0xf7e5), UNDO(0xf0261), CLOSE(0xf647), LAYERS(0xf847),
+        EDIT(0xf6fb), DOWNLOAD(0xf6df), COPY(0xf66c), MORE(0xf8d9), MORE_VERT(0xf8dc), SEARCH(0xf013d), INFO(0xf815),
+        WARNING(0xf02a0), TROPHY(0xf707), PEOPLE(0xf005e), SCHEDULE(0xf012b), BUILD(0xf665), DELETE(0xf696),
+        UPLOAD(0xf026a), OPEN_FILE(0xf0318), EYE(0xf0293), SPEED(0xf01b5), FLAG(0xf768), STAR(0xf01d4),
+        SWAP(0xf01fa), BOLT(0xf5ca)
     }
 
     fun dp(c: Context, n: Int) = (c.resources.displayMetrics.density * n + .5f).toInt()
