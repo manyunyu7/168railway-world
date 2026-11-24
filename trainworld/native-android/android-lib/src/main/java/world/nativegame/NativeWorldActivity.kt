@@ -115,6 +115,7 @@ class NativeWorldActivity : Activity() {
     private lateinit var more: Button
     private lateinit var lines: Button
     private lateinit var finance: Button
+    private lateinit var mapSearch: android.widget.ImageButton
     private lateinit var zoomTools: LinearLayout
     private lateinit var controlHint: LinearLayout
     private lateinit var cancel: Button
@@ -311,7 +312,7 @@ class NativeWorldActivity : Activity() {
         rightTools.addView(save, LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(8) })
         zoomTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rightTools.addView(zoomTools)
-        rightTools.addView(android.widget.ImageButton(this).apply {
+        mapSearch = android.widget.ImageButton(this).apply {
             contentDescription = "Cari di peta"
             setImageResource(android.R.drawable.ic_menu_search)
             setColorFilter(StudioUi.INK)
@@ -319,7 +320,8 @@ class NativeWorldActivity : Activity() {
             setOnClickListener {
                 if (handle != 0L && !drawing) withCommittedWorld(pause = false) { searchMenu(emptyList(),true) }
             }
-        }, LinearLayout.LayoutParams(dp(48),dp(48)))
+        }
+        rightTools.addView(mapSearch, LinearLayout.LayoutParams(dp(48),dp(48)))
         listOf(
             Triple(StudioUi.Icon.PLUS, "Perbesar peta", { map.zoomStep(true) }),
             Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoomStep(false) }),
@@ -1198,6 +1200,8 @@ class NativeWorldActivity : Activity() {
         val openBend = map.bends.lastOrNull()?.first == map.draft.lastIndex
         val ready = handle != 0L && !placingRail && !restoringEdit &&
             referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING
+        mapSearch.visibility = if (drawing) View.GONE else View.VISIBLE
+        mapSearch.isEnabled = ready
         build.isEnabled = ready && (!drawing || (map.draft.size >= plan.tool.minPoints && !openBend))
         dockTitle.text = if (drawing) plan.specification else ""
         dockTitle.visibility = if (drawing) View.VISIBLE else View.GONE
