@@ -20,6 +20,8 @@ mod new_game;
 mod operating;
 mod regional;
 mod simulation;
+mod junction;
+mod line_profile;
 mod station_facilities;
 mod station_inspection;
 mod station_map;

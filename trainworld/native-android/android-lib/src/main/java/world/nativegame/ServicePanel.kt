@@ -261,6 +261,16 @@ internal object ServicePanel {
             } else {
                 column.addView(StudioUi.text(host,"Belum ada pemberhentian pada rute ini.",15f,true,StudioUi.MUTED), lp(12, host))
             }
+            // web LineTopSpeed + LineProfile: the top speed, the speed limit and the line along its length
+            LineProfileView.section(host, handle, id, color, if (editable) { kmh ->
+                dialog.dismiss()
+                transaction { now ->
+                    val error = LineProfileView.setLimit(handle, id, kmh, now)
+                    if (error != null) android.widget.Toast.makeText(host, error, android.widget.Toast.LENGTH_LONG).show()
+                    else changed(service.getString("name"))
+                    details(host, handle, id, clock, editable, transaction, changed)
+                }
+            } else null)?.let { column.addView(it, lp(14, host)) }
             // web LineMoney: the line's last 30 whole days of fares and running cost
             FinanceHistory.lineMoney(host, service.optJSONArray("lineDays"), service.optInt("today"), StudioCurrency.current(host))?.let {
                 column.addView(it, lp(14, host))
