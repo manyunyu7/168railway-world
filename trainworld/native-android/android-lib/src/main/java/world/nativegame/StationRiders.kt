@@ -88,14 +88,7 @@ internal object StationRiders {
             box.addView(StudioUi.text(activity, purposes.joinToString(" · ") { "${it.optString("name")} ${pct(it.optDouble("share"))}" },
                 12.5f, true, StudioUi.MUTED).apply { setPadding(0, dp(6), 0, 0) })
         }
-        fun ends(title: String, a: JSONArray?) {
-            val list = rows(a)
-            if (list.isEmpty()) return
-            box.addView(StudioUi.section(activity, title).apply { setPadding(0, dp(10), 0, 0) })
-            for (e in list) row(e.optString("name"), pct(e.optDouble("share")))
-        }
-        ends("Penumpang dari sini turun di", r.optJSONArray("to"))
-        ends("Penumpang ke sini naik dari", r.optJSONArray("from"))
+        // web StationInspector has no from/to list; the estimate the engine also returns is not shown
         box.visibility = View.VISIBLE
     }
 }
