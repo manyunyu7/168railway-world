@@ -827,7 +827,9 @@ class NativeWorldActivity : Activity() {
         val stations = map.stops.filter { it.id >= 0 }.distinctBy { it.name }.sortedBy { it.name }
         StudioUi.sheet(this, "Cari & menu") { column, dialog ->
             val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            var firstAction: (() -> Unit)? = null
             fun row(label: String, sub: String?, icon: StudioUi.Icon, tint: Int, click: () -> Unit) {
+                if (firstAction == null) firstAction = { dialog.dismiss(); click() }
                 results.addView(LinearLayout(this).apply {
                     gravity = Gravity.CENTER_VERTICAL
                     background = StudioDepot.touch(context, 0xd9ffffff.toInt(), 18)
@@ -851,6 +853,7 @@ class NativeWorldActivity : Activity() {
             })
             fun render(query: String) {
                 results.removeAllViews()
+                firstAction = null
                 val q = plain(query)
                 val commands = options.filter { q.isEmpty() || it.first.lowercase().contains(q) }
                 if (commands.isNotEmpty()) section(if (q.isEmpty()) "Menu" else "Perintah")
@@ -892,10 +895,23 @@ class NativeWorldActivity : Activity() {
                 setPadding(dp(18), 0, dp(18), 0)
                 minHeight = dp(54)
                 imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                val update = Runnable { render(text.toString()) }
+                setOnEditorActionListener { _, action, event ->
+                    val enter = event?.keyCode == android.view.KeyEvent.KEYCODE_ENTER && event.action == android.view.KeyEvent.ACTION_DOWN
+                    if ((action == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH || enter) && text.isNotBlank()) {
+                        removeCallbacks(update)
+                        render(text.toString())
+                        firstAction?.invoke()
+                        true
+                    } else false
+                }
                 addTextChangedListener(object : android.text.TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                     override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                    override fun afterTextChanged(s: android.text.Editable?) { render(s?.toString().orEmpty()) }
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        removeCallbacks(update)
+                        postDelayed(update,150)
+                    }
                 })
             }, LinearLayout.LayoutParams(-1, dp(54)))
             column.addView(results)
