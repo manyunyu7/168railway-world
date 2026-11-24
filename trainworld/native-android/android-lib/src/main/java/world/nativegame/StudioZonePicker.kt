@@ -15,7 +15,7 @@ internal object StudioZonePicker {
 
     fun show(
         activity: Activity, catalog: CityPackStore, current: String,
-        title: String = "Jelajahi dunia", allowCurrent: Boolean = false, sourceCredits: (() -> Unit)? = null, select: (String) -> Unit
+        title: String = "Jelajahi dunia", allowCurrent: Boolean = false, sourceCredits: (() -> Unit)? = null, opened: Set<String>? = null, select: (String) -> Unit
     ) {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         val cities = catalog.cities().sortedBy { it.name }
@@ -34,23 +34,33 @@ internal object StudioZonePicker {
             column.addView(query, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
             val local = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
             column.addView(local,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
-            local.addView(StudioUi.section(activity,"Kota Indonesia"))
+
             fun cityCard(city: CityPackStore.City): View {
                 val cache = if (catalog.cached(city.id)) "Tersedia offline" else
                     "Unduh %.1f MB".format(Locale.forLanguageTag("id-ID"),city.bytes / 1_000_000.0)
-                val network = if (city.hasNetwork || city.id == "jak") "Jaringan contoh" else "Peta kosong"
+                val network = when {
+                    opened != null -> if (city.id in opened) "Dalam dunia ini" else "Jelajahi kota"
+                    city.hasNetwork || city.id == "jak" -> "Jaringan contoh"
+                    else -> "Peta kosong"
+                }
                 return StudioMapPreview.card(activity,StudioMapPreview.cityPath(city.id),city.name,
                     "$network · $cache",city.id == current) {
                     dialog.dismiss()
                     if (city.id != current || allowCurrent) select(city.id)
                 }
             }
+            if (!opened.isNullOrEmpty()) {
+                local.addView(StudioUi.section(activity,"Kota di dunia ini"))
+                for (zone in cities.filter { it.id in opened }) local.addView(cityCard(zone),
+                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(5) })
+            }
+            local.addView(StudioUi.section(activity,"Kota Indonesia"))
             val shortList = LinearLayout(activity)
             local.addView(HorizontalScrollView(activity).apply {
                 isHorizontalScrollBarEnabled = false
                 addView(shortList)
             },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
-            for (id in featured) {
+            for (id in featured.filterNot { opened?.contains(it) == true }) {
                 shortList.addView(cityCard(catalog.city(id)),LinearLayout.LayoutParams(dp(235),-2).apply { marginEnd=dp(6) })
             }
             local.addView(StudioUi.section(activity,"Kota lainnya"),
@@ -65,7 +75,7 @@ internal object StudioZonePicker {
             fun render() {
                 val search = query.text.toString().trim()
                 local.visibility = if (search.isEmpty()) View.VISIBLE else View.GONE
-                val results = if (search.isEmpty()) cities.filter { it.id !in featured }.sortedBy { it.id != current } else
+                val results = if (search.isEmpty()) cities.filter { it.id !in featured && opened?.contains(it.id) != true }.sortedBy { it.id != current } else
                     cities.filter { it.name.contains(search,ignoreCase = true) || it.id.equals(search,ignoreCase = true) }
                 matches.removeAllViews()
                 missing.visibility = if (results.isEmpty()) View.VISIBLE else View.GONE

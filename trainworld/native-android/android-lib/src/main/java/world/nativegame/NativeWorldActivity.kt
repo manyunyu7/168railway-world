@@ -75,6 +75,7 @@ class NativeWorldActivity : Activity() {
     private val localClockShift by lazy { StudioNewGame.localShift(city.id) }
     private val hostLibrary get() = intent.getBooleanExtra("hostLibrary", false)
     private var activePack: CityPackStore.CityPack? = null
+    private var openedCities: Set<String> = emptySet()
     private val local by lazy {
         AtomicFile(archiveSlot?.let { WorldDocuments.path(this,it.id) } ?: File(filesDir, if (legacyWorkshop) "world-native-workshop.save" else "world-native-${homeCity}.save"))
     }
@@ -515,6 +516,7 @@ class NativeWorldActivity : Activity() {
                     handle = loaded; activePack=pack; clock = geometry.getDouble("clock")
                     if (expandedSave != null && !persistBytes(expandedSave)) { finish(); return@runOnUiThread }
                     val layer = layers[city.id]
+                    openedCities = layers.keys + homeCity
                     map.cityLayers=layers.values.toList()
                     map.cityLayer=layer
                     map.load(geometry)
@@ -725,7 +727,7 @@ class NativeWorldActivity : Activity() {
             } })
             options.add("Arsip dan akun" to { withCommittedWorld { if (writeSave()) openLibrary() } })
             options.add("Kota di dunia ini" to {
-                StudioZonePicker.show(this,cityStore,city.id) { next ->
+                StudioZonePicker.show(this,cityStore,city.id, opened = openedCities) { next ->
                     val destination = cityStore.city(next)
                     val target = StudioDecision(this,destination.name,
                         if (cityStore.cached(next)) "Peta tersedia di perangkat" else android.text.format.Formatter.formatShortFileSize(this,destination.bytes)+" untuk diunduh")
