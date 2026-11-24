@@ -124,13 +124,43 @@ class WorldArchiveActivity : Activity() {
             val here = WorldDocuments.path(this,slot.id).canonicalPath == playing
             val row = StudioUi.row(this,StudioUi.Icon.TRAIN,StudioUi.TINT_ORANGE,slot.title,
                 if (here) "Dimainkan · $facts" else facts) { if (!busy) open(slot) }
-            // web: a bin on every card but the game being played
-            if (!here) row.addView(StudioUi.iconButton(this,"Hapus ${slot.title}",StudioUi.Icon.CLOSE) {
-                if (!busy) WorldDeletion.ask(this,worker,slot) { render(); feedback.text="${slot.title} dihapus dari HP ini." }
+            // web SavesPanel card buttons: rename, copy and (not the game being played) delete
+            row.addView(StudioUi.iconButton(this,"Tindakan untuk ${slot.title}",StudioUi.Icon.MENU) {
+                if (!busy) actions(slot, here)
             }, LinearLayout.LayoutParams(dp(48),dp(48)).apply { marginStart=dp(6) })
             menu.addView(row, LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
         }
         button("Kembali") { finish() }
+    }
+    private fun actions(slot: WorldDocuments.Slot, playing: Boolean) {
+        StudioUi.sheet(this, slot.title, .5f) { column, sheet ->
+            fun action(icon: StudioUi.Icon, tint: Int, label: String, detail: String?, go: () -> Unit) =
+                column.addView(StudioUi.row(this, icon, tint, label, detail) { sheet.dismiss(); go() },
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            action(StudioUi.Icon.MENU, StudioUi.TINT_BLUE, "Ganti nama", null) { askRename(slot) }
+            action(StudioUi.Icon.FOLDER, StudioUi.TINT_YELLOW, "Buat salinan", "Salinan ${slot.title}") {
+                job({ WorldDocuments.copy(this, slot) }) { feedback.text = "${it.title} dibuat di HP ini." }
+            }
+            if (!playing) action(StudioUi.Icon.CLOSE, StudioUi.TINT_RED, "Hapus", "Dari HP ini") {
+                WorldDeletion.ask(this, worker, slot) { render(); feedback.text = "${slot.title} dihapus dari HP ini." }
+            }
+        }
+    }
+    /** Web NameField ("Ganti nama"): the name typed, Selesai or the keyboard's done keeps it. */
+    private fun askRename(slot: WorldDocuments.Slot) {
+        val field = EditText(this).apply {
+            setText(slot.title); setSingleLine(); setSelectAllOnFocus(true)
+            filters = arrayOf(android.text.InputFilter.LengthFilter(80))
+            contentDescription = "Nama"
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+        val box = LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(field, LinearLayout.LayoutParams(-1, -2)) }
+        val save = { job({ WorldDocuments.rename(this, slot.id, field.text.toString()) }) { if (it) feedback.text = "Nama diganti." } }
+        val dialog = StudioDialogBuilder(this).setTitle("Ganti nama").setView(box)
+            .setNegativeButton("Batal", null).setPositiveButton("Selesai") { _, _ -> save() }.show()
+        field.setOnEditorActionListener { _, _, _ -> dialog.dismiss(); save(); true }
+        field.requestFocus()
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
     }
     private fun <T> job(work: ()->T, done: (T)->Unit) {
         if(busy) return

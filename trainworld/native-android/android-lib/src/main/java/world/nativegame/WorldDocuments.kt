@@ -99,6 +99,29 @@ internal object WorldDocuments {
         check(prefs(context).edit().remove(id).commit()) { "Indeks arsip gagal disimpan." }
         StudioPendingSaves.forget(context,id)
     }
+    /**
+     * Web SavesPanel NameField: a saved world's new name, trimmed, at most 80 characters (empty or
+     * unchanged left as it is); a world linked to the account takes it there on its next sync.
+     */
+    fun rename(context: Context, id: String, name: String): Boolean {
+        val title = name.trim().take(80)
+        val meta = JSONObject(prefs(context).getString(id, null) ?: error("Dunia tidak ditemukan."))
+        if (title.isEmpty() || title == meta.optString("name")) return false
+        check(prefs(context).edit().putString(id, meta.put("name", title).toString()).commit()) { "Indeks arsip gagal disimpan." }
+        StudioPendingSaves.rename(context, id, title)
+        return true
+    }
+
+    /**
+     * Web SavesPanel copy ("Buat salinan"): the save as a new world on this phone named
+     * "Salinan {name}" (`copyName`), its cover with it; the copy is not linked to the account.
+     */
+    fun copy(context: Context, slot: Slot): Slot {
+        val bytes = AtomicFile(path(context, slot.id)).openRead().use { read(it) }
+        val copy = import(context, bytes, "Salinan ${slot.title}", slot.city)
+        WorldCovers.copy(context, slot.id, copy.id)
+        return copy
+    }
     fun import(context: Context, bytes: ByteArray, name: String, city: String, owner: String? = null): Slot {
         val h = header(bytes)
         val handle = Engine.open(bytes)

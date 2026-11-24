@@ -63,6 +63,14 @@ internal object StudioPendingSaves {
 
     fun pendingIds(c: Context) = pending(c).all.keys.toList()
 
+    /** A renamed local world's account copy takes the name on its next upload. */
+    @Synchronized
+    fun rename(c: Context, slot: String, name: String) {
+        val link = links(c).getString(slot, null)?.let(::JSONObject) ?: return
+        links(c).edit().putString(slot, link.put("name", name).toString()).commit()
+        markDirty(c, slot)
+    }
+
     /** Drops a deleted local world's account link and sync state; the account copy is left as it is. */
     @Synchronized
     fun forget(c: Context, slot: String) {

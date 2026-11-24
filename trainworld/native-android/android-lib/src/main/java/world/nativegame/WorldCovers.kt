@@ -38,5 +38,11 @@ internal object WorldCovers {
         Cover(bmp, m.optInt("lines"), m.optInt("stations"), m.optDouble("cash", Double.NaN), m.optInt("day", 1), m.optInt("second"))
     }.getOrNull()
 
+    /** A copied world's cover, as the original's. */
+    fun copy(c: Context, from: String, to: String) {
+        runCatching { image(c, from).takeIf { it.isFile }?.copyTo(image(c, to), overwrite = true) }
+        runCatching { meta(c, from).takeIf { it.isFile }?.copyTo(meta(c, to), overwrite = true) }
+    }
+
     fun delete(c: Context, id: String) { image(c, id).delete(); meta(c, id).delete() }
 }
