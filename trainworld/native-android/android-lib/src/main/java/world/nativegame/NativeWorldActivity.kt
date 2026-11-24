@@ -57,6 +57,12 @@ internal object Engine {
     @JvmStatic external fun close(handle: Long)
 }
 
+/** Long status lines shrink a little before they would be cut off with "…" (Android 8+). */
+private fun TextView.shrinkToFit() {
+    if (android.os.Build.VERSION.SDK_INT >= 26)
+        setAutoSizeTextTypeUniformWithConfiguration(8, textSize.let { (it / resources.displayMetrics.scaledDensity).toInt() }.coerceAtLeast(9), 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+}
+
 private val DOCK_GREEN = 0xff173e37.toInt()
 
 class NativeWorldActivity : Activity() {
@@ -243,9 +249,9 @@ class NativeWorldActivity : Activity() {
             includeFontPadding = false
         }
         timeColumn.addView(localTime)
-        periodStatus = StudioUi.text(this, "", 11f, true, StudioUi.MUTED).apply { singleLine() }
+        periodStatus = StudioUi.text(this, "", 11f, true, StudioUi.MUTED).apply { singleLine(); shrinkToFit() }
         timeColumn.addView(periodStatus)
-        info = StudioUi.text(this, "Membuka jaringan…", 11f, true, StudioUi.MUTED).apply { singleLine() }
+        info = StudioUi.text(this, "Membuka jaringan…", 11f, true, StudioUi.MUTED).apply { singleLine(); shrinkToFit() }
         timeColumn.addView(info)
         timeColumn.contentDescription = "Ringkasan semua kota"
         timeColumn.setOnClickListener { if (handle != 0L && !drawing) allCities() }
@@ -314,8 +320,7 @@ class NativeWorldActivity : Activity() {
         rightTools.addView(zoomTools)
         mapSearch = android.widget.ImageButton(this).apply {
             contentDescription = "Cari di peta"
-            setImageResource(android.R.drawable.ic_menu_search)
-            setColorFilter(StudioUi.INK)
+            setImageDrawable(StudioUi.glyph(context, StudioUi.Icon.SEARCH, StudioUi.INK))
             background = StudioUi.glass(context,24)
             setOnClickListener {
                 if (handle != 0L && !drawing) withCommittedWorld(pause = false) { searchMenu(emptyList(),true) }
@@ -2154,7 +2159,8 @@ class NativeWorldActivity : Activity() {
 
     private fun updateViewportSummary() {
         val day = ((referenceTime ?: clock) / 86400).toInt() + 1
-        info.text = (if (viewportLabel.isEmpty()) "" else "$viewportLabel · ") + "Hari $day · ${map.routeCount} jalur · ${map.stationCount} stasiun"
+        // Line and station counts were always cut off on a phone; they live in Semua kota (tap here).
+        info.text = (if (viewportLabel.isEmpty()) "" else "$viewportLabel · ") + "Hari $day"
     }
 
     private fun updateSummary(cash: Double = map.balance) {
