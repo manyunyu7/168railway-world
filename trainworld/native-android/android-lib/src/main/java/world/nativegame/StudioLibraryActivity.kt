@@ -114,7 +114,9 @@ class StudioLibraryActivity : Activity() {
         }
         val mine = WorldDocuments.list(this).mapNotNull { slot ->
             val link = links.getString(slot.id,null)?.let(::JSONObject)
-            if (link?.optString("owner") == owner) slot to link else null
+            // Worlds only on this phone (copies, imported files) are listed too, not just the account's.
+            if (link == null) slot to JSONObject().put("version",0).put("local",true)
+            else if (link.optString("owner") == owner) slot to link else null
         }
         val active = mine.firstOrNull { it.first.id == source }
         val covers = mine.associate { (slot, _) -> slot.id to WorldCovers.read(this, slot.id) }
@@ -129,6 +131,7 @@ class StudioLibraryActivity : Activity() {
         fun syncLabel(slot: WorldDocuments.Slot, link: JSONObject): String {
             val revision = link.getInt("version")
             return when {
+                link.optBoolean("local") -> "Hanya di HP ini"
                 StudioPendingSaves.conflicted(this,slot.id) -> "Ada perubahan di HP dan web"
                 StudioPendingSaves.failure(this,slot.id) != null -> "Belum tersinkron"
                 slot.id in pending -> "Menunggu sinkronisasi"
@@ -214,7 +217,7 @@ class StudioLibraryActivity : Activity() {
                 if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
             } as LinearLayout).apply {
                 // web SavesPanel: a bin on every card but the game being played
-                if (slot.id != source) addView(StudioUi.iconButton(this@StudioLibraryActivity,"Hapus ${slot.title} dari HP ini",StudioUi.Icon.CLOSE) {
+                if (slot.id != source) addView(StudioUi.iconButton(this@StudioLibraryActivity,"Hapus ${slot.title} dari HP ini",StudioUi.Icon.DELETE) {
                     if (!locked) WorldDeletion.ask(this@StudioLibraryActivity,worker,slot) { refresh() }
                 }, LinearLayout.LayoutParams(dp(44),dp(44)).apply { gravity = Gravity.END })
             } as View
@@ -252,7 +255,7 @@ class StudioLibraryActivity : Activity() {
                 val card = StudioUi.row(this,StudioUi.Icon.CLOUD,StudioUi.TINT_BLUE,row.getString("name"),"Simpanan akun · ${saveDetails(row)}") {
                     if (locked) return@row
                     val local = mine.firstOrNull { (_, link) ->
-                        link.getString("id") == row.getString("id") && link.getInt("version") == row.getInt("version")
+                        link.optString("id") == row.getString("id") && link.getInt("version") == row.getInt("version")
                     }
                     confirmPlay(row.getString("name"),local?.first?.city,"Simpanan akun · ${saveDetails(row)}") { if (local == null) download(row) else open(local.first) }
                 }
