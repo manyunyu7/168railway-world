@@ -101,6 +101,41 @@ internal class ScheduleEditor(
         }
     }
 
+    /** Web `limitsFrom` per level: what the track lets the line run, null where nothing limits it. */
+    private val limits = List(3) { service.optJSONArray("limits")?.optJSONObject(it) }
+    private val tram = service.optString("vehicle") == "Trem"
+    /** Web capacityKinds.ts titles by kind and whether the place reads "di" (at) or "dekat" (near). */
+    private fun kindWords(kind: Int): Pair<String, Boolean> = when (kind) {
+        1 -> "Rel tunggal" to false; 2 -> (if (tram) "Halte trem" else "Peron") to true; 3 -> "Putar balik" to true
+        4 -> "Persimpangan" to false; 5 -> "Persilangan sebidang" to false
+        6 -> (if (tram) "Berbalik di halte" else "Berbalik di peron") to true; 7 -> "Rel bersama lini lain" to false
+        8 -> "Berbalik memotong rel" to true; 9 -> "Berbalik arah" to true; 10 -> "Sepur simpan jalur balik" to true
+        12 -> "Titik gabung" to false; 14 -> "Stasiun ujung" to true; else -> "Rel" to false
+    }
+    /** Web `formatDuration` for Indonesian (no own units): "4m00s", "1h05m", "45s". */
+    private fun duration(s: Double): String {
+        val t = Math.round(s); val h = t / 3600; val m = t / 60 % 60; val sec = t % 60
+        return when { t >= 3600 -> String.format(Locale.ROOT, "%dh%02dm", h, m); t >= 60 -> String.format(Locale.ROOT, "%dm%02ds", m, sec); else -> "${t}s" }
+    }
+    /** Web `limitText` + `limitWait`: "Putar balik di Hudson A maksimal satu kereta tiap 4m00s, jadi kereta selebihnya menunggu di ujung". */
+    private fun limitWait(level: Int): String? {
+        val l = limits[level] ?: return null
+        val (title, at) = kindWords(l.optInt("kind"))
+        val place = l.optString("place")
+        val what = if (place.isEmpty()) title else "$title ${if (at) "di" else "dekat"} $place"
+        val unit = route.vehicleUnit.let { if (tram) "trem" else it }
+        val text = if (l.isNull("s")) "$what penuh" else "$what maksimal satu $unit tiap ${duration(l.getDouble("s"))}"
+        return "$text, jadi $unit selebihnya menunggu di ujung"
+    }
+    /** Web `trainCap`: the whole trains the track lets run at a level, plus one so one is held. */
+    private fun trainCap(level: Int): Int {
+        val capS = limits[level]?.takeIf { !it.isNull("capS") }?.getDouble("capS") ?: return 128
+        val trip = cycles[level]
+        if (!(trip > 0)) return 128
+        val room = kotlin.math.floor(trip / capS + 0.01).toInt()
+        return minOf(128, maxOf(1, room) + 1)
+    }
+
     fun show() {
         lateinit var footer: LinearLayout
         StudioUi.sheet(host, "Jadwal", .94f, pinnedAction = { footer }) { body, dialog ->
@@ -171,6 +206,11 @@ internal class ScheduleEditor(
                         return
                     }
                     val current = edit.text.toString().toIntOrNull() ?: 0
+                    // web: "+" stops one past what the track lets run, and says why
+                    if (direction > 0 && current >= trainCap(i)) {
+                        limitWait(i)?.let { android.widget.Toast.makeText(host, it, android.widget.Toast.LENGTH_LONG).show() }
+                        return
+                    }
                     edit.setText((current + direction).coerceIn(0, 128).toString())
                 }
                 fun adjust(direction: Int) = StudioUi.iconButton(host,
@@ -356,8 +396,13 @@ internal class ScheduleEditor(
                 else -> "≈ ${String.format(Locale.forLanguageTag("id-ID"),"%.1f",seconds/60).removeSuffix(",0")} mnt"
             }
             field.contentDescription = "Permintaan ${periods[i].lowercase()}, $unit"
-            hints[i].text = periodHours[i] + " · " + (if (byInterval) "mnt · $note" else note)
-            hints[i].contentDescription = "Periode permintaan ${periodTip[i]}: ${periodHours[i]}. $note"
+            // web: a headway shorter than the track allows is red, with why (AUTO_SLACK 1.005)
+            val lim = limits[i]?.let { if (it.isNull("s")) Double.POSITIVE_INFINITY else it.getDouble("s") }
+            val short = valid && lim != null && seconds > 0 && seconds * 1.005 < lim
+            val warn = if (short) limitWait(i) else null
+            hints[i].text = periodHours[i] + " · " + (if (byInterval) "mnt · $note" else note) + (warn?.let { "\n$it" } ?: "")
+            hints[i].setTextColor(if (short) StudioUi.BAD else StudioUi.MUTED)
+            hints[i].contentDescription = "Periode permintaan ${periodTip[i]}: ${periodHours[i]}. $note" + (warn?.let { ". $it" } ?: "")
             preview.intervals[i] = seconds
             summaries.add("${periods[i]} $note")
         }

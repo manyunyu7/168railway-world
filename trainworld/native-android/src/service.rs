@@ -17,6 +17,45 @@ impl World {
             .collect()
     }
 
+    /// Web `limitsFrom` (LineInspector.tsx) over `line_held`: per demand level what limits the
+    /// line, null where nothing does: the shortest headway with every other line as it runs (s,
+    /// infinite as null when no room is left), the headway a count is capped by (capS), the
+    /// resource's kind (capacityKinds.ts) and the station at or nearest it.
+    fn limits(&self, id: u32) -> Value {
+        let held = self.api.line_held(id);
+        let nodes = self.api.nodes_info();
+        let nearest = |x: f64, y: f64| {
+            nodes
+                .chunks_exact(10)
+                .filter(|n| n[7] > 0.)
+                .min_by(|a, b| {
+                    (a[1] - x)
+                        .hypot(a[2] - y)
+                        .total_cmp(&(b[1] - x).hypot(b[2] - y))
+                })
+                .map(|n| self.api.node_name(n[0] as u32))
+        };
+        (0..3)
+            .map(|lev| {
+                let at = 21 + 5 * lev;
+                let Some(&[s, kind, node, x, y]) = held.get(at..at + 5) else {
+                    return Value::Null;
+                };
+                if !(s > 0.) {
+                    return Value::Null;
+                }
+                let place = if node >= 0. && self.api.world().net.is_station(node as u32) {
+                    Some(self.api.node_name(node as u32))
+                } else {
+                    nearest(x, y)
+                };
+                let cap = held.get(36 + lev).copied().unwrap_or(0.);
+                let fin = |v: f64| if v.is_finite() { json!(v) } else { Value::Null };
+                json!({"s": fin(s), "capS": fin(if cap > 0. { cap } else { s }), "kind": kind, "place": place.unwrap_or_default()})
+            })
+            .collect()
+    }
+
     fn inspect_service(&self, id: u32, now: f64) -> Option<Value> {
         // web game/periods.ts PERIODS: high 06-20, medium 20-24, low 00-06, in the line's local time
         fn level_at(local: f64) -> usize {
@@ -53,7 +92,7 @@ impl World {
         Some(
             json!({"name":self.api.line_name(id),"color":r[1],"cars":r[8],"count":[r[13],r[14],r[15]],"headway":self.api.line_auto(id),
           "weekend":weekend.first().copied().unwrap_or(100.),
-          "weekendManual":weekend.get(1).is_some_and(|&m| m == 1.),"weekendCounts":weekend.get(2..5),"dwell":r[19],"turn":r[20],"cycle":r[10],"cycles":[r[10],r[11],r[12]],"length":r[9],"limit":self.api.line_limit(id),
+          "limits":self.limits(id),"weekendManual":weekend.get(1).is_some_and(|&m| m == 1.),"weekendCounts":weekend.get(2..5),"dwell":r[19],"turn":r[20],"cycle":r[10],"cycles":[r[10],r[11],r[12]],"length":r[9],"limit":self.api.line_limit(id),
           "level":level_at(now + self.api.world().svc.lines[id as usize].shift),
           "shift":self.api.world().svc.lines[id as usize].shift,"vehicle":vehicle,"stops":labels.stops,"unnamedStops":labels.unnamed,"directionNames":labels.directions,"upcoming":upcoming,"depart":trips,"running":r[3]==1.}),
         )
@@ -293,6 +332,18 @@ mod tests {
         assert_eq!(saved["weekend"], 60.);
         let back = w.schedule(0, t, &base).unwrap();
         assert_eq!(back["weekendManual"], false);
+        // web limitsFrom: three levels; many trains on the workshop's track meet its limit
+        let mut busy = base.clone();
+        busy["peak"] = json!(60);
+        let full = w.schedule(0, t, &busy).unwrap();
+        let limits = full["limits"].as_array().unwrap();
+        assert_eq!(limits.len(), 3);
+        println!("limits {}", full["limits"]);
+        let high = &limits[0];
+        assert!(
+            high["s"].as_f64().is_some_and(|s| s > 0.) || high["s"].is_null() && !high.is_null()
+        );
+        assert!(!high["place"].as_str().unwrap().is_empty());
         let mut bad = base.clone();
         bad["weekendCounts"] = json!([3, 2]);
         assert!(w.schedule(0, t, &bad).is_err());
