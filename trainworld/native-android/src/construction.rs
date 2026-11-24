@@ -25,6 +25,7 @@ fn snap(
     radius: f64,
     rail: Option<(i8, u8)>,
     include_plans: bool,
+    allow_node: bool,
 ) -> Option<Target> {
     let net = &api.world().net;
     let mut edge = None;
@@ -58,6 +59,9 @@ fn snap(
     // A tap at a joint can project onto either touching piece. Reusing the joint
     // avoids a zero-length split, especially when placing terminal platforms.
     let e = edge?;
+    if !allow_node {
+        return Some(e);
+    }
     let i = e.id as usize;
     let endpoint = [net.edge_a[i], net.edge_b[i]]
         .into_iter()
@@ -144,7 +148,7 @@ impl World {
                     !(-3.0..=3.0).contains(&p[0])
                         || p[0].fract() != 0.
                         || !(0.0..=100000.).contains(&p[1])
-                        || !matches!(p[2], 0. | 1.)
+                        || !matches!(p[2], 0. | 1. | 2.)
                         || (kind == 2 && p[0] != 0.)
                 }))
         {
@@ -154,8 +158,8 @@ impl World {
             design
                 .profile
                 .get(3 * i..3 * i + 3)
-                .map(|v| (v[0] as i8, v[1], v[2] != 0.))
-                .unwrap_or((level as i8, design.radius, true))
+                .map(|v| (v[0] as i8, v[1], v[2] as u8))
+                .unwrap_or((level as i8, design.radius, 1))
         };
         let follows_roads = matches!(kind, 2 | 10 | 11);
         let kind = match kind {
@@ -250,8 +254,16 @@ impl World {
         let mut ends = Vec::with_capacity(10);
         for (i, p) in endpoints.chunks_exact(2).enumerate() {
             let (z, _, connect) = at(if i == 0 { 0 } else { points.len() / 2 - 1 });
-            let t = if connect {
-                snap(api, p[0], p[1], 30., Some((z, kind as u8)), design.deferred)
+            let t = if connect != 0 {
+                snap(
+                    api,
+                    p[0],
+                    p[1],
+                    30.,
+                    Some((z, kind as u8)),
+                    design.deferred,
+                    connect != 2,
+                )
             } else {
                 None
             }
@@ -364,7 +376,7 @@ impl World {
             .ok_or("Salinan dunia belum tersedia.")?;
         let api = &mut next.api;
         api.set_now(clock);
-        let t = snap(api, x, y, radius, None, deferred)
+        let t = snap(api, x, y, radius, None, deferred, true)
             .ok_or("Tidak ada rel di titik ini. Ketuk lebih dekat ke rel.")?;
         let old = api.world().net.node_platform.clone();
         if api.add_station(t.kind, t.id, t.x, t.y, length as u16, name.into()) != 0 {
@@ -544,10 +556,71 @@ pub extern "system" fn Java_world_nativegame_NativeConstruction_platformPoint(
     plans: jboolean,
 ) -> jstring {
     let result = unsafe { (h as *const World).as_ref() }
-        .and_then(|w| snap(&w.api, x, y, radius, None, plans != 0))
+        .and_then(|w| snap(&w.api, x, y, radius, None, plans != 0, true))
         .map(|t| json!({"x":t.x,"y":t.y}))
         .ok_or_else(|| "Ketuk lebih dekat ke rel.".to_string());
     response(env, result)
+}
+/// Touch picking uses screen-space tolerances. Nodes take precedence over the track under them.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_NativeConstruction_railPoint(
+    env: JNIEnv,
+    _: JClass,
+    h: jlong,
+    x: jdouble,
+    y: jdouble,
+    unit: jdouble,
+    family: jint,
+    level: jint,
+) -> jstring {
+    let result = unsafe { (h as *const World).as_ref() }
+        .ok_or_else(|| "Dunia belum siap.".to_string())
+        .map(|w| json!(rail_touch_point(&w.api, x, y, unit, family, level)));
+    response(env, result)
+}
+
+fn rail_touch_point(
+    api: &TrackApi,
+    x: f64,
+    y: f64,
+    unit: f64,
+    family: i32,
+    level: i32,
+) -> [f64; 4] {
+    let net = &api.world().net;
+    let mut nearest = 12. * unit;
+    let mut target = [x, y, 0., level as f64];
+    for n in 0..net.node_count() {
+        if !net.node_ok(n as u32)
+            || net.node_ports[n].n == 0
+            || (api.node_kind(n as u32) >= 2) != (family >= 2)
+        {
+            continue;
+        }
+        let distance = (net.node_x[n] - x).hypot(net.node_y[n] - y);
+        if distance < nearest {
+            nearest = distance;
+            target = [net.node_x[n], net.node_y[n], 1., net.node_level[n] as f64];
+        }
+    }
+    if target[2] == 1. {
+        return target;
+    }
+    nearest = 8. * unit;
+    for i in 0..net.edge_count() {
+        let e = i as u32;
+        if !net.edge_ok(e) || net.edge_crossover[i] || (api.edge_kind(e) >= 2) != (family >= 2) {
+            continue;
+        }
+        let (s, d) = net.project(e, x, y);
+        if d < nearest {
+            nearest = d;
+            let (sx, sy, _) = geom::pos_at(net.edge_pieces(e), s);
+            let z = (geom::height_at(net.edge_vert(e), s) / LEVEL_H).round();
+            target = [sx, sy, 2., z];
+        }
+    }
+    target
 }
 #[cfg(test)]
 mod tests {
@@ -562,6 +635,30 @@ mod tests {
         deferred: false,
         preview_only: false,
     };
+    #[test]
+    fn touch_snap_distinguishes_nodes_track_and_open_ground_at_each_zoom() {
+        let mut world = World::workshop();
+        world
+            .lay_track(&[0., 0., 4000., 0.], 1, 0, 2, 111600., true, DESIGN)
+            .unwrap();
+        assert_eq!(
+            rail_touch_point(&world.api, 10., 2., 1., 0, 0),
+            [0., 0., 1., 1.]
+        );
+        assert_eq!(
+            rail_touch_point(&world.api, 2000., 6., 1., 0, 0),
+            [2000., 0., 2., 1.]
+        );
+        assert_eq!(
+            rail_touch_point(&world.api, 2000., 6., 0.5, 0, 0),
+            [2000., 6., 0., 0.]
+        );
+        assert_eq!(
+            rail_touch_point(&world.api, 0., 0., 1., 3, 0),
+            [0., 0., 0., 0.]
+        );
+    }
+
     #[test]
     fn viaduct_then_station_preserves_stage_and_quotes() {
         let mut w = World::workshop();

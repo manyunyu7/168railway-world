@@ -79,7 +79,14 @@ class NativeWorldActivity : Activity() {
     private var reviewDialog: android.app.Dialog? = null
     private var railOptions = ConstructionPlan(BuildTool.RAIL)
     private val pointProfile=mutableListOf<Double>()
-    private fun recordRailPoint() { pointProfile.addAll(listOf(plan.level.toDouble(),plan.radius,if(plan.connect) 1.0 else 0.0)) }
+    private fun recordRailPoint(level:Int=plan.level,snap:Int=1) {
+        pointProfile.addAll(listOf(level.toDouble(),plan.radius,snap.toDouble()))
+    }
+    private lateinit var railBar:RailTouchBar
+    private var placingRail=false
+    private val railMode get()=drawing && plan.tool==BuildTool.RAIL
+    private data class RailStep(val origin:PointF,val level:Int,val snap:Int,val edit:java.lang.ref.WeakReference<WorldEditHistory.Entry>)
+    private val railChain=mutableListOf<RailStep>()
     private val stationOrder = mutableListOf<Int>()
     private var drawing = false
     private var lastService = ""
@@ -346,6 +353,14 @@ class NativeWorldActivity : Activity() {
             visibility = View.GONE
         }
         dock.addView(lensLegend, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(8) })
+        railBar=RailTouchBar(this) { next ->
+            if(!placingRail && !restoringEdit) {
+                plan=next; railOptions=next
+                if(map.draft.size==2) setRailTip(map.rawRailTip ?: map.draft.last())
+                else updateDraft()
+            }
+        }
+        dock.addView(railBar)
         dock.addView(controlHint, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(8) })
         dockTitle = StudioUi.text(this, "", 15f).apply { typeface = StudioUi.heavy(context) }
         status = StudioUi.text(this, "Memuat dunia…", 13f, true, StudioUi.MUTED)
@@ -380,12 +395,13 @@ class NativeWorldActivity : Activity() {
         }
         build = action(true) {
             withCommittedWorld { when {
+                railMode -> placeRailSegment()
                 drawing && map.draft.size >= plan.tool.minPoints -> reviewDraft()
                 !drawing -> chooseConstruction()
             } }
         }
         play = action {
-            if (drawing) undoDraft() else if (map.requiresStudioClock) {
+            if(railMode) railBack() else if (drawing) undoDraft() else if (map.requiresStudioClock) {
                 if (playWhenWarm) { playWhenWarm = false; updateWarmUi(); updateControls() }
                 else if (reference == null) startReference() else withCommittedWorld()
             } else {
@@ -398,14 +414,15 @@ class NativeWorldActivity : Activity() {
         }
         lines = action { withCommittedWorld { openServices() } }
         finance = action { openLenses() }
-        cancel = action { discardDraft() }
-        more = action { withCommittedWorld { manageWorld() } }
+        cancel = action { if(railMode) resetRailRun() else discardDraft() }
+        more = action { withCommittedWorld { if(railMode) { cancelDrawing(); chooseConstruction() } else manageWorld() } }
         for (item in listOf(cancel, play, lines, build, finance, more)) {
             bar.addView(item, LinearLayout.LayoutParams(0,-2,if (item == build) 1.6f else 1f).apply {
                 marginStart = dp(3); marginEnd = dp(3)
             })
         }
         updateControls()
+        map.onRailDrag={ point -> if(railMode && !placingRail && !restoringEdit) setRailTip(point) }
         map.onLocation = { point ->
             when {
                 removingTrack -> selectTrackForRemoval(point)
@@ -499,10 +516,15 @@ class NativeWorldActivity : Activity() {
                             drawing = true
                             plan = restoredPlan
                             if(plan.tool==BuildTool.RAIL) {
+                                plan=plan.copy(deferred=true)
                                 railOptions=plan
                                 val stored=savedInstanceState.getDoubleArray("railPointProfile")
                                 if(stored?.size==map.draft.size*3) pointProfile.addAll(stored.toList())
                                 else repeat(map.draft.size) { recordRailPoint() }
+                                while(map.draft.size>2) { map.draft.removeAt(1); repeat(3){pointProfile.removeAt(3)} }
+                                val snaps=savedInstanceState.getIntArray("railSnaps")
+                                repeat(map.draft.size) { i -> map.railSnaps.add(snaps?.getOrNull(i) ?: if(pointProfile[3*i+2]==0.0) 0 else 1) }
+                                if(map.draft.size==2) map.rawRailTip=map.draft.last()
                             }
                             savedInstanceState.getIntArray("linePlatforms")?.let { stationOrder.addAll(it.toList()) }
                             updateDraft()
@@ -647,22 +669,6 @@ class NativeWorldActivity : Activity() {
     private fun manageWorld() {
         val options = mutableListOf<Pair<String, () -> Unit>>()
         if (drawing) {
-            if(plan.tool==BuildTool.RAIL && map.draft.isEmpty()) map.lastTrackEnd?.let { end ->
-                options.add("Lanjut dari ujung rel terakhir" to { selectPoint(PointF(end.x,end.y)) })
-            }
-            if(plan.tool==BuildTool.RAIL) {
-                options.add("Elevasi titik berikutnya · ${plan.grade}" to {
-                    val levels=if(plan.kind==2) listOf(0) else (-3..3).toList()
-                    StudioUi.sheet(this,"Elevasi titik berikutnya") { body,dialog ->
-                        levels.forEach { z -> val next=plan.copy(level=z)
-                            body.addView(StudioUi.button(this,next.grade) { plan=next; railOptions=next; dialog.dismiss(); updateDraft() })
-                        }
-                    }
-                })
-                options.add((if(plan.connect) "Gunakan ujung bebas" else "Sambungkan ujung ke rel") to {
-                    plan=plan.copy(connect=!plan.connect); railOptions=plan; updateDraft()
-                })
-            }
             options.add("Pengaturan alat" to { configureTool(plan.tool) })
             options.add("Pilih titik di tengah peta" to { selectPoint(map.centerPoint()) })
             if (plan.tool in setOf(BuildTool.BUS,BuildTool.FERRY) && map.draft.isNotEmpty() && map.draft.size < 24 && map.bends.size < 64) options.add("Tambah lengkung di tengah peta" to { map.onBend?.invoke(map.centerPoint()); Unit })
@@ -1003,7 +1009,7 @@ class NativeWorldActivity : Activity() {
 
     private fun updateControls() {
         val openBend = map.bends.lastOrNull()?.first == map.draft.lastIndex
-        val ready = handle != 0L && !restoringEdit &&
+        val ready = handle != 0L && !placingRail && !restoringEdit &&
             referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING
         build.isEnabled = ready && (!drawing || (map.draft.size >= plan.tool.minPoints && !openBend))
         dockTitle.text = if (drawing) plan.specification else ""
@@ -1029,14 +1035,17 @@ class NativeWorldActivity : Activity() {
                 button.tag = icon
             }
         }
-        render(build, if (drawing) "Tinjau" else "Bangun", if (drawing) plan.tool.review else "Bangun jalur",
+        railBar.visibility=if(railMode) View.VISIBLE else View.GONE
+        if(railMode) railBar.display(plan)
+        map.railTool=if(railMode) plan.kind else null
+        render(build, if(railMode) "Konfirmasi" else if (drawing) "Tinjau" else "Bangun", if(railMode) "Konfirmasi segmen rel" else if (drawing) plan.tool.review else "Bangun jalur",
             if (drawing) StudioUi.Icon.ROUTE else StudioUi.Icon.PLUS)
         render(lines,"Jalur","Jalur",StudioUi.Icon.ROUTE)
         render(finance,"Lensa","Lensa peta",StudioUi.Icon.LAYERS)
-        render(cancel,"Batal","Batalkan rancangan",StudioUi.Icon.CLOSE)
+        render(cancel,if(railMode) "Stop" else "Batal",if(railMode) "Akhiri rangkaian segmen" else "Batalkan rancangan",StudioUi.Icon.CLOSE)
         render(more,if (drawing) "Alat" else "Menu",if (drawing) "Alat rancangan" else "Cari dan menu",StudioUi.Icon.MENU)
         when {
-            drawing -> render(play,"Urung","Urungkan titik terakhir",StudioUi.Icon.UNDO)
+            drawing -> render(play,if(railMode) "Kembali" else "Urung",if(railMode) "Kembali satu segmen" else "Urungkan titik terakhir",StudioUi.Icon.UNDO)
             running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
             playWhenWarm && computing() -> render(play,"${(warmFraction()*100).toInt()}%","Batalkan putar",StudioUi.Icon.CLOSE)
             else -> render(play,"×8",if (parked != null) "Putar ×8, penumpang siap" else "Putar ×8",StudioUi.Icon.PLAY)
@@ -1047,7 +1056,7 @@ class NativeWorldActivity : Activity() {
             playDot = dot
             play.tag = null
             when {
-                drawing -> render(play,"Urung","Urungkan titik terakhir",StudioUi.Icon.UNDO)
+                drawing -> render(play,if(railMode) "Kembali" else "Urung",if(railMode) "Kembali satu segmen" else "Urungkan titik terakhir",StudioUi.Icon.UNDO)
                 running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
                 playWhenWarm && computing() -> render(play,"${(warmFraction()*100).toInt()}%","Batalkan putar",StudioUi.Icon.CLOSE)
                 else -> render(play,"×8","Putar ×8",StudioUi.Icon.PLAY)
@@ -1158,6 +1167,12 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun configureTool(tool: BuildTool) {
+        if(tool==BuildTool.RAIL) {
+            stopTrainPreview()
+            drawing=true; plan=railOptions.copy(deferred=true)
+            resetRailRun()
+            return
+        }
         val label=when(tool) {
             BuildTool.RAIL -> ""
             BuildTool.STATION -> ""
@@ -1165,11 +1180,10 @@ class NativeWorldActivity : Activity() {
             BuildTool.BUS, BuildTool.FERRY -> "${tool.label} ${map.routeCount+1}"
         }
         val keep=drawing && plan.tool==tool
-        val initial=when { keep -> plan; tool==BuildTool.RAIL -> railOptions; else -> ConstructionPlan(tool,label) }
+        val initial=if(keep) plan else ConstructionPlan(tool,label)
         ConstructionPanel.options(this,initial) {
             if(!keep) { pointProfile.clear(); map.draft.clear(); map.bends.clear(); stationOrder.clear() }
             plan=it
-            if(tool==BuildTool.RAIL) railOptions=it
             stopTrainPreview()
             drawing=true
             updateDraft()
@@ -1241,8 +1255,8 @@ class NativeWorldActivity : Activity() {
         status.text=when(plan.tool) {
             BuildTool.RAIL -> when(n) {
                 0 -> "Ketuk peta untuk menandai awal rel."
-                1 -> "Ketuk ujung rel. Tambahkan titik untuk membelokkan jalur."
-                else -> "$n titik rel · Tambah titik atau tinjau biaya."
+                1 -> "Ketuk tujuan untuk melihat pratinjau."
+                else -> "Geser ujung atau konfirmasi segmen."
             }
             BuildTool.STATION -> if(n==0) "Ketuk rel yang sudah dibangun untuk menempatkan peron." else "Lokasi dipilih. Ketuk rel lain atau tinjau stasiun."
             BuildTool.LINE -> if(n==0) "Ketuk stasiun pertama yang akan dilayani." else "$n stasiun · Ketuk stasiun berikutnya sesuai urutan perjalanan."
@@ -1254,15 +1268,7 @@ class NativeWorldActivity : Activity() {
             val metres=(1 until n).sumOf { i -> Math.hypot((map.draft[i].x-map.draft[i-1].x).toDouble(),(map.draft[i].y-map.draft[i-1].y).toDouble()) }
             dockTitle.text="${plan.specification} · ≈ ${java.lang.String.format(java.util.Locale.forLanguageTag("id-ID"),"%.1f",metres/1000)} km"
         }
-        if(n>0 && plan.tool==BuildTool.RAIL) {
-            val tip=map.draft.last()
-            val direction=if(n<2) "" else {
-                val prev=map.draft[n-2]
-                val bearing=(Math.toDegrees(kotlin.math.atan2((tip.x-prev.x).toDouble(),(tip.y-prev.y).toDouble()))+360)%360
-                " · arah ${bearing.toInt()}°"
-            }
-            status.text="X ${tip.x.toInt()} m · Y ${tip.y.toInt()} m · ${plan.grade}$direction"
-        }
+        if(railMode && n==2) status.text="Geser ujung, ketuk lagi, atau pilih Konfirmasi."
         if(n>0 && plan.tool==BuildTool.STATION) dockTitle.text="${stationName(map.draft.last())} · peron ${plan.platform} m"
         previewDraft()
         status.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -1282,6 +1288,7 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun cancelDrawing() {
+        railChain.clear(); map.railSnaps.clear(); map.rawRailTip=null
         pointProfile.clear(); draftVersion++; map.draftShape=null; map.curveCircle=null; map.junctionMarks=emptyList()
         drawing=false
         status.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_NONE
@@ -1291,7 +1298,90 @@ class NativeWorldActivity : Activity() {
         refresh()
     }
 
+    private fun resetRailRun() {
+        railChain.clear()
+        pointProfile.clear(); map.draft.clear(); map.railSnaps.clear(); map.rawRailTip=null
+        updateDraft()
+    }
+    private fun setRailTip(raw:PointF) {
+        val hit=org.json.JSONArray(NativeConstruction.railPoint(handle,raw.x.toDouble(),raw.y.toDouble(),
+            map.metresPerDp(),plan.kind,plan.level))
+        if(map.draft.size==2) {
+            map.draft.removeAt(1); map.railSnaps.removeAt(1)
+            repeat(3) {pointProfile.removeAt(pointProfile.lastIndex)}
+        }
+        val snap=hit.getInt(2)
+        map.draft.add(PointF(hit.getDouble(0).toFloat(),hit.getDouble(1).toFloat()))
+        map.railSnaps.add(snap)
+        recordRailPoint(hit.getInt(3),snap)
+        map.rawRailTip=raw
+        updateDraft()
+    }
+    private fun railBack() {
+        if(placingRail || restoringEdit) return
+        val step=railChain.lastOrNull()
+        val target=history.next(true)
+        if(map.draft.size==2 || step==null || target==null || step.edit.get()!==target) { resetRailRun(); return }
+        restoreEdit(true,target) {
+            railChain.removeAt(railChain.lastIndex)
+            map.draft.clear(); map.railSnaps.clear(); pointProfile.clear()
+            map.draft.add(step.origin); map.railSnaps.add(step.snap)
+            recordRailPoint(step.level,step.snap)
+            map.rawRailTip=null; updateDraft()
+        }
+    }
+    private fun placeRailSegment() {
+        if(map.draft.size!=2 || placingRail || restoringEdit || map.refused) return
+        val spec=plan; val time=clock; val source=handle
+        val before=Engine.save(source,time)
+        val directory=RoadTileStore.directory(this)
+        val candidate=Engine.forkCandidate(source,time,directory.absolutePath)
+        if(candidate==0L) { status.text="Rencana rel belum dapat dibuka."; return }
+        val coords=map.draft.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
+        val profile=pointProfile.toDoubleArray()
+        val version=++draftVersion
+        placingRail=true; updateControls()
+        draftWorker.execute {
+            val result=runCatching {
+                if(spec.wireKind in setOf(2,10,11)) RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,coords))
+                val built=JSONObject(NativeConstruction.rail(candidate,coords,spec.level,spec.wireKind,spec.tracks,
+                    time,true,spec.speed,spec.flySpeed,spec.autoRamp,spec.flying,spec.radius,true,false,profile))
+                check(!built.has("error")) { built.optString("error") }
+                JSONObject(Engine.geometry(candidate)) to Engine.save(candidate,time)
+            }
+            runOnUiThread {
+                placingRail=false
+                if(closed || !railMode || version!=draftVersion || handle!=source || isFinishing || isChangingConfigurations) {
+                    Engine.close(candidate); return@runOnUiThread
+                }
+                val prepared=result.getOrNull()
+                if(prepared==null || !persistBytes(prepared.second)) {
+                    Engine.close(candidate); updateControls()
+                    status.text=result.exceptionOrNull()?.localizedMessage ?: "Segmen belum tersimpan."
+                    return@runOnUiThread
+                }
+                history.record("Taruh segmen rel",before)
+                railChain.removeAll { it.edit.get()==null }
+                history.next(true)?.let { railChain.add(RailStep(map.draft.first(),profile[0].toInt(),map.railSnaps.first(),java.lang.ref.WeakReference(it))) }
+                handle=candidate; Engine.close(source)
+                map.load(prepared.first,refit=false)
+                val end=map.lastTrackEnd ?: map.draft.last()
+                pointProfile.clear(); map.draft.clear(); map.railSnaps.clear()
+                map.draft.add(end); map.railSnaps.add(1); recordRailPoint(profile[3].toInt())
+                map.rawRailTip=null; updateSummary(); updateDraft()
+            }
+        }
+    }
+
     private fun selectPoint(point: PointF) {
+        if(railMode) {
+            if(placingRail || restoringEdit) return
+            val last=map.rawRailTip ?: map.draft.lastOrNull()
+            if(last!=null && kotlin.math.hypot(last.x-point.x,last.y-point.y)<24*map.metresPerDp()) {
+                if(map.draft.size==2) placeRailSegment() else resetRailRun()
+            } else setRailTip(point)
+            return
+        }
         if(plan.tool==BuildTool.STATION) {
             val target=JSONObject(NativeConstruction.platformPoint(handle,point.x.toDouble(),point.y.toDouble(),map.pickRadiusMeters(),plan.deferred))
             if(target.has("error")) { status.text=target.getString("error"); return }
@@ -1319,7 +1409,6 @@ class NativeWorldActivity : Activity() {
                 status.text="Titik berikutnya harus berjarak setidaknya ${minDistance.toInt()} m."
                 return
             }
-            if(plan.tool==BuildTool.RAIL) recordRailPoint()
             map.draft.add(point)
         }
         updateDraft()
@@ -1336,7 +1425,6 @@ class NativeWorldActivity : Activity() {
         val coords=points.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
         val via=points.flatMapIndexed { i,p -> listOf(p)+bends.filter { it.first==i }.map { it.second } }
             .flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
-        val profile=pointProfile.toDoubleArray()
         val curves=bends.flatMap { (leg,p) -> listOf(leg.toDouble(),p.x.toDouble(),p.y.toDouble()) }.toDoubleArray()
         val original=Engine.save(handle,clock)
         val editTime=clock
@@ -1345,7 +1433,6 @@ class NativeWorldActivity : Activity() {
         if(candidate==0L) { Toast.makeText(this,"Rancangan belum dapat dibuka.",Toast.LENGTH_LONG).show(); return }
         val activeHandle=handle
         var prepared=0L
-        var railEnd:PointF?=null
         var geometry: JSONObject?=null
         var bytes: ByteArray?=null
         lateinit var primary: Button
@@ -1374,7 +1461,7 @@ class NativeWorldActivity : Activity() {
                 lastService=routes.optJSONObject(routes.length()-1)?.optString("name").orEmpty()
                 updateSummary()
                 cancelDrawing()
-                constructionComplete(spec,if(spec.tool==BuildTool.RAIL) railEnd else null)
+                constructionComplete(spec)
             }.apply { isEnabled=false }
             dialog.setOnDismissListener {
                 reviewDialog=null
@@ -1385,10 +1472,7 @@ class NativeWorldActivity : Activity() {
                 val result=runCatching {
                     val balanceBefore=NativeFinance.balance(candidate,editTime)
                     val json=when(spec.tool) {
-                        BuildTool.RAIL -> {
-                            if(spec.wireKind in setOf(2,10,11)) RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,coords))
-                            NativeConstruction.rail(candidate,coords,spec.level,spec.wireKind,spec.tracks,editTime,true,spec.speed,spec.flySpeed,spec.autoRamp,spec.flying,spec.radius,spec.deferred,false,profile)
-                        }
+                        BuildTool.RAIL -> error("Konfirmasi rel dilakukan di peta.")
                         BuildTool.STATION -> NativeConstruction.station(candidate,coords[0],coords[1],snap,spec.name,spec.platform,editTime,true,spec.deferred)
                         BuildTool.LINE -> NativeRailLine.create(candidate,order,spec.name,editTime,spec.vehicle,true)
                         BuildTool.BUS, BuildTool.FERRY -> {
@@ -1416,7 +1500,6 @@ class NativeWorldActivity : Activity() {
                         if(dialog.isShowing) cost.text=result.exceptionOrNull()?.localizedMessage ?: "Dunia sudah berubah."
                     } else {
                         val (geo,save,charge,vertices,builtPoint)=result.getOrThrow()
-                        railEnd=vertices?.lastOrNull()
                         geometry=geo; bytes=save; prepared=candidate
                         if(!vertices.isNullOrEmpty() || builtPoint!=null) {
                             body.removeViewAt(0)
@@ -1434,7 +1517,7 @@ class NativeWorldActivity : Activity() {
         }
     }
 
-    private fun constructionComplete(spec: ConstructionPlan, railEnd:PointF?) {
+    private fun constructionComplete(spec: ConstructionPlan) {
         val next=when(spec.tool){ BuildTool.RAIL -> BuildTool.STATION; BuildTool.STATION -> BuildTool.LINE; else -> null }
         val title=if(spec.deferred) "Rencana tersimpan" else when(spec.tool){ BuildTool.RAIL -> "Rel selesai dibangun"; BuildTool.STATION -> "Stasiun selesai dibangun"; else -> "Layanan siap diatur" }
         StudioUi.sheet(this,title) { body,dialog ->
@@ -1444,10 +1527,6 @@ class NativeWorldActivity : Activity() {
                 dialog.dismiss()
                 if(next==null) openServices() else configureTool(next)
             },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
-            if(railEnd!=null) body.addView(StudioUi.button(this,"Lanjut dari ujung rel") {
-                dialog.dismiss(); plan=spec.copy(connect=true); drawing=true; recordRailPoint(); map.draft.add(railEnd); updateDraft()
-            })
-            if(spec.tool==BuildTool.RAIL) body.addView(StudioUi.button(this,"Tambah ruas rel") { dialog.dismiss(); configureTool(BuildTool.RAIL) })
             if(spec.tool==BuildTool.STATION) body.addView(StudioUi.button(this,"Tambah stasiun") { dialog.dismiss(); configureTool(BuildTool.STATION) })
             body.addView(StudioUi.button(this,"Kembali ke peta") { dialog.dismiss() })
         }
@@ -1489,7 +1568,7 @@ class NativeWorldActivity : Activity() {
         }
     }
 
-    private fun restoreEdit(backwards: Boolean, target: WorldEditHistory.Entry) {
+    private fun restoreEdit(backwards: Boolean, target: WorldEditHistory.Entry, restored:(()->Unit)?=null) {
         if (restoringEdit || history.next(backwards) !== target) return
         stopClock()
         val current = Engine.save(handle, clock)
@@ -1517,7 +1596,7 @@ class NativeWorldActivity : Activity() {
                 try {
                     if (closed || isFinishing || isChangingConfigurations) return@runOnUiThread
                     result.onSuccess { geometry ->
-                        if (!writeSave(target.bytes)) return@onSuccess
+                        if (!persistBytes(target.bytes)) return@onSuccess
                         val previous = handle
                         handle = candidate
                         candidate = 0L
@@ -1528,6 +1607,7 @@ class NativeWorldActivity : Activity() {
                         val routes = geometry.getJSONArray("routes")
                         lastService = routes.optJSONObject(routes.length() - 1)?.optString("name").orEmpty()
                         updateSummary()
+                        restored?.invoke()
                     }.onFailure {
                         Toast.makeText(this, it.localizedMessage ?: "Edit gagal dipulihkan.", Toast.LENGTH_LONG).show()
                     }
@@ -1800,6 +1880,7 @@ class NativeWorldActivity : Activity() {
         if (!drawing && worldChanged) writeSave()
         out.putBoolean("drawing", drawing)
         plan.save(out)
+        out.putIntArray("railSnaps",map.railSnaps.toIntArray())
         out.putDoubleArray("railPointProfile",pointProfile.toDoubleArray())
         out.putIntArray("linePlatforms",stationOrder.map { id -> map.stops.first { it.id==id }.packedId }.toIntArray())
         map.saveView(out)
@@ -2179,6 +2260,15 @@ internal class NetworkView(context: Context):View(context) {
             floatArrayOf(v.getDouble(0).toFloat(),v.getDouble(1).toFloat())
         }
     }
+    var railTool:Int?=null
+    val railSnaps=mutableListOf<Int>()
+    var rawRailTip:PointF?=null
+    var onRailDrag:((PointF)->Unit)?=null
+    private var holdingRail=false
+    private var draggedRail=false
+    private var railDown=PointF()
+    private val looseEnds=mutableListOf<Pair<PointF,Int>>()
+    fun metresPerDp()=(density/scale).toDouble()
     var curveCircle:FloatArray?=null
     var refused=false
     var junctionMarks:List<Pair<PointF,String>> = emptyList()
@@ -2335,6 +2425,11 @@ internal class NetworkView(context: Context):View(context) {
         val bounds=data.getJSONArray("waterBox")
         for(i in 0..3) waterBox[i]=cityLayer?.bounds?.get(i) ?: bounds.getDouble(i).toFloat()
         blueprintPath.reset()
+        looseEnds.clear()
+        data.optJSONArray("looseEnds")?.let { ends -> for(i in 0 until ends.length()) {
+            val row=ends.getJSONArray(i)
+            looseEnds.add(PointF(row.getDouble(0).toFloat(),row.getDouble(1).toFloat()) to row.getInt(2))
+        } }
         lastTrackEnd=data.optJSONArray("lastTrackEnd")?.let { PointF(it.getDouble(0).toFloat(),it.getDouble(1).toFloat()) }
         plannedStops.clear()
         val planned=data.optJSONArray("plannedStations")
@@ -2655,14 +2750,22 @@ internal class NetworkView(context: Context):View(context) {
             paint.color=Color.WHITE
             c.drawText(label,x-paint.measureText(label)/2,y+4*density,paint)
         }
+        railTool?.let { kind ->
+            paint.style=Paint.Style.STROKE; paint.strokeWidth=2*density; paint.color=0xffe5ad12.toInt()
+            for((p,family) in looseEnds) {
+                val x=sx(p.x); val y=sy(p.y)
+                if((kind>=2)==(family>=2) && x in 0f..width.toFloat() && y in 0f..height.toFloat()) c.drawCircle(x,y,8*density,paint)
+            }
+            paint.style=Paint.Style.FILL
+        }
         for ((index,p) in draft.withIndex()) {
             val x=sx(p.x);val y=sy(p.y)
             paint.color = 0xfffffcf1.toInt()
             c.drawCircle(x,y,12*density,paint)
-            paint.color = 0xffab4227.toInt()
+            paint.color = if(railTool==null) 0xffab4227.toInt() else when(railSnaps.getOrNull(index)) { 1 -> 0xffffc400.toInt(); 2 -> 0xffdc3235.toInt(); else -> 0xff237cbd.toInt() }
             c.drawCircle(x,y,10*density,paint)
             paint.textSize = 12*density
-            paint.color = Color.WHITE
+            paint.color = if(railTool!=null && railSnaps.getOrNull(index)==1) Color.BLACK else Color.WHITE
             val label = (index + 1).toString()
             c.drawText(label,x-paint.measureText(label)/2,y-(paint.ascent()+paint.descent())/2,paint)
         }
@@ -2807,6 +2910,25 @@ internal class NetworkView(context: Context):View(context) {
         }
     })
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        if(railTool!=null && draft.size==2 && e.actionMasked==MotionEvent.ACTION_DOWN) {
+            val tip=draft.last()
+            holdingRail=kotlin.math.hypot(e.x-sx(tip.x),e.y-sy(tip.y))<=24*density
+            railDown=PointF(e.x,e.y); draggedRail=false
+        }
+        if(holdingRail) {
+            when(e.actionMasked) {
+                MotionEvent.ACTION_MOVE -> {
+                    if(kotlin.math.hypot(e.x-railDown.x,e.y-railDown.y)>android.view.ViewConfiguration.get(context).scaledTouchSlop) draggedRail=true
+                    if(draggedRail) onRailDrag?.invoke(PointF(centerX+(e.x-width/2f)/scale,centerY-(e.y-height/2f)/scale))
+                }
+                MotionEvent.ACTION_UP -> {
+                    holdingRail=false
+                    if(!draggedRail) onLocation?.invoke(rawRailTip ?: draft.last())
+                }
+                MotionEvent.ACTION_CANCEL,MotionEvent.ACTION_POINTER_DOWN -> holdingRail=false
+            }
+            return true
+        }
         pinch.onTouchEvent(e)
         pan.onTouchEvent(e)
         return true
