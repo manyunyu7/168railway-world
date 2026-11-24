@@ -173,49 +173,57 @@ object StudioAllCities {
             lateinit var home: android.widget.Button
             fun paint() {
                 home.text = if (on) "Beranda ✓" else "Jadikan beranda"
-                StudioUi.style(home, if (on) StudioUi.Tone.PRIMARY else StudioUi.Tone.SURFACE)
-                home.setTextColor(if (on) StudioUi.WHITE else StudioUi.INK)
+                StudioUi.select(home, on)
                 home.contentDescription = if (on) "Beranda: kamu mulai dari tampilan semua kota setiap kali membuka game ini"
                     else "Jadikan beranda: mulai dari tampilan semua kota setiap kali kamu membuka game ini"
             }
-            home = StudioUi.button(activity, "") {
+            home = StudioUi.choiceChip(activity, "", on) {
                 on = !on
                 paint()
                 onHome(if (on) WORLD_HOME else null)
             }
             paint()
-            actions.addView(home, LinearLayout.LayoutParams(0, -2, 1f))
+            actions.addView(home, LinearLayout.LayoutParams(-2, -2))
+            actions.addView(View(activity), LinearLayout.LayoutParams(0, 1, 1f))
         }
         if (onLocate != null && bounds != null && bounds.length() == 4) {
             actions.addView(StudioUi.iconButton(activity, "Ke semua kota", StudioUi.Icon.CENTER) {
                 dialog.dismiss()
                 onLocate(DoubleArray(4) { bounds.getDouble(it) })
-            }, LinearLayout.LayoutParams(dp(56), -2).apply { marginStart = dp(8) })
+            }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) })
         }
         if (actions.childCount > 0) body.addView(actions, gap(2))
 
+        // the totals as a 3-column grid of small tiles (was one tall card per figure); hovers read out
+        val grid = android.widget.GridLayout(activity).apply { columnCount = 3; useDefaultMargins = false }
+        body.addView(grid, gap(4))
         fun figure(label: String, value: String, ink: Int = StudioUi.INK, tip: String? = null) {
-            val v = StudioUi.text(activity, value, 15f, color = ink).apply { typeface = StudioUi.heavy(activity) }
-            body.addView(StudioUi.row(activity, null, StudioUi.TINT_GREY, label, tip, v), gap())
+            grid.addView(StudioUi.stat(activity, label, value, ink).apply { contentDescription = "$label $value" + (tip?.let { ". $it" } ?: "") },
+                android.widget.GridLayout.LayoutParams(android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED),
+                    android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)).apply {
+                    width = 0; setMargins(dp(2), dp(2), dp(2), dp(2))
+                })
         }
         // web AllCitiesView.tsx, row for row
         val split = t.optJSONObject("split")
         val seen = t.has("rail")
-        figure("Pangsa angkutan umum", split?.let { StudioFormat.pct1(it.optDouble("train")) } ?: "–",
+        figure("Pangsa umum", split?.let { StudioFormat.pct1(it.optDouble("train")) } ?: "–",
             tip = splitTip("di semua kota", t))
         figure("Kota", StudioFormat.exact(t.optDouble("cities")))
         figure("Stasiun", StudioFormat.exact(t.optDouble("stations")))
         figure("Line", StudioFormat.exact(t.optDouble("lines")))
-        figure("Perjalanan angkutan umum", if (seen) StudioFormat.count(t.optDouble("rail")) + "/hari" else "–",
+        figure("Perjalanan/hari", if (seen) StudioFormat.count(t.optDouble("rail")) else "–",
             tip = if (seen) StudioFormat.exact(t.optDouble("rail")) + " perjalanan angkutan umum per hari di semua kota" else null)
         val points = t.optDouble("points", 0.0)
         figure("Poin", StudioFormat.points(points), tip = StudioFormat.exact(points) + " poin di semua kota")
         val m = t.optJSONObject("money")
-        if (m == null) figure("Laba", "–") else {
+        if (m == null) figure("Laba/hari", "–") else {
             val n = net(m) * 1e6
-            figure("Laba", StudioFormat.money(n, currency) + "/hari",
+            figure("Laba/hari", StudioFormat.money(n, currency),
                 if (StudioFormat.moneyNegative(n, currency)) StudioUi.BAD else StudioUi.INK, moneyTip("semua kota", m, currency))
         }
+        // the split's words once, small, under the grid
+        body.addView(StudioUi.text(activity, splitTip("di semua kota", t), 11.5f, false, StudioUi.MUTED).apply { setPadding(dp(2), dp(4), 0, 0) })
 
         // each city's row (web Cities.tsx): its split bar, rides, profit, points and star
         val cities = data.optJSONArray("cities") ?: return
@@ -238,17 +246,11 @@ object StudioAllCities {
             heads.removeAllViews()
             for (k in Sort.values()) {
                 val on = k == sort
-                heads.addView(StudioUi.chip(activity, k.label + if (on) (if (dir < 0) " ↓" else " ↑") else "",
-                    if (on) StudioUi.INK else StudioUi.TINT_GREY, if (on) StudioUi.WHITE else StudioUi.INK).apply {
+                heads.addView(StudioUi.choiceChip(activity, k.label + if (on) (if (dir < 0) " ↓" else " ↑") else "", on) {
+                    if (sort == k) dir = -dir else { sort = k; dir = k.first }
+                    draw()
+                }.apply {
                     contentDescription = k.tip + if (on) (if (dir < 0) ", dari terbesar" else ", dari terkecil") else ""
-                    // a thumb-sized target (48 dp), the label centred in it
-                    minHeight = StudioUi.dp(activity, 48)
-                    gravity = Gravity.CENTER
-                    isClickable = true
-                    setOnClickListener {
-                        if (sort == k) dir = -dir else { sort = k; dir = k.first }
-                        draw()
-                    }
                 })
             }
             list.removeAllViews()
@@ -286,7 +288,7 @@ object StudioAllCities {
         val trailing = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.END
-            addView(StudioUi.text(activity, share, 15f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(activity); gravity = Gravity.END })
+            addView(StudioUi.text(activity, share, 14f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(activity); gravity = Gravity.END })
             addView(bar(activity, c.optJSONObject("split")), LinearLayout.LayoutParams(dp(56), dp(8)).apply { topMargin = dp(3) })
         }
         // web Star hover (Cities.tsx, GoalTicks.goalWhen): when the star was earned, the city's own time

@@ -29,8 +29,8 @@ internal object StudioGameSettings {
                 body.addView(StudioUi.section(host,label))
                 group = LinearLayout(host).apply {
                     orientation = LinearLayout.VERTICAL
-                    background = StudioUi.card(host, 22)
-                    setPadding(dp(12),dp(4),dp(12),dp(6))
+                    background = StudioUi.card(host, 14)
+                    setPadding(dp(12),dp(0),dp(8),dp(2))
                 }
                 body.addView(group,LinearLayout.LayoutParams(-1,-2))
             }
@@ -39,9 +39,9 @@ internal object StudioGameSettings {
                     text = label
                     setTextColor(StudioUi.INK)
                     typeface=StudioUi.face(host,true)
-                    textSize=15f
+                    textSize=14f
                     isChecked=prefs.getBoolean(key,default)
-                    minHeight=dp(52)
+                    minHeight=dp(48)
                     thumbTintList = android.content.res.ColorStateList.valueOf(StudioUi.WHITE)
                     trackTintList = android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
                         intArrayOf(StudioUi.LEAF, 0x4d22204a))
@@ -54,7 +54,7 @@ internal object StudioGameSettings {
                 })
             }
             fun slider(key:String,label:String,min:Int,max:Int,default:Float=1f) {
-                val row=StudioUi.text(host,"",15f,true).apply { setPadding(0,dp(10),0,0) }
+                val row=StudioUi.text(host,"",14f,true).apply { setPadding(0,dp(6),0,0) }
                 group!!.addView(row)
                 val seek=SeekBar(host).apply {
                     progressTintList = android.content.res.ColorStateList.valueOf(StudioUi.INK)
@@ -81,9 +81,10 @@ internal object StudioGameSettings {
                     override fun onStartTrackingTouch(bar:SeekBar) {}
                     override fun onStopTrackingTouch(bar:SeekBar) {}
                 })
-                group!!.addView(seek,LinearLayout.LayoutParams(-1,dp(44)))
+                group!!.addView(seek,LinearLayout.LayoutParams(-1,dp(36)))
             }
-            heading("Tampilan peta")
+            // the sheet's title already says "Tampilan peta"; the first group is just the map
+            heading("Peta")
             toggle("trains","Tampilkan kendaraan")
             toggle("buses","Tampilkan kendaraan bus dan feri")
             toggle("capacity","Tampilkan keterisian kendaraan")
@@ -93,29 +94,37 @@ internal object StudioGameSettings {
             toggle("zoomButtons","Tombol perbesar dan perkecil")
             heading("Ukuran dan kontras")
             val schemes = linkedMapOf("mode" to "Campuran moda","ramp" to "Pangsa kereta","colorblind" to "Ramah buta warna")
-            lateinit var scheme: android.widget.Button
-            scheme = StudioUi.button(host,"") {
+            // a setting picked from a list: one row, its value on the right (was a two-line button)
+            fun choiceRow(label: String, value: String, pick: (android.widget.TextView) -> Unit): android.widget.TextView {
+                val shown = StudioUi.text(host, value, 13f, true, StudioUi.MUTED)
+                group!!.addView(LinearLayout(host).apply {
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    minimumHeight = dp(48)
+                    isClickable = true
+                    background = StudioDepot.touch(host, 0x00ffffff, 10)
+                    addView(StudioUi.text(host, label, 14f, true), LinearLayout.LayoutParams(0, -2, 1f))
+                    addView(shown)
+                    addView(StudioUi.text(host, " ›", 16f, true, StudioUi.MUTED))
+                    contentDescription = "$label, $value"
+                    setOnClickListener { pick(shown) }
+                })
+                return shown
+            }
+            choiceRow("Warna gelembung", schemes[read(host).bubbleScheme] ?: "Campuran moda") { shown ->
                 StudioDialogBuilder(host).setTitle("Warna gelembung").setItems(schemes.values.toTypedArray()) { _,index ->
                     prefs.edit().putString("bubbleScheme",schemes.keys.elementAt(index)).apply()
                     changed()
-                    scheme.text = "Warna gelembung · " + schemes.values.elementAt(index)
+                    shown.text = schemes.values.elementAt(index)
                 }.setNegativeButton("Batal",null).show()
             }
-            scheme.text = "Warna gelembung · " + (schemes[read(host).bubbleScheme] ?: "Campuran moda")
-            scheme.minHeight = dp(48)
-            group!!.addView(scheme)
-            lateinit var detail: android.widget.Button
-            detail = StudioUi.button(host,"") {
+            choiceRow("Detail gelembung", read(host).bubbleDetail.toString()) { shown ->
                 val levels = arrayOf("−1 · Paling renggang","0","1","2 · Paling rapat")
                 StudioDialogBuilder(host).setTitle("Detail gelembung").setItems(levels) { _,index ->
                     prefs.edit().putInt("bubbleDetail",index-1).apply()
                     changed()
-                    detail.text = "Detail gelembung · " + (index-1)
+                    shown.text = (index-1).toString()
                 }.setNegativeButton("Batal",null).show()
             }
-            detail.minHeight = dp(48)
-            detail.text = "Detail gelembung · " + read(host).bubbleDetail
-            group!!.addView(detail)
             slider("bubbleSize","Ukuran gelembung",25,200)
             slider("bubbleOpacity","Opasitas gelembung",20,100,.7f)
             slider("lineWidth","Ketebalan garis line",50,200)
@@ -127,7 +136,7 @@ internal object StudioGameSettings {
                 StudioUi.text(host,code,13f,color = StudioUi.WHITE).apply {
                     typeface = StudioUi.heavy(host)
                     background = StudioUi.pill(host, StudioUi.INK, 16)
-                    setPadding(dp(12),dp(6),dp(12),dp(7))
+                    setPadding(dp(10),dp(4),dp(10),dp(4))
                 }) {
                 dialog.dismiss()
                 StudioCurrency.picker(host,changed)
