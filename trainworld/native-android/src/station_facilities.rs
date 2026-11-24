@@ -38,7 +38,7 @@ pub(super) fn offered(w: &World, node: u32) -> Vec<Value> {
         .collect()
 }
 
-fn edit(w: &mut World, node: u32, bit: u8, on: bool, clock: f64) -> Result<Value, &'static str> {
+pub(super) fn edit(w: &mut World, node: u32, bit: u8, on: bool, clock: f64) -> Result<Value, &'static str> {
     let clock = w.native_clock(clock);
     if !clock.is_finite() {
         return Err("Jam permainan tidak valid.");
@@ -303,7 +303,7 @@ pub(crate) fn station_structure(
     let other = id.filter(|_| matches!(action, "link" | "unlink")).map(|o| w.api.node_name(o));
     Ok(json!({"changed":true,"cash":w.api.cash(),"charge":charge,"a":w.api.node_name(node),"b":other}))
 }
-fn building_issue(s: &str) -> String {
+pub(super) fn building_issue(s: &str) -> String {
     match s.split(':').next().unwrap_or(s) {
         "Money" => "Saldo tidak cukup untuk pembangunan ini.",
         "BuildingCorners" => "Pilih 3–24 sudut yang berbeda.",

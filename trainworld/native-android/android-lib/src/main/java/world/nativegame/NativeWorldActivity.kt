@@ -523,7 +523,7 @@ class NativeWorldActivity : Activity() {
             if (!drawing && !removingTrack && !restoringEdit && engine != 0L) { map.showTrainAboveSheet(profile, dep); openTrain(profile, dep, fill, engine, time) }
         }
         map.onStationTap = { station ->
-            if (PassagePick.tapped(station)) true
+            if (PassagePick.tapped(station) || StationDesign.active) true
             else if (!drawing && !removingTrack && !restoringEdit && handle != 0L) {
                 selectingInfrastructure=false
                 updateControls()
@@ -1163,6 +1163,8 @@ class NativeWorldActivity : Activity() {
         map.showStationAboveSheet(node)
         StationInspector.riders = { id -> map.stops.firstOrNull { it.id == id }?.let { map.overlay.riders(it.x, it.y) } }
         StationInspector.passengers = { id, done -> (reference ?: parked)?.stationRiders(id, map.trainTime(), done) ?: done(null) }
+        StationInspector.simulating = { reference != null || parked != null || warming != null }
+        StationInspector.map = map
         StationInspector.show(this,handle,node,clock, ::editPanel, {
             recordPanelChange("Fasilitas stasiun")
             map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
@@ -2373,7 +2375,7 @@ class NativeWorldActivity : Activity() {
     }
 
     @Deprecated("Compatibility with API 24")
-    override fun onBackPressed() = leaveWorld()
+    override fun onBackPressed() { if (!StationDesign.back()) leaveWorld() }
 
     @Deprecated("Retained for configuration changes on API 24 and above")
     override fun onRetainNonConfigurationInstance(): Any? =
@@ -3154,6 +3156,11 @@ internal class NetworkView(context: Context):View(context) {
         focusAt(x,y-height*.15f/scale)
     }
 
+    /** Station design (StationDesign.kt): [reach] plane units round (x,y) fill the band above its half-height panel. */
+    fun showAboveDesign(x: Float, y: Float, reach: Float) {
+        if (reach > 0f) scale = min(width*.44f, height*.22f) / reach
+        focusAt(x, y - height*.23f/scale)
+    }
     /** A sheet covers the lower half: keep the tapped train in the upper part, at its current zoom. */
     fun showTrainAboveSheet(profile: Int, dep: Int) {
         val at = trainPainter.positionOf(profile, dep) ?: return
@@ -3295,6 +3302,7 @@ internal class NetworkView(context: Context):View(context) {
             c.drawBitmap(bmp, staticMatrix, staticPaint)
         }
         drawDynamic(c)
+        StationDesign.draw(this, c)
     }
 
     private fun drawStatic(c:Canvas){
@@ -3716,6 +3724,7 @@ internal class NetworkView(context: Context):View(context) {
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (e.actionMasked == MotionEvent.ACTION_DOWN) zoomAnimation?.cancel()
         if (draftTouch?.onTouch(e) == true) return true
+        if (StationDesign.touch(this, e)) return true
         if(railTool!=null && draft.size==2 && e.actionMasked==MotionEvent.ACTION_DOWN) {
             val tip=draft.last()
             holdingRail=kotlin.math.hypot(e.x-sx(tip.x),e.y-sy(tip.y))<=24*density

@@ -14,14 +14,22 @@ import java.text.NumberFormat
 import java.util.Locale
 
 /**
- * The station inspector's riders (web StationDetails' lines with `BoardingsToday` and
- * `PurposeSplit`): each line's boardings here in the past 24 hours, their total, the purposes of
- * the riders boarding here, and where riders from here go and riders here come from. Filled once
- * the simulation answers (train_riders.rs `station`); hidden while it has no riders.
+ * The riders card at the top of the station inspector: riders a day getting on, getting off and
+ * changing lines at the station (its complex), from the simulation's forecast of an average day
+ * (train_riders.rs `station` `forecast`, `transfers_at`), with the boardings counted in the past 24
+ * hours (web `BoardingsToday`), then each line's boardings here and the purposes of the riders
+ * boarding (web StationDetails' lines and `PurposeSplit`).
+ *
+ * The card is always there. Until the simulation answers it says it is counting (or that Putar
+ * starts the count) and asks again every few seconds while it is on screen, so the figures fill in
+ * by themselves once the forecast is ready; after that it keeps the 24-hour count fresh.
  */
 internal object StationRiders {
     private val count = NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID"))
     private fun pct(v: Double) = "${Math.round(v * 100)}%"
+    private fun whole(v: Double) = count.format(Math.round(v))
+    private const val WAIT_MS = 1500L
+    private const val FRESH_MS = 5000L
 
     /** Web `SegBar` split-bar: one segment per purpose in its colour. */
     private class SplitBar(activity: Activity, val parts: List<Pair<Double, Int>>) : View(activity) {
@@ -37,25 +45,87 @@ internal object StationRiders {
         }
     }
 
-    fun section(activity: Activity, node: Int, read: ((Int, (String?) -> Unit) -> Unit)?): View? {
-        read ?: return null
+    /**
+     * [read] asks the simulation for the station's riders (null before they are in); [simulating]
+     * says whether a simulation is open or being prepared, so the card can say Putar starts it.
+     */
+    fun section(activity: Activity, node: Int, read: ((Int, (String?) -> Unit) -> Unit)?, simulating: (() -> Boolean)?): View {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
             background = StudioUi.card(activity, 22)
             setPadding(dp(14), dp(10), dp(14), dp(12))
         }
-        read(node) { text ->
-            val r = text?.let(::JSONObject) ?: return@read
-            fill(activity, box, r)
+        var filled = false
+        var shown: String? = null
+        fun waiting() {
+            box.removeAllViews()
+            box.addView(StudioUi.section(activity, "Penumpang per hari"))
+            val busy = simulating?.invoke() != false
+            box.addView(StudioUi.text(activity,
+                if (busy) "Menghitung penumpang…" else "Tekan Putar agar simulasi menghitung penumpang stasiun ini.",
+                14f, true, StudioUi.MUTED).apply { setPadding(0, dp(6), 0, dp(2)) })
+            if (busy) box.addView(android.widget.ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                isIndeterminate = true
+                indeterminateTintList = android.content.res.ColorStateList.valueOf(StudioUi.BLUE)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(4) })
         }
+        waiting()
+        if (read == null) return box
+        val ask = object : Runnable {
+            override fun run() {
+                read(node) { text ->
+                    if (!box.isAttachedToWindow && filled) return@read
+                    val r = text?.let { runCatching { JSONObject(it) }.getOrNull() }
+                    if (r != null) { if (text != shown) { shown = text; fill(activity, box, r) }; filled = true }
+                    else if (!filled) waiting()
+                    // ask again while the card is on screen: first until the forecast is in, then for the 24-hour count
+                    box.postDelayed({ if (box.isAttachedToWindow) run() }, if (filled) FRESH_MS else WAIT_MS)
+                }
+            }
+        }
+        // the first answer may arrive before the sheet is shown; later ones only while it is
+        box.post { ask.run() }
         return box
     }
 
     private fun fill(activity: Activity, box: LinearLayout, r: JSONObject) {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         fun rows(a: JSONArray?) = List(a?.length() ?: 0) { a!!.getJSONObject(it) }
+        val lines = rows(r.optJSONArray("lines"))
+        val purposes = rows(r.optJSONArray("purposes"))
+        val forecast = r.optJSONObject("forecast")
+        val transfers = r.optDouble("transfers", 0.0).takeIf { it.isFinite() } ?: 0.0
+        box.removeAllViews()
+        val head = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
+        head.addView(StudioUi.section(activity, "Penumpang per hari"), LinearLayout.LayoutParams(0, -2, 1f))
+        if (forecast != null) head.addView(StudioUi.text(activity, "perkiraan hari biasa", 12f, true, StudioUi.MUTED))
+        box.addView(head)
+        if (lines.isEmpty()) {
+            box.addView(StudioUi.text(activity, "Belum ada layanan yang berhenti di sini.", 14f, true, StudioUi.MUTED)
+                .apply { setPadding(0, dp(6), 0, 0) })
+            return
+        }
+        // the three figures side by side: on, off and (when there are any) changes between lines
+        val tiles = LinearLayout(activity).apply { setPadding(0, dp(8), 0, dp(4)) }
+        fun tile(label: String, value: String, tint: Int) {
+            val t = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                background = StudioUi.pill(activity, tint, 16)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                contentDescription = "$label $value penumpang per hari"
+            }
+            t.addView(StudioUi.text(activity, value, 19f, true, StudioUi.INK).apply { typeface = StudioUi.heavy(activity); maxLines = 1 })
+            t.addView(StudioUi.text(activity, label, 12.5f, true, StudioUi.MUTED))
+            tiles.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
+        }
+        val none = "—"
+        tile("Naik", forecast?.let { whole(it.optDouble("on")) } ?: none, StudioUi.TINT_BLUE)
+        tile("Turun", forecast?.let { whole(it.optDouble("off")) } ?: none, StudioUi.TINT_GREEN)
+        if (transfers >= .5) tile("Pindah layanan", whole(transfers), StudioUi.TINT_PURPLE)
+        box.addView(tiles)
+        if (forecast == null) box.addView(StudioUi.text(activity, "Perkiraan harian belum tersedia untuk layanan di sini.", 12.5f, true, StudioUi.MUTED))
         fun row(label: String, value: String, color: Int? = null, bold: Boolean = false) {
             val line = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(40) }
             if (color != null) line.addView(View(activity).apply {
@@ -70,16 +140,10 @@ internal object StationRiders {
             })
             box.addView(line)
         }
-        val lines = rows(r.optJSONArray("lines"))
-        val purposes = rows(r.optJSONArray("purposes"))
-        if (lines.isEmpty()) return
-        box.removeAllViews()
-        val head = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
-        head.addView(StudioUi.section(activity, "Penumpang"), LinearLayout.LayoutParams(0, -2, 1f))
-        head.addView(StudioUi.text(activity, "naik 24 jam terakhir", 12f, true, StudioUi.MUTED))
-        box.addView(head)
-        for (l in lines) row(l.optString("name"), if (l.isNull("boardings")) "" else count.format(Math.round(l.optDouble("boardings"))), l.optInt("color"))
-        row("Naik hari ini", if (r.isNull("boardings")) "" else count.format(Math.round(r.optDouble("boardings"))), bold = true)
+        // web BoardingsToday: counted in the past 24 hours of play, blank before the first count
+        row("Naik 24 jam terakhir", if (r.isNull("boardings")) "Belum terhitung" else whole(r.optDouble("boardings")), bold = true)
+        if (lines.size > 1 || !r.isNull("boardings"))
+            for (l in lines) row(l.optString("name"), if (l.isNull("boardings")) "" else whole(l.optDouble("boardings")), l.optInt("color"))
         if (purposes.isNotEmpty()) {
             val words = purposes.joinToString("; ") { "${it.optString("name")}: ${pct(it.optDouble("share"))} dari naik" }
             box.addView(SplitBar(activity, purposes.map { it.optDouble("share") to it.optInt("color") }).apply {
@@ -88,7 +152,5 @@ internal object StationRiders {
             box.addView(StudioUi.text(activity, purposes.joinToString(" · ") { "${it.optString("name")} ${pct(it.optDouble("share"))}" },
                 12.5f, true, StudioUi.MUTED).apply { setPadding(0, dp(6), 0, 0) })
         }
-        // web StationInspector has no from/to list; the estimate the engine also returns is not shown
-        box.visibility = View.VISIBLE
     }
 }

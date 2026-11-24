@@ -16,6 +16,10 @@ internal object StationInspector {
     var riders: ((Int) -> Pair<Int, Float>?)? = null
     /** The simulation's riders at a station complex (train_riders.rs `station`); null before they are in. */
     var passengers: ((Int, (String?) -> Unit) -> Unit)? = null
+    /** Whether a simulation is open or being prepared (so the riders card can say Putar starts the count). */
+    var simulating: (() -> Boolean)? = null
+    /** The map the station design draws on (StationDesign.kt); without it the old sheets open. */
+    var map: NetworkView? = null
     @JvmStatic external fun structure(handle: Long, node: Int, clock: Double, command: String): String
     @JvmStatic external fun upgrade(handle:Long,node:Int,bit:Int,on:Int,clock:Double):String
     @JvmStatic external fun read(handle: Long, node: Int, line: Int, run: Int, clock: Double): String
@@ -35,8 +39,8 @@ internal object StationInspector {
     /** Web `CAR_M` (boarding.ts): a car's length along a platform. */
     private const val CAR_M = 20.0
     /** Web upgrade names and what each does (id.json `upgrades.*`), by facility bit. */
-    private val UPGRADE_NAMES = mapOf(1 to "Jalur balik", 2 to "Tempat parkir", 4 to "Ruang tunggu", 8 to "Rel penyusulan")
-    private val UPGRADE_DOES = mapOf(
+    internal val UPGRADE_NAMES = mapOf(1 to "Jalur balik", 2 to "Tempat parkir", 4 to "Ruang tunggu", 8 to "Rel penyusulan")
+    internal val UPGRADE_DOES = mapOf(
         1 to "Kereta yang berbalik di sini memakai kedua peron. Kapasitas putar balik naik dari 15 kereta per jam jadi 30.",
         2 to "Datang ke stasiun ini dari jauh terasa 10 menit lebih singkat.",
         4 to "Menunggu kereta di sini terasa 20% lebih singkat.",
@@ -123,6 +127,8 @@ internal object StationInspector {
             13f,true,StudioUi.MUTED).apply { maxLines = 2 })
         header.addView(names, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
         sheet.add(header,0)
+        // riders a day on, off and changing here, always at the top (StationRiders.kt)
+        sheet.add(StationRiders.section(activity, node, passengers, simulating), 10)
         // web NameEdit: "Ganti nama" beside the name (a tap on the name too), the station tapped
         val rename = {
             sheet.dismiss()
@@ -171,7 +177,6 @@ internal object StationInspector {
             crowd.contentDescription = "Keramaian, $count $unit"
             sheet.add(crowd,12)
         }
-        StationRiders.section(activity, node, passengers)?.let { sheet.add(it, 12) }
         val upcoming = departures.filter { byId.containsKey(it.getInt("line")) }
         fun destination(d: JSONObject): String {
             val line = byId.getValue(d.getInt("line"))
@@ -283,11 +288,19 @@ internal object StationInspector {
         }
         // Actions: structure (white) and facility upgrades (orange).
         val actions = LinearLayout(activity)
+        // both open the station design on the map (StationDesign.kt): length, tracks, upgrades, building
+        val design = map?.takeIf { platforms.any { it.getInt("id") == node } }
         actions.addView(StudioUi.button(activity,"Gedung stasiun") {
-            sheet.dismiss(); StationStructurePanel(activity,handle,node,time,transaction,changed).show()
+            sheet.dismiss()
+            if (design != null) StationDesign.start(activity,design,handle,node,time,transaction,changed,
+                { now -> show(activity,handle,node,now,transaction,changed) }, building = true)
+            else StationStructurePanel(activity,handle,node,time,transaction,changed).show()
         }, LinearLayout.LayoutParams(0,-2,1f).apply { marginEnd = dp(5) })
         actions.addView(StudioUi.button(activity,"Peningkatan stasiun",StudioUi.Tone.PRIMARY) {
-            sheet.dismiss(); facilities(activity,handle,node,time,platforms,transaction,changed)
+            sheet.dismiss()
+            if (design != null) StationDesign.start(activity,design,handle,node,time,transaction,changed,
+                { now -> show(activity,handle,node,now,transaction,changed) })
+            else facilities(activity,handle,node,time,platforms,transaction,changed)
         }, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(5) })
         sheet.add(actions,16)
         // web: "Hapus stasiun" at the foot of a station's own view, asking first with what it takes

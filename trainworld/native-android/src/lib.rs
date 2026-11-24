@@ -30,6 +30,7 @@ mod simulation;
 mod junction;
 mod line_profile;
 mod station_facilities;
+mod station_design;
 mod station_inspection;
 mod station_map;
 mod passages;

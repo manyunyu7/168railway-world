@@ -382,6 +382,7 @@ pub(crate) fn station(
     let mut total = 0.;
     let mut purposes = [0f64; PURPOSE_KEYS.len()];
     let mut ends: [std::collections::BTreeMap<String, f64>; 2] = Default::default();
+    let mut forecast: Option<[f64; 2]> = None;
     for (id, svc) in api.world().svc.lines.iter().enumerate() {
         let l = id as u32;
         if !svc.ok || !net.line_ok(l) && svc.bus.is_none() {
@@ -401,6 +402,18 @@ pub(crate) fn station(
         let n = lr.n;
         let wrap = svc.kind == LoopKind::Circle;
         let last = if wrap { n - 2 } else { n - 1 };
+        // the forecast's average day at the complex: riders getting on and off (web LineInspector `on`/`off`)
+        let mut f = forecast.unwrap_or([0., 0.]);
+        for run in 0..2 {
+            for &k in &here {
+                let j = if run == 0 { k } else { n - 1 - k };
+                for p in 0..PERIODS {
+                    f[0] += f64::from(lr.board[p][run * n + j]).max(0.);
+                    f[1] += f64::from(lr.alight[p][run * n + j]).max(0.);
+                }
+            }
+        }
+        forecast = Some(f);
         for run in 0..2 {
             let shares = alight_shares(&lr, run, wrap);
             let travel = |k: usize| if run == 0 { k } else { n - 1 - k };
@@ -454,7 +467,31 @@ pub(crate) fn station(
             .collect::<Vec<_>>()
     };
     json!({"lines": lines, "boardings": (!today.is_empty()).then_some(total), "purposes": split,
-        "to": top(&ends[0]), "from": top(&ends[1])})
+        "to": top(&ends[0]), "from": top(&ends[1]),
+        "forecast": forecast.map(|[on, off]| json!({"on": on, "off": off}))})
+}
+
+/// The riders a day changing lines at the complex of `node` on the forecast's average day:
+/// `Forecast::transfers` packs per change the line, run and stop (in the run's order) riders
+/// leave, the same where they board, and riders (web `complexTransfers`, both ends counted once).
+pub(crate) fn transfers_at(world: &World, node: u32, packed: &[f32]) -> f64 {
+    let api = &world.api;
+    let mut members = api.world().net.complex_of(node);
+    if members.is_empty() {
+        members.push(node);
+    }
+    let mut stops: std::collections::HashMap<u32, Vec<u32>> = Default::default();
+    let mut at = |line: f32, run: f32, k: f32| -> bool {
+        let s = stops.entry(line as u32).or_insert_with(|| api.line_stops(line as u32));
+        let (n, k) = (s.len(), k as usize);
+        let i = if run as u32 == 0 { Some(k) } else { n.checked_sub(1 + k) };
+        i.and_then(|i| s.get(i)).is_some_and(|x| members.contains(x))
+    };
+    packed
+        .chunks_exact(7)
+        .filter(|r| at(r[0], r[1], r[2]) || at(r[3], r[4], r[5]))
+        .map(|r| f64::from(r[6]).max(0.))
+        .sum()
 }
 
 /// One line's stops for its panel (web LineInspector's stop rows): at each stop the boardings in
@@ -625,6 +662,38 @@ pub(crate) mod tests {
         assert!(bare["stops"][0].get("on").is_none());
         // a forecast for another stop count is not read
         assert_eq!(line(&world, 0, 111600., Some(&figures(n + 1, 400.)))["forecast"], false);
+    }
+
+    #[test]
+    fn a_station_sums_the_forecast_day_and_the_changes_made_there() {
+        let mut world = World::workshop();
+        world.build_path(&[[0., 0.], [3000., 0.], [6000., 0.], [9000., 0.]], "Uji", 111600.).unwrap();
+        let stops = world.api.line_stops(0);
+        let n = stops.len();
+        let lr = figures(n, 400.);
+        let k = 1;
+        let s = station(&world, stops[k], 111600., &|_| Some(figures(n, 400.)));
+        let (mut on, mut off) = (0f64, 0f64);
+        for p in 0..PERIODS {
+            for (run, j) in [(0, k), (1, n - 1 - k)] {
+                on += f64::from(lr.board[p][run * n + j]);
+                off += f64::from(lr.alight[p][run * n + j]);
+            }
+        }
+        assert!(on > 0. && off > 0.);
+        assert!((s["forecast"]["on"].as_f64().unwrap() - on).abs() < 1e-6, "{s}");
+        assert!((s["forecast"]["off"].as_f64().unwrap() - off).abs() < 1e-6, "{s}");
+        // without a forecast there is no day to show
+        assert!(station(&world, stops[k], 111600., &|_| None)["forecast"].is_null());
+        // a change leaving line 0 at stop k (run 0), one at the same stop in run 1's order, one elsewhere
+        let packed = [
+            0., 0., k as f32, 0., 1., (n - 1 - k) as f32, 120.,
+            0., 1., (n - 1 - k) as f32, 0., 0., k as f32, 30.,
+            0., 0., 0., 0., 1., (n - 1) as f32, 999.,
+            0., 1., 99., 0., 0., 99., 5.,
+        ];
+        assert_eq!(transfers_at(&world, stops[k], &packed), 150.);
+        assert_eq!(transfers_at(&world, stops[k], &[]), 0.);
     }
 
     #[test]
