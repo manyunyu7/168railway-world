@@ -518,6 +518,7 @@ class NativeWorldActivity : Activity() {
             if (node >= 0) withCommittedWorld(pause = false) { openJunction(node) }
             node >= 0
         }
+        BusDraft.settled = { if (drawing) updateControls() }
         map.onTrainTap = { profile, dep, fill, engine, time ->
             if (!drawing && !removingTrack && !restoringEdit && engine != 0L) { map.showTrainAboveSheet(profile, dep); openTrain(profile, dep, fill, engine, time) }
         }
@@ -1367,7 +1368,7 @@ class NativeWorldActivity : Activity() {
         railBar.visibility=if(railMode) View.VISIBLE else View.GONE
         if(railMode) railBar.display(plan)
         map.railTool=if(railMode) plan.kind else null
-        render(build, if(railMode) "Konfirmasi" else if (drawing) "Tinjau" else "Bangun", if(railMode) "Konfirmasi segmen rel" else if (drawing) plan.tool.review else "Bangun jalur",
+        render(build, if(railMode) "Konfirmasi" else if (drawing) (quoteLabel() ?: "Tinjau") else "Bangun", if(railMode) "Konfirmasi segmen rel" else if (drawing) plan.tool.review else "Bangun jalur",
             if (drawing) StudioUi.Icon.ROUTE else StudioUi.Icon.PLUS)
         render(lines,"Line","Daftar line",StudioUi.Icon.ROUTE)
         render(finance,"Lensa","Lensa peta",StudioUi.Icon.LAYERS)
@@ -1577,6 +1578,7 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun updateDraft() {
+        if (mapQuote?.key != draftKey()) dropQuote()
         updateControls()
         dockTitle.text=plan.specification
         val n=map.draft.size
@@ -1601,6 +1603,9 @@ class NativeWorldActivity : Activity() {
         previewDraft()
         status.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
         map.contentDescription="Peta konstruksi ${plan.tool.label}. ${status.text}"
+        // price a complete plan on its own, so the build button already says what it costs
+        map.removeCallbacks(quoteTask)
+        if (plan.tool != BuildTool.RAIL && map.draft.size >= plan.tool.minPoints && mapQuote == null) map.postDelayed(quoteTask, 450)
         map.invalidate()
     }
 
@@ -1617,6 +1622,7 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun cancelDrawing() {
+        dropQuote()
         railChain.clear(); map.railSnaps.clear(); map.rawRailTip=null
         pointProfile.clear(); draftVersion++; map.draftShape=null; map.curveCircle=null; map.junctionMarks=emptyList()
         drawing=false
@@ -1746,7 +1752,53 @@ class NativeWorldActivity : Activity() {
 
     private data class Quote(val geometry: JSONObject,val bytes: ByteArray,val charge: Double,val vertices: List<PointF>?,val snapped: PointF?)
 
+    /**
+     * The web prices a plan on the map (cost tag, touch bar) and builds with one more tap; no
+     * sheet. A quote is worked out in the background whenever the plan is complete, shown on the
+     * dock, and the build button then builds it. Any change to the plan drops the quote.
+     */
+    private class MapQuote(val key: String, val spec: ConstructionPlan, val original: ByteArray, val activeHandle: Long) {
+        var candidate = 0L
+        var geometry: JSONObject? = null
+        var bytes: ByteArray? = null
+        var charge = 0.0
+        var error: String? = null
+        val ready get() = geometry != null && bytes != null && candidate != 0L
+    }
+    private var mapQuote: MapQuote? = null
+    private val quoteTask = Runnable { if (drawing && mapQuote == null) startQuote() }
+    private fun draftKey() = "${plan.tool}|${plan.name}|${plan.deferred}|${plan.platform}|${plan.vehicle}|${BusRoads.current(this)}|" +
+        map.draft.joinToString(";") { "${it.x},${it.y}" } + "|" + map.bends.joinToString(";") { "${it.first}:${it.second.x},${it.second.y}" } + "|" + stationOrder.joinToString(",")
+    private fun dropQuote() {
+        mapQuote?.let { q -> if (q.candidate != 0L) { Engine.close(q.candidate); q.candidate = 0L } }
+        mapQuote = null
+    }
+    private fun quoteLabel(): String? {
+        val q = mapQuote ?: return null
+        if (q.key != draftKey()) {
+            // the plan moved under the quote (a bus preview snaps its points to the road): price it again
+            dropQuote()
+            if (drawing) { map.removeCallbacks(quoteTask); map.postDelayed(quoteTask, 450) }
+            return null
+        }
+        return when {
+            q.error != null -> null
+            !q.ready -> "Bangun\nmenghitung…"
+            q.spec.deferred -> "Simpan rencana"
+            else -> "Bangun\n${currency.compact(q.charge)}"
+        }
+    }
+
     private fun reviewDraft() {
+        val q = mapQuote
+        if (q != null && q.key == draftKey() && q.ready) { commitQuote(q); return }
+        if (q != null && q.key == draftKey() && q.error == null) return // still pricing
+        startQuote()
+    }
+
+    private fun startQuote() {
+        if (!drawing || plan.tool == BuildTool.RAIL || map.draft.size < plan.tool.minPoints) return
+        dropQuote()
         val spec=if(plan.tool==BuildTool.STATION) plan.copy(name=stationName(map.draft.single())) else plan
         val points=map.draft.map { PointF(it.x,it.y) }
         val bends=map.bends.toList()
@@ -1756,109 +1808,81 @@ class NativeWorldActivity : Activity() {
         val via=points.flatMapIndexed { i,p -> listOf(p)+bends.filter { it.first==i }.map { it.second } }
             .flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
         val curves=bends.flatMap { (leg,p) -> listOf(leg.toDouble(),p.x.toDouble(),p.y.toDouble()) }.toDoubleArray()
-        val original=Engine.save(handle,clock)
         val editTime=clock
         val directory=RoadTileStore.directory(this)
         val candidate=Engine.forkCandidate(handle,clock,directory.absolutePath)
-        if(candidate==0L) { Toast.makeText(this,"Rancangan belum dapat dibuka.",Toast.LENGTH_LONG).show(); return }
-        val activeHandle=handle
-        var prepared=0L
-        var geometry: JSONObject?=null
-        var bytes: ByteArray?=null
-        lateinit var primary: Button
-        reviewDialog=StudioUi.sheet(this,spec.tool.review,pinnedAction={ primary }) { body,dialog ->
-            body.addView(StudioDecision.draft(this,points,bends,spec.tool.label,spec.specification))
-            val cost=StudioUi.text(this,if(spec.tool==BuildTool.BUS || spec.tool==BuildTool.RAIL && spec.kind==2) "Menghitung lintasan jalan…" else "Menghitung biaya…",17f,true,StudioDepot.TEAL)
-            cost.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
-            body.addView(cost,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
-            if(spec.tool==BuildTool.STATION) body.addView(StudioUi.button(this,"Ubah nama stasiun") {
-                dialog.dismiss(); plan=spec; configureTool(BuildTool.STATION)
-            })
-            body.addView(StudioUi.button(this,"Kembali ke peta") { dialog.dismiss() })
-            primary=StudioUi.button(this,if(spec.deferred) "Simpan rencana" else spec.tool.action,StudioUi.Tone.PRIMARY) {
-                val snapshot=bytes ?: return@button
-                val geo=geometry ?: return@button
-                if(handle!=activeHandle || prepared==0L || !persistBytes(snapshot)) return@button
-                val old=handle
-                handle=prepared
-                prepared=0L
-                Engine.close(old)
-                history.record(if(spec.deferred) "Simpan rencana" else spec.tool.action,original)
-                dialog.dismiss()
-                map.load(geo,refit=false)
-                clock=geo.getDouble("clock")
-                val routes=geo.getJSONArray("routes")
-                lastService=routes.optJSONObject(routes.length()-1)?.optString("name").orEmpty()
-                updateSummary()
-                cancelDrawing()
-                constructionComplete(spec)
-            }.apply { isEnabled=false }
-            dialog.setOnDismissListener {
-                reviewDialog=null
-                if(prepared!=0L) { Engine.close(prepared); prepared=0L }
+        if(candidate==0L) { status.text="Rancangan belum dapat dihitung."; return }
+        val quote=MapQuote(draftKey(),spec,Engine.save(handle,clock),handle)
+        mapQuote=quote
+        status.text=if(spec.tool==BuildTool.BUS) "Menghitung lintasan jalan dan biaya…" else "Menghitung biaya…"
+        updateControls()
+        // Only this worker touches the candidate until it hands ownership back to the UI.
+        Thread({
+            val result=runCatching {
+                val balanceBefore=NativeFinance.balance(candidate,editTime)
+                val json=when(spec.tool) {
+                    BuildTool.RAIL -> error("Konfirmasi rel dilakukan di peta.")
+                    BuildTool.STATION -> NativeConstruction.station(candidate,coords[0],coords[1],snap,spec.name,spec.platform,editTime,true,spec.deferred)
+                    BuildTool.LINE -> NativeRailLine.create(candidate,order,spec.name,editTime,spec.vehicle,true)
+                    BuildTool.BUS, BuildTool.FERRY -> {
+                        if(spec.tool==BuildTool.BUS) { BusRoads.apply(this); RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,via)) }
+                        Engine.build(candidate,coords,spec.name,editTime,if(spec.tool==BuildTool.BUS) 5 else 4,curves)
+                    }
+                }
+                val built=JSONObject(json)
+                check(!built.has("error")) { built.optString("error") }
+                val save=Engine.save(candidate,editTime)
+                check(save.isNotEmpty()) { "Simpanan rancangan belum siap." }
+                Triple(JSONObject(Engine.geometry(candidate)),save,built.optDouble("cost",balanceBefore-NativeFinance.balance(candidate,editTime)))
             }
-            // Only this worker touches the candidate until it hands ownership back to the UI.
-            Thread({
-                val result=runCatching {
-                    val balanceBefore=NativeFinance.balance(candidate,editTime)
-                    val json=when(spec.tool) {
-                        BuildTool.RAIL -> error("Konfirmasi rel dilakukan di peta.")
-                        BuildTool.STATION -> NativeConstruction.station(candidate,coords[0],coords[1],snap,spec.name,spec.platform,editTime,true,spec.deferred)
-                        BuildTool.LINE -> NativeRailLine.create(candidate,order,spec.name,editTime,spec.vehicle,true)
-                        BuildTool.BUS, BuildTool.FERRY -> {
-                            if(spec.tool==BuildTool.BUS) { BusRoads.apply(this); RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,via)) }
-                            Engine.build(candidate,coords,spec.name,editTime,if(spec.tool==BuildTool.BUS) 5 else 4,curves)
-                        }
+            runOnUiThread {
+                if(closed || mapQuote!==quote || handle!=quote.activeHandle || result.isFailure) {
+                    Engine.close(candidate)
+                    if(mapQuote===quote) {
+                        quote.error=result.exceptionOrNull()?.localizedMessage ?: "Dunia sudah berubah."
+                        status.text=quote.error
+                        updateControls()
                     }
-                    val built=JSONObject(json)
-                    check(!built.has("error")) { built.optString("error") }
-                    val save=Engine.save(candidate,editTime)
-                    check(save.isNotEmpty()) { "Simpanan rancangan belum siap." }
-                    val geo=JSONObject(Engine.geometry(candidate))
-                    val path=built.optJSONArray("path") ?: if(spec.tool in setOf(BuildTool.BUS,BuildTool.FERRY,BuildTool.LINE)) {
-                        val id=built.optInt("line",built.optInt("id",-1))
-                        val routes=geo.getJSONArray("routes")
-                        (0 until routes.length()).map { routes.getJSONObject(it) }.firstOrNull { it.optInt("id")==id }?.optJSONArray("points")
-                    } else null
-                    val vertices=path?.let { xs -> (0 until xs.length()-1 step 2).map { i -> PointF(xs.getDouble(i).toFloat(),xs.getDouble(i+1).toFloat()) } }
-                    val builtPoint=if(built.has("x") && built.has("y")) PointF(built.getDouble("x").toFloat(),built.getDouble("y").toFloat()) else null
-                    Quote(geo,save,built.optDouble("cost",balanceBefore-NativeFinance.balance(candidate,editTime)),vertices,builtPoint)
+                } else {
+                    val (geo,save,charge)=result.getOrThrow()
+                    quote.geometry=geo; quote.bytes=save; quote.charge=charge; quote.candidate=candidate
+                    status.text=if(spec.deferred) "Rencana tanpa biaya. Ketuk Simpan rencana, atau ubah rancangannya."
+                        else "Biaya ${currency.compact(charge)}. Ketuk Bangun, atau ubah rancangannya dulu."
+                    if (!dockTitle.text.contains("Rp")) dockTitle.text = "${dockTitle.text} · ${currency.compact(charge)}"
+                    updateControls()
                 }
-                runOnUiThread {
-                    if(closed || !dialog.isShowing || handle!=activeHandle || result.isFailure) {
-                        Engine.close(candidate)
-                        if(dialog.isShowing) cost.text=result.exceptionOrNull()?.localizedMessage ?: "Dunia sudah berubah."
-                    } else {
-                        val (geo,save,charge,vertices,builtPoint)=result.getOrThrow()
-                        geometry=geo; bytes=save; prepared=candidate
-                        if(!vertices.isNullOrEmpty() || builtPoint!=null) {
-                            body.removeViewAt(0)
-                            val markers=if(builtPoint==null) points else listOf(builtPoint)
-                            body.addView(StudioDecision.draft(this,markers,bends,spec.tool.label,spec.specification,vertices),0)
-                        }
-                        cost.text=if(spec.deferred) "Rencana disimpan tanpa biaya. Bangun nanti dari menu Bangun." else "Biaya pembangunan · ${currency.compact(charge)}"
-                        cost.typeface=StudioUi.heavy(this)
-                        cost.background=StudioUi.pill(this,StudioUi.TINT_YELLOW,18)
-                        cost.setPadding(dp(14),dp(10),dp(14),dp(12))
-                        primary.isEnabled=true
-                    }
-                }
-            },"studio-construction-quote").start()
-        }
+            }
+        },"studio-construction-quote").start()
     }
 
-    private fun constructionComplete(spec: ConstructionPlan) {
-        val next=when(spec.tool){ BuildTool.RAIL -> BuildTool.STATION; BuildTool.STATION -> BuildTool.LINE; else -> null }
-        val title=if(spec.deferred) "Rencana tersimpan" else when(spec.tool){ BuildTool.RAIL -> "Rel selesai dibangun"; BuildTool.STATION -> "Stasiun selesai dibangun"; else -> "Layanan siap diatur" }
-        StudioUi.sheet(this,title) { body,dialog ->
-            body.addView(StudioUi.text(this,spec.specification,16f,true,StudioDepot.TEAL))
-            val label=when(next){ BuildTool.STATION -> "Tempatkan stasiun"; BuildTool.LINE -> "Buat layanan kereta"; else -> "Atur jadwal" }
-            body.addView(StudioUi.button(this,label,StudioUi.Tone.PRIMARY) {
-                dialog.dismiss()
-                if(next==null) openServices() else configureTool(next)
-            },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
-            if(spec.tool==BuildTool.STATION) body.addView(StudioUi.button(this,"Tambah stasiun") { dialog.dismiss(); configureTool(BuildTool.STATION) })
-            body.addView(StudioUi.button(this,"Kembali ke peta") { dialog.dismiss() })
+    private fun commitQuote(q: MapQuote) {
+        val snapshot=q.bytes ?: return
+        val geo=q.geometry ?: return
+        if(handle!=q.activeHandle || q.candidate==0L || !persistBytes(snapshot)) return
+        val old=handle
+        handle=q.candidate
+        q.candidate=0L
+        mapQuote=null
+        Engine.close(old)
+        history.record(if(q.spec.deferred) "Simpan rencana" else q.spec.tool.action,q.original)
+        map.load(geo,refit=false)
+        clock=geo.getDouble("clock")
+        val routes=geo.getJSONArray("routes")
+        lastService=routes.optJSONObject(routes.length()-1)?.optString("name").orEmpty()
+        updateSummary()
+        cancelDrawing()
+        constructionComplete(q.spec, q.charge)
+    }
+
+    /** After building, carry on as the web does: a short note, a station tool stays on for the
+     *  next platform, a new service opens its panel to set its timetable. */
+    private fun constructionComplete(spec: ConstructionPlan, charge: Double = 0.0) {
+        val what = when(spec.tool){ BuildTool.STATION -> "Stasiun"; BuildTool.LINE -> "Line"; BuildTool.BUS -> "Bus"; BuildTool.FERRY -> "Feri"; else -> "Rel" }
+        Toast.makeText(this, if (spec.deferred) "Rencana tersimpan." else "$what dibangun · ${currency.compact(charge)}", Toast.LENGTH_SHORT).show()
+        when (spec.tool) {
+            BuildTool.STATION -> configureTool(BuildTool.STATION)
+            BuildTool.LINE, BuildTool.BUS, BuildTool.FERRY -> if (!spec.deferred) openServices()
+            else -> {}
         }
     }
 
@@ -2711,6 +2735,7 @@ class NativeWorldActivity : Activity() {
         cancelWarm()
         if (::map.isInitialized) map.overlay.stop()
         reviewDialog?.dismiss()
+        dropQuote()
         stopTrainPreview()
         dropParked()
         if (::map.isInitialized) map.removeCallbacks(tick)

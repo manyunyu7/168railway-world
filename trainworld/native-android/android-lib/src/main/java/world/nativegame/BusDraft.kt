@@ -32,6 +32,8 @@ internal object BusDraft {
      * Route the draft in the background. [live] says whether this version is still the one drawn;
      * [fork] opens a copy of the world for the worker (closed here). Results land on the map.
      */
+    /** Called on the UI thread once a road preview has landed (its points may have moved). */
+    var settled: (() -> Unit)? = null
     fun route(
         activity: Activity, worker: Executor, map: NetworkView, status: TextView, title: TextView,
         specification: String, directory: File, fork: () -> Long, live: () -> Boolean,
@@ -73,6 +75,7 @@ internal object BusDraft {
                         status.text = result.getString("error")
                     } else show(result, map, points, status, title, specification)
                     map.invalidate()
+                    settled?.invoke()
                 }
             }
         }, 120)
