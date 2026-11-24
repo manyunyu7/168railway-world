@@ -3041,7 +3041,7 @@ internal class NetworkView(context: Context):View(context) {
         paint.pathEffect=null
         for((_,p) in plannedStops) c.drawCircle(p.x,p.y,6*density/scale,paint)
         c.restore()
-        if (!isDrafting && overlay.active) overlay.circles(c,centerX,centerY,scale,density)
+        if (!isDrafting && overlay.active) overlay.circles(c,centerX,centerY,scale,density,displaySettings)
         paint.style=Paint.Style.FILL
         var labelX=-10000f;var labelY=-10000f
         val labelCells=mutableSetOf<Long>()

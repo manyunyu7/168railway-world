@@ -259,7 +259,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     private var gridKey = ""
     private val groups = mutableMapOf<Long,DoubleArray>()
     private val modeColors = intArrayOf(0x317bb8,0x67ab55,0xd99154,0x88758a)
-    fun circles(c:Canvas, cx:Float, cy:Float, scale:Float, density:Float) {
+    fun circles(c:Canvas, cx:Float, cy:Float, scale:Float, density:Float, display: StudioGameSettings.Display) {
         discs.clear()
         val w=c.width; val h=c.height
         val end = selection[0]
@@ -286,14 +286,14 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             for(g in groups.values) {
                 if(g[2]<=0) continue
                 val x=((g[0]/g[2]-cx)*scale+w/2).toFloat(); val y=((cy-g[1]/g[2])*scale+h/2).toFloat()
-                val rad=(sqrt(g[2])/sqrt(bin)*1.6f*density).toFloat().coerceIn(2*density,24*density)
+                val rad=(sqrt(g[2])/sqrt(bin)*1.6f*density).toFloat().coerceIn(2*density,24*density) * display.bubbleSize
                 if(x < -rad || y < -rad || x>w+rad || y>h+rad) continue
                 discs.add(Disc(x,y,rad,(g[0]/g[2]).toFloat(),(g[1]/g[2]).toFloat(),g,false))
                 var angle=-90f
                 for(i in 0..3) {
                     val sweep=(360*g[3+i]/g[2]).toFloat()
                     if(sweep==0f) continue
-                    paint.color=modeColors[i] or (0xaf shl 24)
+                    paint.color=modeColors[i] or ((255 * display.bubbleOpacity).roundToInt() shl 24)
                     c.drawArc(x-rad,y-rad,x+rad,y+rad,angle,sweep,true,paint)
                     angle+=sweep
                 }

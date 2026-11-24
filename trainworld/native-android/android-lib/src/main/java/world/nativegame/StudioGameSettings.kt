@@ -10,13 +10,14 @@ import android.widget.Switch
 internal object StudioGameSettings {
     data class Display(val trains:Boolean, val capacity:Boolean, val fullMarks:Boolean, val names:Boolean,
         val mapNames:Boolean, val zoomButtons:Boolean, val lineWidth:Float, val circleSize:Float,
-        val contrast:Float, val buses:Boolean)
+        val contrast:Float, val buses:Boolean, val bubbleSize:Float, val bubbleOpacity:Float)
 
     private fun prefs(c:Context) = c.getSharedPreferences("studio-display", Context.MODE_PRIVATE)
     fun read(c:Context):Display = with(prefs(c)) {
         Display(getBoolean("trains",true),getBoolean("capacity",true),getBoolean("fullMarks",true),
             getBoolean("stationNames",true),getBoolean("basemapLabels",true),getBoolean("zoomButtons",true),
-            getFloat("lineWidth",1f),getFloat("stationCircleSize",1f),getFloat("basemapContrast",1f),getBoolean("buses",true))
+            getFloat("lineWidth",1f),getFloat("stationCircleSize",1f),getFloat("basemapContrast",1f),getBoolean("buses",true),
+            getFloat("bubbleSize",1f),getFloat("bubbleOpacity",.7f))
     }
 
     fun show(host:Activity, changed:()->Unit) {
@@ -52,7 +53,7 @@ internal object StudioGameSettings {
                     }
                 })
             }
-            fun slider(key:String,label:String,min:Int,max:Int) {
+            fun slider(key:String,label:String,min:Int,max:Int,default:Float=1f) {
                 val row=StudioUi.text(host,"",15f,true).apply { setPadding(0,dp(10),0,0) }
                 group!!.addView(row)
                 val seek=SeekBar(host).apply {
@@ -67,7 +68,7 @@ internal object StudioGameSettings {
                     seek.contentDescription=row.text
                 }
                 seek.max=(max-min)/5
-                seek.progress=((prefs.getFloat(key,1f)*100).toInt()-min)/5
+                seek.progress=(Math.round(prefs.getFloat(key,default)*100)-min)/5
                 update(seek.progress)
                 seek.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(bar:SeekBar, progress:Int, fromUser:Boolean) {
@@ -91,6 +92,8 @@ internal object StudioGameSettings {
             toggle("basemapLabels","Nama jalan dan kawasan")
             toggle("zoomButtons","Tombol perbesar dan perkecil")
             heading("Ukuran dan kontras")
+            slider("bubbleSize","Ukuran gelembung",25,200)
+            slider("bubbleOpacity","Opasitas gelembung",20,100,.7f)
             slider("lineWidth","Ketebalan jalur",50,200)
             slider("stationCircleSize","Ukuran lingkaran stasiun",50,200)
             slider("basemapContrast","Kontras peta dasar",0,100)
