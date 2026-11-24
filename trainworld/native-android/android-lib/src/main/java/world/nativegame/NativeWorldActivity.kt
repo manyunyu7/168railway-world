@@ -1492,27 +1492,23 @@ class NativeWorldActivity : Activity() {
         }
     }
 
-    private fun reviewRailPlans() {
-        val quote=JSONObject(NativeConstruction.buildPlans(handle,clock,false))
-        if(quote.has("error")) { Toast.makeText(this,quote.getString("error"),Toast.LENGTH_LONG).show(); return }
-        StudioDialogBuilder(this).setTitle("Bangun rencana rel dan stasiun?")
-            .setMessage("${quote.getInt("edges")} ruas rel · ${quote.getInt("stations")} peron · ${currency.compact(quote.getDouble("cost"))}")
-            .setNegativeButton("Nanti",null)
-            .setPositiveButton("Bangun") { _,_ ->
-                val before=Engine.save(handle,clock)
-                val candidate=Engine.forkCandidate(handle,clock,RoadTileStore.directory(this).absolutePath)
-                if(candidate==0L) return@setPositiveButton
-                val result=JSONObject(NativeConstruction.buildPlans(candidate,clock,true))
-                if(result.has("error") || !persistBytes(Engine.save(candidate,clock))) {
-                    Engine.close(candidate)
-                    Toast.makeText(this,result.optString("error","Rencana belum tersimpan."),Toast.LENGTH_LONG).show()
-                } else {
-                    Engine.close(handle); handle=candidate
-                    history.record("Bangun rencana",before)
-                    map.load(JSONObject(Engine.geometry(handle)),refit=false)
-                    worldChanged=true; updateSummary(); updateControls(); lastStatus=-1; troubleKey=""; refresh()
-                }
-            }.show()
+    private fun reviewRailPlans() = BlueprintPanel.show(this, { handle }, { clock }, ::commitBlueprint) { x, y -> map.focusAt(x, y) }
+
+    /** One committed blueprint edit on the live world, as commitDemolition: undo step, map, save. */
+    private fun commitBlueprint(label: String, edit: () -> JSONObject): JSONObject? {
+        val before = Engine.save(handle, clock)
+        if (!history.canKeep(before) || local.baseFile.lastModified() != saveRevision) {
+            Toast.makeText(this, "Cadangan untuk urungkan belum siap. Buka kembali dunia ini.", Toast.LENGTH_LONG).show()
+            return null
+        }
+        val result = edit()
+        if (result.has("error")) { Toast.makeText(this, result.getString("error"), Toast.LENGTH_LONG).show(); return null }
+        history.record(label, before)
+        worldChanged = true
+        map.load(JSONObject(Engine.geometry(handle)), refit = false)
+        updateSummary(); lastStatus = -1; troubleKey = ""; refresh(); updateControls()
+        writeSave()
+        return result
     }
 
     private fun configureTool(tool: BuildTool) {

@@ -90,7 +90,7 @@ fn snap(
 fn is_point(x: f64, y: f64) -> bool {
     x.is_finite() && y.is_finite() && x.abs() <= 50_000_000. && y.abs() <= 50_000_000.
 }
-fn finish(
+pub(crate) fn finish(
     world: &mut World,
     mut next: World,
     clock: f64,
@@ -347,7 +347,7 @@ impl World {
         ))
     }
 
-    fn place_platform(
+    pub(crate) fn place_platform(
         &mut self,
         x: f64,
         y: f64,
@@ -398,7 +398,7 @@ impl World {
     }
 }
 
-fn response(env: JNIEnv, result: Result<Value, String>) -> jstring {
+pub(crate) fn response(env: JNIEnv, result: Result<Value, String>) -> jstring {
     env.new_string(
         result
             .unwrap_or_else(|error| json!({"error":error}))
@@ -621,6 +621,24 @@ fn rail_touch_point(
         }
     }
     target
+}
+#[cfg(test)]
+impl World {
+    /// Straight double track at level 1 for other modules' tests: a plan, or built.
+    pub(crate) fn lay_test_track(&mut self, points: &[f64], deferred: bool) {
+        let design = TrackDesign {
+            profile: &[],
+            speed: 160.,
+            flyover_speed: 80.,
+            auto_ramp: true,
+            flying: false,
+            radius: 0.,
+            deferred,
+            preview_only: false,
+        };
+        self.lay_track(points, 1, 0, 2, 111600., true, design)
+            .unwrap();
+    }
 }
 #[cfg(test)]
 mod tests {
