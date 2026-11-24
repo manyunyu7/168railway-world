@@ -305,7 +305,7 @@ class NativeWorldActivity : Activity() {
         val leftTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.START }
         leftTools.addView(missionCard, LinearLayout.LayoutParams(dp(if (compact) 196 else 220), -2))
         warmChipRing = WarmRing(this)
-        warmChipText = StudioUi.text(this, "", 12.5f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(context); singleLine() }
+        warmChipText = StudioUi.text(this, "", 12.5f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(context); singleLine(); shrinkToFit() }
         warmChip = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             background = StudioUi.glass(context, 18)
@@ -315,6 +315,8 @@ class NativeWorldActivity : Activity() {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
             addView(warmChipRing, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(8) })
             addView(warmChipText)
+            // The ready chip is itself the way to start, not only a pointer to the Putar button.
+            setOnClickListener { if (warmChipRing.done && !running) play.performClick() }
         }
         leftTools.addView(warmChip, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
         missionSlot.addView(leftTools, android.widget.FrameLayout.LayoutParams(-2, -2))
@@ -2635,7 +2637,7 @@ class NativeWorldActivity : Activity() {
                 playWhenWarm = false
                 startReference()
             } else {
-                warmReadyUntil = SystemClock.uptimeMillis() + 4000
+                warmReadyUntil = SystemClock.uptimeMillis() + 15000
                 map.removeCallbacks(warmTick)
                 map.post(warmTick)
                 scheduleWarm()
@@ -2668,7 +2670,8 @@ class NativeWorldActivity : Activity() {
             if (warmTip.text.isEmpty()) warmTip.text = "💡  " + tips.random()
             warmTip.visibility = if (left > 5) View.VISIBLE else View.GONE
         } else warmTip.text = ""
-        val ready = !computing && parked != null && SystemClock.uptimeMillis() < warmReadyUntil && reference == null
+        // While paused with riders worked out, the chip stays as the call to play (it used to vanish after 4 s, often unseen).
+        val ready = !computing && parked != null && reference == null && !running && referenceState != ReferenceState.PLAYING && !drawing
         warmChip.visibility = if ((computing && !playWhenWarm) || ready) View.VISIBLE else View.GONE
         if (computing) {
             warmChip.background = StudioUi.glass(this, 18)
@@ -2679,7 +2682,8 @@ class NativeWorldActivity : Activity() {
             warmChip.background = StudioUi.pill(this, StudioUi.INK, 18)
             warmChipRing.done = true
             warmChipText.setTextColor(StudioUi.WHITE)
-            warmChipText.text = "Penumpang siap · tekan Putar untuk main"
+            warmChipText.text = "Penumpang siap · ketuk untuk main"
+            warmChip.contentDescription = "Penumpang siap, ketuk untuk memutar"
         }
     }
 
