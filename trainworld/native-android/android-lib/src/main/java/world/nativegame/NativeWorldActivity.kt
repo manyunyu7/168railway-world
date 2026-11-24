@@ -648,7 +648,8 @@ class NativeWorldActivity : Activity() {
             reportDay = day
             dayStartCash = cash
             updateSummary()
-            if (referenceState == ReferenceState.PLAYING && foreground && !drawing && cash.isFinite() && start.isFinite())
+            if (referenceState == ReferenceState.PLAYING && foreground && hasWindowFocus() && !drawing &&
+                speedChip.rate <= 86400.0 / 60 && cash.isFinite() && start.isFinite())
                 StudioProgress.report(this, currency, finished, snap.trains, start, cash, null, next?.goal)
         }
     }

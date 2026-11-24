@@ -62,6 +62,7 @@ internal class WorldSpeedChip(private val host: Activity, initial: Double, priva
     })
     init {
         gravity = Gravity.CENTER
+        minHeight = StudioUi.dp(host, 48)
         textSize = 13f
         typeface = StudioUi.heavy(host)
         background = StudioDepot.touch(host, 0xeaffffff.toInt(), 16)
