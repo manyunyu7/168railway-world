@@ -3191,16 +3191,16 @@ internal class NetworkView(context: Context):View(context) {
         focusAt(at.first, at.second - height*.2f/scale)
     }
     /** Frame a whole line in the space above a half-height sheet. */
-    fun showLineAboveSheet(id: Int) {
+    fun showLineAboveSheet(id: Int, sheet: Float = .6f) {
         val xy = routeXY.firstOrNull { it.first == id }?.second ?: return
         if (xy.size < 4) return
         var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
         for (i in xy.indices step 2) { minX = min(minX, xy[i]); maxX = maxOf(maxX, xy[i]); minY = min(minY, xy[i+1]); maxY = maxOf(maxY, xy[i+1]) }
-        val room = height * .36f
+        val room = height * (1f - sheet - .08f)
         val s = min(width*.84f/(maxX-minX).coerceAtLeast(1f), room*.84f/(maxY-minY).coerceAtLeast(1f))
         if (s.isFinite() && s > 0f) scale = min(s, scale*4f)
         // centre the line in the band above the sheet: its middle sits a quarter of the screen up
-        focusAt((minX+maxX)/2f, (minY+maxY)/2f - height*.27f/scale)
+        focusAt((minX+maxX)/2f, (minY+maxY)/2f - height*(sheet/2f)/scale)
     }
 
     fun finishStationInspection() {

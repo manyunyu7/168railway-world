@@ -96,13 +96,8 @@ internal object StopEditMode {
         if (!read(s)) { Toast.makeText(activity, "Perhentian line ini tidak bisa diubah di peta.", Toast.LENGTH_LONG).show(); reopen(); return }
         session = s
         bar(s)
-        map.routeOf(id)?.let { xy ->
-            if (xy.size >= 4) {
-                var x0 = Float.MAX_VALUE; var y0 = Float.MAX_VALUE; var x1 = -Float.MAX_VALUE; var y1 = -Float.MAX_VALUE
-                for (i in xy.indices step 2) { x0 = minOf(x0, xy[i]); x1 = maxOf(x1, xy[i]); y0 = minOf(y0, xy[i + 1]); y1 = maxOf(y1, xy[i + 1]) }
-                map.post { map.showBounds(floatArrayOf(x0, y0, x1, y1)) }
-            }
-        }
+        // frame the line itself above the bar (showBounds fitted the whole world's box)
+        map.post { map.showLineAboveSheet(id, .3f) }
         map.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {}
             override fun onViewDetachedFromWindow(v: View) { if (session === s) finish(); v.removeOnAttachStateChangeListener(this) }
