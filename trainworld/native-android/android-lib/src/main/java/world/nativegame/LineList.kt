@@ -32,7 +32,7 @@ internal class LineList(
     private var byId: Map<Int, JSONObject> = emptyMap()
     val totalRiders: Double? get() = figures?.optDouble("riders")?.takeIf { it.isFinite() }
 
-    private enum class Key(val label: String, val first: Int) { RIDERS("Penumpang", -1), MONEY("Laba", -1), TRAINS("Armada", -1), NAME("Nama", 1) }
+    private enum class Key(val label: String, val first: Int) { RIDERS("Penumpang", -1), MONEY("Laba", -1), TRAINS("Armada", -1), NEW("Terbaru", -1), NAME("Nama", 1) }
     private var key = Key.RIDERS
     private var dir = -1
     private val open = HashSet<String>()
@@ -67,7 +67,17 @@ internal class LineList(
             bar.addView(chip, LinearLayout.LayoutParams(-2, dp(40)).apply { marginEnd = dp(6); topMargin = dp(4); bottomMargin = dp(4) })
         }
         paint()
-        return android.widget.HorizontalScrollView(host).apply { isHorizontalScrollBarEnabled = false; addView(bar) }
+        val view = StudioUi.text(host, if (table) "Kartu" else "Tabel", 12.5f, true).apply {
+            gravity = Gravity.CENTER; minHeight = dp(40); setPadding(dp(12), 0, dp(12), 0); isClickable = true
+            background = StudioUi.pill(host, 0x1422204a, 16)
+            setCompoundDrawables(StudioUi.glyph(host, StudioUi.Icon.LAYERS, StudioUi.INK), null, null, null); compoundDrawablePadding = dp(4)
+            contentDescription = "Ganti tampilan daftar"
+            setOnClickListener { table = !table; text = if (table) "Kartu" else "Tabel"; changed() }
+        }
+        val wrap = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+        wrap.addView(android.widget.HorizontalScrollView(host).apply { isHorizontalScrollBarEnabled = false; addView(bar) }, LinearLayout.LayoutParams(0, -2, 1f))
+        wrap.addView(view, LinearLayout.LayoutParams(-2, dp(40)).apply { marginStart = dp(6) })
+        return wrap
     }
 
     /** A line's or group's figures: riders, fares, running and upkeep, profit; nulls where none. */
@@ -238,15 +248,79 @@ internal class LineList(
                 Key.RIDERS -> s.riders ?: 0.0
                 Key.MONEY -> if (s.money) s.profit else 0.0
                 Key.TRAINS -> s.trains
+                // a line's id grows with each line built: newest first, ↑ turns it to oldest first
+                Key.NEW -> g.maxOf { it.getInt("id") }.toDouble()
                 Key.NAME -> 0.0
             }
         }
         val byName = compareBy<Triple<String, List<JSONObject>, String>, String>(String.CASE_INSENSITIVE_ORDER) { it.third }
         val order = if (key == Key.NAME) (if (dir > 0) byName else byName.reversed())
             else compareBy<Triple<String, List<JSONObject>, String>> { dir * value(it.second) }.then(byName)
-        groups.sortedWith(order).forEach { (k, g, name) ->
+        val sorted = groups.sortedWith(order)
+        if (table) { tableView(sorted.map { (k, g, name) -> Triple(k, if (key == Key.NAME) g else g.sortedBy { dir * value(listOf(it)) }, name) }); return }
+        sorted.forEach { (k, g, name) ->
             val members = if (key == Key.NAME) g else g.sortedBy { dir * value(listOf(it)) }
             rows.addView(card(k, members, name), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         }
+    }
+
+    /** Compact table (owner: "kasih opsi table biar compact"): one 44 dp row a line, columns sortable. */
+    var table: Boolean
+        get() = host.getSharedPreferences("world-native-lines", 0).getBoolean("table", false)
+        set(v) { host.getSharedPreferences("world-native-lines", 0).edit().putBoolean("table", v).apply() }
+
+    private fun tableView(groups: List<Triple<String, List<JSONObject>, String>>) {
+        val box = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; background = StudioUi.card(host, 16, 0xf2ffffff.toInt()); setPadding(dp(8), dp(4), dp(8), dp(4)) }
+        val weights = floatArrayOf(2.6f, 1.15f, 1.15f, 1.15f)
+        fun cell(row: LinearLayout, i: Int, text: String, ink: Int, bold: Boolean, end: Boolean) {
+            row.addView(StudioUi.text(host, text, if (bold) 12f else 12.5f, bold, ink).apply {
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                gravity = (if (end) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
+                if (!bold) typeface = StudioUi.heavy(host)
+            }, LinearLayout.LayoutParams(0, -1, weights[i]).apply { if (i > 0) marginStart = dp(4) })
+        }
+        val head = LinearLayout(host).apply { minimumHeight = dp(36); gravity = Gravity.CENTER_VERTICAL }
+        val heads = listOf("Line" to Key.NAME, "Penumpang" to Key.RIDERS, "Laba/hari" to Key.MONEY, "Armada" to Key.TRAINS)
+        heads.forEachIndexed { i, (label, k) ->
+            val on = key == k
+            cell(head, i, label + if (on) (if (dir < 0) " ↓" else " ↑") else "", if (on) StudioUi.INK else StudioUi.MUTED, true, i > 0)
+            head.getChildAt(i).apply {
+                isClickable = true; minimumHeight = dp(44)
+                setOnClickListener { if (key == k) dir = -dir else { key = k; dir = k.first }; refresh() }
+            }
+        }
+        box.addView(head)
+        groups.forEachIndexed { n, (k, g, name) ->
+            val s = sum(g)
+            val first = g.first()
+            val row = LinearLayout(host).apply {
+                gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(44); isClickable = true
+                if (n % 2 == 0) background = StudioUi.pill(host, 0x0a22204a, 10)
+                setOnClickListener { if (g.size > 1) { if (!open.add(k)) open.remove(k); refresh() } else pick(first.getInt("id")) }
+                contentDescription = "$name, ${s.riders?.let { StudioFormat.count(it) } ?: "—"} penumpang, laba ${if (s.money) usd(s.profit) else "—"}"
+            }
+            val nameCell = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+            nameCell.addView(StudioUi.badge(host, ServicePanel.code(name), ServicePanel.color(looks[first.getInt("id")]), 22), LinearLayout.LayoutParams(dp(22), dp(22)))
+            nameCell.addView(StudioUi.text(host, name + if (g.size > 1) " (${g.size})" else "", 12.5f, true, StudioUi.INK).apply {
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
+            row.addView(nameCell, LinearLayout.LayoutParams(0, -1, weights[0]))
+            val known = figures != null
+            cell(row, 1, if (!s.running) (if (s.status == "broken") "Rusak" else "—") else if (known && s.riders != null) StudioFormat.count(s.riders!!) else "—", StudioUi.INK, false, true)
+            cell(row, 2, if (known && s.money) usd(s.profit) else "—", profitInk(s), false, true)
+            cell(row, 3, if (known && s.running) s.trains.toInt().toString() else "—", StudioUi.INK, false, true)
+            box.addView(row)
+            if (g.size > 1 && k in open) g.forEachIndexed { i, route ->
+                val one = sum(listOf(route))
+                val sub = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(40); isClickable = true; setOnClickListener { pick(route.getInt("id")) } }
+                val label = route.getString("name").let { if (it == name) "Layanan ${i + 1}" else it }
+                cell(sub, 0, "   ↳ $label", StudioUi.MUTED, true, false)
+                cell(sub, 1, if (known && one.riders != null) StudioFormat.count(one.riders!!) else "—", StudioUi.INK, false, true)
+                cell(sub, 2, if (known && one.money) usd(one.profit) else "—", profitInk(one), false, true)
+                cell(sub, 3, if (known && one.running) one.trains.toInt().toString() else "—", StudioUi.INK, false, true)
+                box.addView(sub)
+            }
+        }
+        rows.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
     }
 }
