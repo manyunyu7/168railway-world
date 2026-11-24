@@ -2042,8 +2042,7 @@ class NativeWorldActivity : Activity() {
     }
 
     /** The web's purpose filter (`PurposeSelect`): every purpose or one, for the trip bubbles and the
-     * Traffic widths (station circles stay every purpose's, as on the web). A pick with neither shown
-     * turns on Total perjalanan, so it is never a choice without effect. */
+     * Traffic widths (station circles stay every purpose's, as on the web). */
     private fun purposeChips(done: () -> Unit) = WrapRow(this).apply {
         StudioPassengerOverlay.PURPOSES.forEach { (key, label, colour) ->
             val selected = map.overlay.purpose == key
@@ -2058,8 +2057,7 @@ class NativeWorldActivity : Activity() {
                 setOnClickListener {
                     done()
                     map.overlay.choosePurpose(key)
-                    // the filter narrows the trip bubbles and the Traffic widths (web demandLayers.ts)
-                    if (map.overlay.selection[0] == "none" && map.overlay.track != "traffic") applyLens(Lens.TRIPS) else updateLensLegend()
+                    updateLensLegend()
                     map.announceForAccessibility("Tujuan perjalanan · $label")
                 }
             })
