@@ -44,8 +44,8 @@ internal object FinanceHistory {
         val keep = when (span) { "1d" -> 24; "30d" -> 30; else -> Int.MAX_VALUE }
         val shown = list.filter { it.getInt(key) > newest - keep }
         val shift = state.optDouble("dayShift", 0.0) / 3600
-        fun col(e: JSONObject, label: String, n: Int = 1) = Col(label, e.optDouble("fares") / n, e.optDouble("running") / n, e.optDouble("upkeep") / n,
-            e.optDouble("loan") / n, e.optDouble("trains") / n, e.optDouble("build") / n, e.optDouble("rides") / n, n > 1)
+        fun col(e: JSONObject, label: String, n: Int = 1) = Col(label, e.optDouble("fares", 0.0) / n, e.optDouble("running", 0.0) / n, e.optDouble("upkeep", 0.0) / n,
+            e.optDouble("loan", 0.0) / n, e.optDouble("trains", 0.0) / n, e.optDouble("build", 0.0) / n, e.optDouble("rides", 0.0) / n, n > 1)
         if (hours) return shown.map { e ->
             val at = e.getInt("hour") + shift
             val h = Math.floorMod(Math.floor(at).toLong(), 24L)
@@ -98,7 +98,7 @@ internal object FinanceHistory {
         fun fill() {
             val cols = columns(state)
             chips.removeAllViews()
-            for ((k, label) in listOf("1d" to "1h", "30d" to "30h", "all" to "Semua")) {
+            for ((k, label) in listOf("1d" to "24 jam", "30d" to "30 hari", "all" to "Semua")) {
                 val on = k == span
                 chips.addView(StudioUi.chip(activity, label, if (on) StudioUi.INK else StudioUi.TINT_GREY, if (on) StudioUi.WHITE else StudioUi.INK).apply {
                     minHeight = dp(48); gravity = android.view.Gravity.CENTER; minWidth = dp(64)
