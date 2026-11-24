@@ -23,6 +23,7 @@ import { queryClock } from "../workers/clockClient";
 import { locateLine, locateStation } from "./locate";
 import { vehicleOf } from "./inspector/schedule";
 import { Chip, Icon } from "./widgets";
+import { SIGNAL_CLOSED, SIGNAL_OPEN, signalOf } from "../game/signalling";
 import { t, tNumber } from "../i18n";
 
 const STORE = "anitabuilder-trouble-open";
@@ -125,7 +126,33 @@ function itemsOf(w: WorldView, level: number, day: Map<string, LineToday>): Item
       } });
   }
   out.push(...spots.values());
+  out.push(...signalAdvice(w, level));
   return out.sort((a, b) => a.tier - b.tier || b.size - a.size);
+}
+
+/** Track at capacity on open or closed block: better signalling takes more trains (`signal.rs`). One row a
+ * place, the fullest piece's, after the capacity tags. */
+function signalAdvice(w: WorldView, level: number): Item[] {
+  const full = w.fullTrack[level];
+  if (!full?.size) return [];
+  const byPlace = new Map<string, Item>();
+  const edges = new Map(w.edges.map((e) => [e.id, e]));
+  for (const [id, f] of [...full].sort((a, b) => b[1].rho - a[1].rho)) {
+    const e = edges.get(id);
+    if (!e || e.crossover || e.kind || signalOf(e) > SIGNAL_CLOSED) continue;
+    const a = w.nodes.get(e.a), b = w.nodes.get(e.b);
+    if (!a || !b) continue;
+    const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, place = stationNameNear(x, y);
+    const key = "s" + (place || id);
+    if (byPlace.has(key)) continue;
+    const open = signalOf(e) === SIGNAL_OPEN;
+    byPlace.set(key, { key, tier: 4, size: f.rho, lead: <i class="trouble-mark near"><Icon.alert /></i>,
+      label: place ? t("signal.troubleAt", { place }) : t("signal.trouble"),
+      value: <span class="trouble-tag near">{t(open ? "signal.open" : "signal.closed")}</span>,
+      tip: [t(open ? "signal.troubleOpen" : "signal.troubleClosed", { pct: tNumber(Math.round(f.rho * 100)) }), t("signal.troubleFix")].join("\n"),
+      go: () => { locateStation((a.lng + b.lng) / 2, (a.lat + b.lat) / 2); pick({ kind: "track", edge: id }); } });
+  }
+  return [...byPlace.values()];
 }
 
 function readOpen(): boolean {

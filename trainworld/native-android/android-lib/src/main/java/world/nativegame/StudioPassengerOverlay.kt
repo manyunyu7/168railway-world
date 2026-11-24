@@ -94,7 +94,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         error = null
         gridKey = ""
         if ((loading == "trips" && selection[0]=="none") ||
-            (loading == "network" && selection[1]=="none" && track=="line")) stop()
+            (loading == "network" && selection[1]=="none" && (track=="line" || track=="signal"))) stop()
         startNeeded()
         redraw()
     }
@@ -136,7 +136,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         if (activity.isDestroyed || activity.isFinishing || loading.isNotEmpty() || error != null) return
         val kind = when {
             selection[0] != "none" && "trips" !in loaded -> "trips"
-            (selection[1] != "none" || track != "line") && "network" !in loaded -> "network"
+            (selection[1] != "none" || (track != "line" && track != "signal")) && "network" !in loaded -> "network"
             else -> return
         }
         val bytes = snapshot?.invoke() ?: return
@@ -249,9 +249,24 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         val a=floor(z).toInt()
         return mix(levels[a],levels[min(a+1,6)],z-a)
     }
+    /** The Signals lens: edge and level pairs of the pieces other than closed block (`TrackSignal.levels`). */
+    var signalLevels: (() -> IntArray)? = null
+    private var signals = emptyMap<Int,Int>()
+    private var signalsAt = 0L
+    /** A piece's signalling, read again at most every 100 ms (a frame's pieces share one read). */
+    private fun signalOf(id: Int): Int {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - signalsAt > 100) {
+            signalsAt = now
+            val pairs = signalLevels?.invoke() ?: IntArray(0)
+            signals = (0 until pairs.size / 2).associate { pairs[2*it] to pairs[2*it+1] }
+        }
+        return signals[id] ?: TrackSignal.CLOSED
+    }
     fun railColor(id:Int, level:Int, speed:Double) = when(track) {
         "height" -> levels[(level+3).coerceIn(0,6)] or Color.BLACK
         "speed" -> ramp(speed.toFloat(),speeds,speedColors)
+        "signal" -> TrackSignal.lensColor(signalOf(id))
         else -> edgeProfit[id]?.let { ramp(it,gains,gainColors) } ?: 0xff879194.toInt()
     }
     /** The Traffic view's width share of each span (against the busiest, purpose shown), per route id:
@@ -441,7 +456,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         if(selection[0]!="none") parts.add(if(cells.isEmpty()) "Belum ada perjalanan" else when(selection[0]){"work"->"Destinasi";"home"->"Rumah";else->"Rumah + destinasi"} +
             if(purpose!="all") " · "+purposeName() else "")
         if(selection[1]!="none") parts.add(if(stations.none { if(selection[1]=="transfers") it[3]>0 else if(selection[1]=="origins") it[2]>it[3] else it[2]>0 }) "Belum ada penumpang" else when(selection[1]){"transfers"->"Penumpang pindah";"origins"->"Asal penumpang";else->"Total penumpang"})
-        if(track!="line") parts.add(when(track){"height"->"Ketinggian";"speed"->"Kecepatan";"profit"->"Laba";else->"Lalu lintas" +
+        if(track!="line") parts.add(when(track){"height"->"Ketinggian";"speed"->"Kecepatan";"profit"->"Laba";"signal"->"Persinyalan";else->"Lalu lintas" +
             if(purpose!="all" && selection[0]=="none") " · "+purposeName() else ""})
         return parts.joinToString(" · ")
     }

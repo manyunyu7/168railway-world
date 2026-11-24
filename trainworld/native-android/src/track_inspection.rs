@@ -81,7 +81,9 @@ fn read(w: &mut World, e: u32) -> Option<Value> {
     let (lo, hi) = (row[8] as i32, row[9] as i32);
     // web `edgeUpkeep` (regionMoney.ts) as the track model counts it (`edge_upkeep`), US$M a day
     let upkeep = if crossover { 0. } else {
-        row[5] / 1000. * cost::track_upkeep_km(lo, hi) * cost::track_factor(tracks, kind) * ECONOMY / 1e6
+        // and its signalling's (ATP, CBTC), as `edge_upkeep` counts it
+        let sig = w.api.edge_signal(e);
+        row[5] / 1000. * (cost::track_upkeep_km(lo, hi) + cost::signal_upkeep_km(sig)) * cost::track_factor(tracks, kind) * ECONOMY / 1e6
     };
     let colours: std::collections::HashMap<u32, u32> =
         w.api.lines_info().chunks_exact(22).map(|r| (r[0] as u32, r[1] as u32)).collect();
@@ -111,7 +113,7 @@ fn read(w: &mut World, e: u32) -> Option<Value> {
 
 /// Books a paid edit the way the station facilities do: cash and fleets into the header, the charge
 /// into the ledger, and the running costs worked out again.
-fn book(w: &mut World, clock: f64) {
+pub(super) fn book(w: &mut World, clock: f64) {
     let charge = w.api.last_charge();
     let trains = w.api.last_train_charge();
     w.header["cash"] = w.api.cash().into();

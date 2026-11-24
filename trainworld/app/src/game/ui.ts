@@ -34,7 +34,7 @@ export type RealNetworkShown = "none" | "passenger" | "all";
 
 export interface DisplaySettings {
   /** Track display: plain lines, traffic-weighted lines, height, or geometry speed limit. */
-  trackColour: "line" | "traffic" | "height" | "speed" | "profit";
+  trackColour: "line" | "traffic" | "height" | "speed" | "profit" | "signal";
   trains: boolean;
   stationNames: boolean;
   capacity: boolean;

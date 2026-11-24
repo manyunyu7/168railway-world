@@ -35,6 +35,8 @@ pub enum Op {
     Split { edge: u32, s: f64, node: u32, new_edge: u32 },
     /// Remove an edge; each line using it is rerouted by the fastest path or left broken.
     DeleteEdge { id: u32 },
+    /// Set an edge's signalling (`Network::edge_signal`, `SIGNAL_*`).
+    Signal { id: u32, signal: u8 },
     Batch(Vec<Op>),
 }
 
@@ -1473,7 +1475,13 @@ impl TrackWorld {
         let n = &mut self.net;
         Ok(match op {
             Op::Node { id, data } => Op::Node { id, data: n.set_node(id, data)? },
-            Op::Edge { id, data } => Op::Edge { id, data: n.set_edge(id, data)? },
+            Op::Edge { id, data } => {
+                // a removal's inverse puts the edge's signalling back with it
+                let sig = n.edge_signal.get(id as usize).copied().filter(|_| data.is_none() && n.edge_ok(id)).unwrap_or(SIGNAL_CLOSED);
+                let old = Op::Edge { id, data: n.set_edge(id, data)? };
+                if sig != SIGNAL_CLOSED { Op::Batch(vec![old, Op::Signal { id, signal: sig }]) } else { old }
+            }
+            Op::Signal { id, signal } => Op::Signal { id, signal: n.set_edge_signal(id, signal)? },
             Op::Station { node, data } => Op::Station { node, data: n.set_station(node, data)? },
             Op::Line { id, data } => Op::Line { id, data: n.set_line(id, data)? },
             #[cfg(test)]
@@ -1507,6 +1515,11 @@ impl TrackWorld {
                 first.b = node;
                 second.a = node;
                 let mut ops = vec![Op::Node { id: node, data: Some(nd) }, Op::Edge { id: edge, data: Some(first) }, Op::Edge { id: new_edge, data: Some(second) }];
+                // the far half keeps the signalling
+                let sig = n.edge_signal[edge as usize];
+                if sig != SIGNAL_CLOSED {
+                    ops.push(Op::Signal { id: new_edge, signal: sig });
+                }
                 for l in lines_using(n, edge) {
                     let mut d = n.line_data(l).unwrap();
                     let mut path = Vec::with_capacity(d.path.len() + 1);
@@ -1536,7 +1549,11 @@ impl TrackWorld {
                 let users = lines_using(n, id);
                 // a reroute never adds a reversal the player did not choose (T-797)
                 let turns: Vec<usize> = users.iter().map(|&l| n.turn_count(n.line_stops(l), n.line_path(l))).collect();
+                let sig = n.edge_signal[id as usize];
                 let mut inv = vec![Op::Edge { id, data: n.set_edge(id, None)? }];
+                if sig != SIGNAL_CLOSED {
+                    inv.insert(0, Op::Signal { id, signal: sig });
+                }
                 for (l, turns) in users.into_iter().zip(turns) {
                     let mut d = self.net.line_data(l).unwrap();
                     if let Some(path) = self.net.route(&d.stops).filter(|p| self.net.turn_count(&d.stops, p) <= turns) {

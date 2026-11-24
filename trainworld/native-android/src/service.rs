@@ -91,10 +91,19 @@ impl World {
             let shift = self.api.world().svc.lines[id as usize].shift;
             let level = match ((now + shift).rem_euclid(86400.) / 3600.) as u32 { 6..=19 => 0, 20..=23 => 1, _ => 2 };
             let held = self.api.line_held(id);
+            // the track under what holds it back or limits it, where better signalling would help:
+            // open or closed block (web TroubleList's signalling advice)
+            let under = self.api.line_held_edges(id);
+            let signal_on = |k: usize| -> Option<(u32, u8)> {
+                let e = *under.get(k)?;
+                (e >= 0.).then(|| (e as u32, self.api.edge_signal(e as u32))).filter(|&(_, s)| s <= trainworld_sim::track::params::SIGNAL_CLOSED)
+            };
             if let Some(&[wait, kind, node, x, y, tph, most]) = held.get(7 * level..7 * level + 7) {
                 if wait > 0.01 {
                     let place = if node >= 0. && self.api.world().net.is_station(node as u32) { self.api.node_name(node as u32) } else { nearest(x, y) };
-                    out.push((2, wait, json!({"tier":2,"line":id,"name":name,"color":r[1],"kind":kind,"place":place,"wait":wait,"tph":tph,"most":most,"x":x,"y":y})));
+                    let mut item = json!({"tier":2,"line":id,"name":name,"color":r[1],"kind":kind,"place":place,"wait":wait,"tph":tph,"most":most,"x":x,"y":y});
+                    if let Some((e, s)) = signal_on(level) { item["edge"] = e.into(); item["signal"] = s.into(); }
+                    out.push((2, wait, item));
                     continue;
                 }
             }
@@ -108,7 +117,9 @@ impl World {
                     let place = if node >= 0. && self.api.world().net.is_station(node as u32) { self.api.node_name(node as u32) } else { nearest(x, y) };
                     let room = if gap.is_finite() { 3600. / gap } else { 0. };
                     let tier = if rho > 1. { 2 } else { 4 };
-                    out.push((tier, rho, json!({"tier":tier,"rho":rho,"line":id,"name":name,"color":r[1],"kind":kind,"place":place,"wait":0,"over":tph - room,"tph":tph,"most":room,"x":x,"y":y})));
+                    let mut item = json!({"tier":tier,"rho":rho,"line":id,"name":name,"color":r[1],"kind":kind,"place":place,"wait":0,"over":tph - room,"tph":tph,"most":room,"x":x,"y":y});
+                    if let Some((e, s)) = signal_on(3 + level) { item["edge"] = e.into(); item["signal"] = s.into(); }
+                    out.push((tier, rho, item));
                 }
             }
         }

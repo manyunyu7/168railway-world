@@ -15,7 +15,7 @@ import java.util.Locale
  * The web track inspector (ui/inspector/TrackInspector.tsx) for one built piece of track: its kind,
  * length and level, rebuilding it in place (PieceRebuild.tsx: level, track count, track type, with a
  * quoted price and a question), its top speed and the player's limit (PieceLimit.tsx), the slowest
- * curve, cost and upkeep, and the lines on it. The figures and edits come from `src/track_inspection.rs`.
+ * curve, cost and upkeep, its signalling (PieceSignal.tsx, `TrackSignal`), and the lines on it. The figures and edits come from `src/track_inspection.rs`.
  */
 internal object TrackInspector {
     @JvmStatic external fun read(handle: Long, edge: Int): String
@@ -241,6 +241,11 @@ internal object TrackInspector {
                 }.apply { isSelected = have > 0; contentDescription = if (have > 0) "Hapus batas laju" else "Batasi laju di rel ini" },
                     LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
                 content.addView(limitRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+                // web PieceSignal: open block to CBTC, on the piece or its whole block
+                TrackSignal.section(activity, handle, edge, transaction, changed) {
+                    read(handle, edge).takeIf { it != "null" }?.let { piece = JSONObject(it) }
+                    render()
+                }?.let { content.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }) }
             }
 
             // Lini di sini

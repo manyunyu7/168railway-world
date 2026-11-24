@@ -44,6 +44,7 @@ mod line_bands;
 mod rail_detail;
 mod achievements;
 mod extras;
+mod signalling;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},

@@ -12,6 +12,7 @@ import { moneyState } from "../../game/money";
 import { edgeUpkeep } from "../../game/regionMoney";
 import { PieceLimit } from "./PieceLimit";
 import { PieceRebuild } from "./PieceRebuild";
+import { PieceSignal } from "./PieceSignal";
 import { Actions, Built, Check, Chip, ConstructRemove, Icon, Row } from "../widgets";
 import { setOneWay } from "../../game/oneWay";
 import { useClockQuery } from "../useClockQuery";
@@ -93,6 +94,7 @@ export function TrackInspector({ edge }: { edge: number }) {
           </Row>
         )}
       </ul>
+      {!e.crossover && <PieceSignal key={e.id} e={e} version={w.version} />}
       {lines.length > 0 && <div class="h">{t("trackInspector.linesHere")}</div>}
       {lines.length === 0 && (
         <div class="h">

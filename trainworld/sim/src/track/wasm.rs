@@ -260,7 +260,14 @@ const CAR_PRICES: [f64; FLEETS] = [CAR_PRICE, HS_CAR_PRICE, BUS_PRICE, BOAT_PRIC
 /// nothing on top of their track (T-867).
 fn edge_upkeep(n: &Network, e: usize) -> Option<f64> {
     (n.edge_alive[e] && n.edge_built[e] && !n.edge_crossover[e])
-        .then(|| n.edge_len[e] / 1000.0 * edge_upkeep_km(n, e) * super::cost::track_factor(n.edge_tracks[e], n.edge_kind[e]) * ECONOMY / 1e6)
+        .then(|| n.edge_len[e] / 1000.0 * edge_upkeep_km(n, e) * super::cost::track_factor(n.edge_tracks[e], n.edge_kind[e]) * ECONOMY / 1e6 + signal_upkeep(n, e))
+}
+/// An edge's signalling's upkeep a game day, US$M (0 unless ATP or CBTC).
+fn signal_upkeep(n: &Network, e: usize) -> f64 {
+    match n.edge_signal[e] {
+        SIGNAL_CLOSED | SIGNAL_OPEN => 0.0,
+        sig => n.edge_len[e] / 1000.0 * super::cost::signal_upkeep_km(sig) * super::cost::track_factor(n.edge_tracks[e], n.edge_kind[e]) * ECONOMY / 1e6,
+    }
 }
 /// An edge's upkeep rate a route-km, real US$ (T-1931): the dearest structure between its lowest and
 /// highest level. The app reads the same two levels from `edges_info`, so its figures match
@@ -859,6 +866,7 @@ mod crossings;
 mod links;
 mod oneway;
 mod limits;
+mod signals;
 mod flip;
 mod rebuild;
 mod lines;
@@ -2297,6 +2305,8 @@ mod stop_order_tests;
 mod oneway_tests;
 #[cfg(test)]
 mod limits_tests;
+#[cfg(test)]
+mod signals_tests;
 /// T-3103, T-3092: flat-junction badges and real flyovers.
 #[cfg(test)]
 mod flyover_tests;

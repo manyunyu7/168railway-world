@@ -360,7 +360,7 @@ impl TrackApi {
                 // a one-way piece joins only one that runs the same way along the joined edge (T-3094)
                 let flip = if k == 0 { which == 0 } else { which == 1 };
                 let sense = if flip && matches!(od.oneway, 1 | 2) { 3 - od.oneway } else { od.oneway };
-                if seen.contains(&o) || od.built != d.built || od.off != d.off || od.tracks != d.tracks || od.kind != d.kind || od.crossover || d.crossover || sense != d.oneway || od.limit != d.limit {
+                if seen.contains(&o) || od.built != d.built || od.off != d.off || od.tracks != d.tracks || od.kind != d.kind || od.crossover || d.crossover || sense != d.oneway || od.limit != d.limit || net.edge_signal[o as usize] != net.edge_signal[e as usize] {
                     break;
                 }
                 seen.push(o);

@@ -4037,6 +4037,8 @@ function applyInner(op: EditOp): Applied {
       return { r: a.set_edge_oneway(op.edge, op.dir) };
     case "pieceLimit":
       return { r: a.set_edges_limit(new Uint32Array(op.edges), op.kmh) };
+    case "pieceSignal":
+      return { r: a.set_edges_signal(new Uint32Array(op.edges), op.level) };
     case "stationTracks":
       return { r: a.set_station_tracks(op.node, op.one) };
     case "stationWay":
@@ -4967,6 +4969,7 @@ async function handleMessage(msg: ToClock) {
       : q.what === "upgradeCost" ?new Float64Array(UPGRADE_BITS.map((b) => api!.station_upgrade_cost(q.node, b)))
       : q.what === "platformCost" ? new Float64Array([api.platform_cost(new Uint32Array(q.nodes), q.platform)])
       : q.what === "doubleUp" ? doubleUpAnswer(q.edge)
+      : q.what === "signal" ? api.signal_panel(q.edge)
       : q.what === "oneWay" ? new Float64Array(api.oneway_effects(q.edge, q.dir))
       : q.what === "lineAccount" ? api.line_account(q.line, q.day)
       : q.what === "linePeriods" ? api.line_periods(q.line, q.day)
