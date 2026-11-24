@@ -311,6 +311,15 @@ class NativeWorldActivity : Activity() {
         rightTools.addView(save, LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(8) })
         zoomTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rightTools.addView(zoomTools)
+        rightTools.addView(android.widget.ImageButton(this).apply {
+            contentDescription = "Cari di peta"
+            setImageResource(android.R.drawable.ic_menu_search)
+            setColorFilter(StudioUi.INK)
+            background = StudioUi.glass(context,24)
+            setOnClickListener {
+                if (handle != 0L && !drawing) withCommittedWorld(pause = false) { searchMenu(emptyList(),true) }
+            }
+        }, LinearLayout.LayoutParams(dp(48),dp(48)))
         listOf(
             Triple(StudioUi.Icon.PLUS, "Perbesar peta", { map.zoomStep(true) }),
             Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoomStep(false) }),
@@ -795,7 +804,7 @@ class NativeWorldActivity : Activity() {
     }
 
     /** Cari & menu: one box finds commands, settings and stations; replaces the old Kelola list. */
-    private fun searchMenu(options: List<Pair<String, () -> Unit>>) {
+    private fun searchMenu(options: List<Pair<String, () -> Unit>>, focus: Boolean = false) {
         fun iconFor(label: String): Pair<StudioUi.Icon, Int> = when {
             label.startsWith("Urungkan") || label.startsWith("Ulangi") -> StudioUi.Icon.UNDO to 0xffefedf5.toInt()
             label.startsWith("Pilih stasiun") -> StudioUi.Icon.PIN to 0xffe3edf9.toInt()
@@ -828,7 +837,7 @@ class NativeWorldActivity : Activity() {
             }
         }
         val stations = map.stops.filter { it.id >= 0 }.distinctBy { it.name }.sortedBy { it.name }
-        StudioUi.sheet(this, "Cari & menu") { column, dialog ->
+        StudioUi.sheet(this, if (focus) "Cari di peta" else "Cari & menu") { column, dialog ->
             val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             var firstAction: (() -> Unit)? = null
             fun row(label: String, sub: String?, icon: StudioUi.Icon, tint: Int, click: () -> Unit) {
@@ -880,7 +889,7 @@ class NativeWorldActivity : Activity() {
                         row(hit.name,labels[hit.kind],icon,StudioUi.TINT_BLUE,hit.open)
                     }
                 }
-                if (results.childCount == 0) results.addView(StudioUi.text(this, "Tidak ada yang cocok dengan “$query”.", 14f, true, StudioUi.MUTED).apply {
+                if (results.childCount == 0 && q.isNotEmpty()) results.addView(StudioUi.text(this, "Tidak ada yang cocok dengan “$query”.", 14f, true, StudioUi.MUTED).apply {
                     setPadding(dp(4), dp(16), dp(4), dp(16))
                 })
             }
@@ -888,7 +897,12 @@ class NativeWorldActivity : Activity() {
                 setPadding(dp(4), 0, dp(4), dp(8))
             })
             column.addView(android.widget.EditText(this).apply {
-                hint = "Cari stasiun, jalur, kota, tempat, atau perintah"
+                hint = if (focus) "Cari stasiun, jalur, kota, atau tempat" else "Cari stasiun, jalur, kota, tempat, atau perintah"
+                if (focus) post {
+                    requestFocus()
+                    (context.getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                        .showSoftInput(this,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                }
                 typeface = StudioUi.face(context, true)
                 textSize = 16f
                 setTextColor(StudioUi.INK)
