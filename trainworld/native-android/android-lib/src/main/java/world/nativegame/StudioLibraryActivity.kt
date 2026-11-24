@@ -100,13 +100,13 @@ class StudioLibraryActivity : Activity() {
             val heading = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(StudioUi.text(context,"168Railway Studio",13f,true,StudioUi.MUTED))
-                addView(StudioUi.title(context,"Duniaku",32f).apply { includeFontPadding = false })
+                addView(StudioUi.title(context,"Duniaku",24f).apply { includeFontPadding = false })
             }
             addView(KScene.glassIcon(context,StudioUi.Icon.BACK,"Kembali") { if (!locked) finish() },
-                LinearLayout.LayoutParams(dp(50),dp(50)))
+                LinearLayout.LayoutParams(dp(48),dp(48)))
             addView(heading, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
             addView(KScene.glassIcon(context,StudioUi.Icon.CLOUD,"Muat ulang daftar akun") { if (!locked) refresh() },
-                LinearLayout.LayoutParams(dp(50),dp(50)))
+                LinearLayout.LayoutParams(dp(48),dp(48)))
         }
         append(toolbar)
         status = StudioUi.text(this,"",14f,true,StudioUi.MUTED).apply {
@@ -148,25 +148,26 @@ class StudioLibraryActivity : Activity() {
             val cover = covers[slot.id]
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                background = StudioUi.glass(context, 30)
+                background = StudioUi.glass(context, 22)
                 elevation = dp(3).toFloat()
-                setPadding(dp(12),dp(12),dp(12),dp(16))
+                setPadding(dp(10),dp(10),dp(10),dp(10))
             }
-            if (cover?.image != null) card.addView(KScene.mapCover(this,cover.image,22),LinearLayout.LayoutParams(-1,dp(300)))
-            else append(KScene.Island(this),4,190)
+            // the cover a banner, not 45% of the screen (owner: the hero took the whole first view)
+            if (cover?.image != null) card.addView(KScene.mapCover(this,cover.image,16),LinearLayout.LayoutParams(-1,dp(150)))
+            else append(KScene.Island(this),4,120)
             val heading = LinearLayout(this).apply {
                 gravity = Gravity.BOTTOM
-                setPadding(dp(6),dp(12),dp(6),0)
-                addView(StudioUi.title(context,slot.title,26f).apply { maxLines = 2 },LinearLayout.LayoutParams(0,-2,1f))
-                cover?.let { addView(StudioUi.text(context,it.dayTime,13f,true,StudioUi.MUTED).apply { gravity = Gravity.END },
-                    LinearLayout.LayoutParams(-2,-2).apply { marginStart = dp(8); bottomMargin = dp(4) }) }
+                setPadding(dp(4),dp(8),dp(4),0)
+                addView(StudioUi.title(context,slot.title,20f).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },LinearLayout.LayoutParams(0,-2,1f))
+                cover?.let { addView(StudioUi.text(context,it.dayTime,12f,true,StudioUi.MUTED).apply { gravity = Gravity.END },
+                    LinearLayout.LayoutParams(-2,-2).apply { marginStart = dp(8); bottomMargin = dp(3) }) }
             }
             card.addView(heading)
             // The save time is a sentence, not a chip: it was cut off at the edge of the chip row.
-            if (cover != null) card.addView(StudioUi.text(this,WorldDocuments.savedWhen(slot.at),13f,false,StudioUi.MUTED).apply {
-                setPadding(dp(6),dp(2),dp(6),0)
+            if (cover != null) card.addView(StudioUi.text(this,WorldDocuments.savedWhen(slot.at),12f,false,StudioUi.MUTED).apply {
+                setPadding(dp(4),0,dp(4),0)
             })
-            val chips = LinearLayout(this).apply { setPadding(dp(6),dp(8),dp(6),dp(12)) }
+            val chips = LinearLayout(this).apply { setPadding(dp(4),dp(6),dp(4),dp(8)) }
             fun chip(text: String, tint: Int, ink: Int) =
                 chips.addView(StudioUi.chip(this,text,tint,ink),LinearLayout.LayoutParams(-2,-2).apply { marginEnd = dp(6) })
             if (cover != null) {
@@ -184,21 +185,21 @@ class StudioLibraryActivity : Activity() {
             // The card already shows the world; "Main lagi" opens it, as the web's saves list does, without a second sheet.
             card.addView(StudioUi.button(this,"Main lagi",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
                 if (!locked) open(slot)
-            }.apply { minHeight = dp(56); textSize = 17f },LinearLayout.LayoutParams(-1,-2).apply { marginStart = dp(6); marginEnd = dp(6) })
+            },LinearLayout.LayoutParams(-1,-2))
             // Deleting is rare and cannot be undone: a quiet text action, not a second big button beside "Main lagi".
-            if (active == null) card.addView(StudioUi.text(this,"Hapus dari HP ini",14f,true,StudioUi.BAD).apply {
+            if (active == null) card.addView(StudioUi.text(this,"Hapus dari HP ini",13f,true,StudioUi.BAD).apply {
                 gravity = Gravity.CENTER
-                minHeight = dp(48)
+                minHeight = dp(44)
                 isClickable = true
                 background = android.util.TypedValue().let { tv ->
                     context.theme.resolveAttribute(android.R.attr.selectableItemBackground,tv,true); context.getDrawable(tv.resourceId) }
                 setOnClickListener { if (!locked) WorldDeletion.ask(this@StudioLibraryActivity,worker,slot) { refresh() } }
-            },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
+            },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(2) })
             if (active != null) {
                 card.addView(StudioUi.button(this,"Simpan perubahan ke Studio",StudioUi.Tone.BLUE,StudioUi.Icon.SAVE) { if (!locked) upload(active.first, false) },
-                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
-                card.addView(StudioUi.button(this,"Simpan sebagai dunia baru",icon = StudioUi.Icon.FOLDER) { if (!locked) upload(active.first, true) },
-                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(8) })
+                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
+                card.addView(StudioUi.button(this,"Simpan sebagai dunia baru",icon = StudioUi.Icon.COPY) { if (!locked) upload(active.first, true) },
+                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
             }
             append(card,0)
         } else {
@@ -217,20 +218,33 @@ class StudioLibraryActivity : Activity() {
             (KScene.worldCard(this,slot.title,detail,0xffb5e08f.toInt(),cover?.image) {
                 if (!locked) open(slot)
             } as LinearLayout).apply {
-                // web SavesPanel: a bin on every card but the game being played
-                if (slot.id != source) addView(StudioUi.iconButton(this@StudioLibraryActivity,"Hapus ${slot.title} dari HP ini",StudioUi.Icon.DELETE) {
-                    if (!locked) WorldDeletion.ask(this@StudioLibraryActivity,worker,slot) { refresh() }
-                }, LinearLayout.LayoutParams(dp(44),dp(44)).apply { gravity = Gravity.END })
+                // web SavesPanel: a bin on every card but the game being played, beside the detail line
+                // (it sat under the text and covered it)
+                if (slot.id != source) {
+                    val detailView = getChildAt(childCount - 1)
+                    removeView(detailView)
+                    addView(LinearLayout(context).apply {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(detailView, LinearLayout.LayoutParams(0,-2,1f))
+                        addView(StudioDepot.symbol(context,StudioUi.Icon.DELETE,18f,StudioUi.BAD).apply {
+                            contentDescription = "Hapus ${slot.title} dari HP ini"
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                            isClickable = true
+                            background = StudioDepot.touch(context, StudioUi.TINT_RED, 20)
+                            setOnClickListener { if (!locked) WorldDeletion.ask(this@StudioLibraryActivity,worker,slot) { refresh() } }
+                        }, LinearLayout.LayoutParams(dp(40),dp(40)).apply { marginStart = dp(4) })
+                    }, LinearLayout.LayoutParams(-1,-2))
+                }
             } as View
         } + KScene.newIsland(this,"Dunia baru") { if (!locked) createWorld() }
-        if (others.isNotEmpty()) append(StudioUi.section(this,"Di perangkat · ${mine.size}"),12)
+        if (others.isNotEmpty()) append(StudioUi.section(this,"Di perangkat · ${mine.size}"),8)
         for (pair in tiles.chunked(2)) {
-            val line = LinearLayout(this).apply { minimumHeight = dp(150) }
+            val line = LinearLayout(this).apply { minimumHeight = dp(140) }
             pair.forEachIndexed { i, tile ->
                 line.addView(tile, LinearLayout.LayoutParams(0,-1,1f).apply { if (i == 1) marginStart = dp(12) })
             }
             if (pair.size == 1) line.addView(View(this), LinearLayout.LayoutParams(0,1,1f).apply { marginStart = dp(12) })
-            append(line,12)
+            append(line,8)
         }
         if (others.size > 3) action(if (allLocal) "Tampilkan lebih sedikit" else "Lihat semua dunia di perangkat") {
             allLocal = !allLocal
