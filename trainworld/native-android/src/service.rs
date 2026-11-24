@@ -310,7 +310,7 @@ impl World {
             || weekend_counts
                 .is_some_and(|c| api.set_line_weekend_counts(id, c[0], c[1], c[2]) != 0);
         if failed {
-            return Err(format!("Jadwal ditolak: {}", api.issue_kinds()));
+            return Err(format!("Jadwal ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
         }
         next.book_service_edit(self, now);
         *self = next;

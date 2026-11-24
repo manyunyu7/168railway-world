@@ -140,7 +140,7 @@ impl World {
         super::finance::tick(self, clock);
         self.api.set_now(clock);
         if self.api.set_flying(node, flying) != 0 {
-            return Err(format!("Flyover ditolak: {}", self.api.issue_kinds()));
+            return Err(format!("Flyover ditolak: {}", crate::issue_text::describe(&self.api.issue_kinds())));
         }
         let charge = self.api.last_charge();
         self.header["cash"] = self.api.cash().into();

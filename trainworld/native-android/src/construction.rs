@@ -310,14 +310,14 @@ impl World {
                 }
             }
             let issue =
-                (preview[0] == 0.).then(|| format!("Rancangan rel ditolak: {}", api.issue_kinds()));
+                (preview[0] == 0.).then(|| format!("Rancangan rel ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
             return Ok(
                 json!({"path":path,"marks":api.preview_marks(),"issue":issue,"length":preview[2],"cost":preview[1],
                 "tags":tags,"tips":tips,"arc":api.route_arc(),"ramp":grade_mark,"grade":max_grade,"radius":curve.map(|v|v[2]),"speed":curve.map(|v|v[3])}),
             );
         }
         if api.add_route(&ends, &corners, tracks as u8, flying) != 0 {
-            return Err(format!("Rancangan rel ditolak: {}", api.issue_kinds()));
+            return Err(format!("Rancangan rel ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
         }
         // Construct just the newly drawn blueprint, preserving other plans in imported saves.
         let edges: Vec<_> = api
@@ -329,7 +329,7 @@ impl World {
             })
             .collect();
         if edges.is_empty() || (!design.deferred && api.construct(&edges, &[]) != 0) {
-            return Err(format!("Rel gagal dibangun: {}", api.issue_kinds()));
+            return Err(format!("Rel gagal dibangun: {}", crate::issue_text::describe(&api.issue_kinds())));
         }
         let length = edges
             .iter()
@@ -380,7 +380,7 @@ impl World {
             .ok_or("Tidak ada rel di titik ini. Ketuk lebih dekat ke rel.")?;
         let old = api.world().net.node_platform.clone();
         if api.add_station(t.kind, t.id, t.x, t.y, length as u16, name.into()) != 0 {
-            return Err(format!("Peron gagal ditempatkan: {}", api.issue_kinds()));
+            return Err(format!("Peron gagal ditempatkan: {}", crate::issue_text::describe(&api.issue_kinds())));
         }
         let n = &api.world().net;
         let node = (0..n.node_count())
@@ -392,7 +392,7 @@ impl World {
             .ok_or("Peron baru tidak ditemukan.")?;
         let info = json!({"node":node,"x":n.node_x[node],"y":n.node_y[node]});
         if !deferred && api.construct(&[], &[node as u32]) != 0 {
-            return Err(format!("Stasiun gagal dibangun: {}", api.issue_kinds()));
+            return Err(format!("Stasiun gagal dibangun: {}", crate::issue_text::describe(&api.issue_kinds())));
         }
         Ok(finish(self, next, clock, commit, info))
     }
@@ -526,7 +526,7 @@ impl World {
         if next.api.construct(&edges, &stations) != 0 {
             return Err(format!(
                 "Rencana gagal dibangun: {}",
-                next.api.issue_kinds()
+                crate::issue_text::describe(&next.api.issue_kinds())
             ));
         }
         Ok(finish(self, next, clock, true, summary))

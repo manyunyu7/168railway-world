@@ -197,7 +197,7 @@ pub fn build(
     if api.set_bus_line(id, &route, 480, 720, 1200, 20., 60., 0xC16A14, name.into()) != 0
         || api.construct_line(id) != 0
     {
-        return Err(format!("Jalur bus ditolak: {}", api.issue_kinds()));
+        return Err(format!("Jalur bus ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
     }
     Ok(id)
 }

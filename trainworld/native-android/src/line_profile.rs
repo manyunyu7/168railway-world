@@ -77,7 +77,7 @@ impl World {
         super::finance::tick(self, clock);
         self.api.set_now(clock);
         if self.api.set_line_limit(id, kmh) != 0 {
-            return Err(format!("Batas laju ditolak: {}", self.api.issue_kinds()));
+            return Err(format!("Batas laju ditolak: {}", crate::issue_text::describe(&self.api.issue_kinds())));
         }
         self.hour = i64::MIN;
         self.operating = None;

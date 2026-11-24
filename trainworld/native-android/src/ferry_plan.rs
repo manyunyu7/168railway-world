@@ -189,7 +189,7 @@ pub(super) fn build(
             format!("{name} {}", (b'A' + i as u8) as char),
         ) != 0
         {
-            return Err(format!("Dermaga ditolak: {}", api.issue_kinds()));
+            return Err(format!("Dermaga ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
         }
         ports.push(api.last_port());
     }
@@ -208,7 +208,7 @@ pub(super) fn build(
     ) != 0
         || api.construct_line(line) != 0
     {
-        return Err(format!("Feri ditolak: {}", api.issue_kinds()));
+        return Err(format!("Feri ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
     }
     Ok(line)
 }

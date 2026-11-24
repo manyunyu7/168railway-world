@@ -70,7 +70,7 @@ impl World {
         if api.set_line_with_trains(id, &stops, 0, 0, 0, dwell, turn, cars, colour, name.into())
             != 0
         {
-            return Err(format!("Layanan ditolak: {}", api.issue_kinds()));
+            return Err(format!("Layanan ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
         }
         if api.line_stops(id) != stops && api.order_stops(id, &stops) != 0 {
             return Err("Urutan stasiun ini tidak dapat dilalui oleh satu layanan.".into());
@@ -98,7 +98,7 @@ impl World {
         if vehicle == 1 && api.set_line_fast(id, true) != 0 {
             return Err(format!(
                 "Armada kereta cepat ditolak: {}",
-                api.issue_kinds()
+                crate::issue_text::describe(&api.issue_kinds())
             ));
         }
         let kind = if tram {

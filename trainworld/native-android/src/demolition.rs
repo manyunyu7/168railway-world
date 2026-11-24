@@ -75,7 +75,7 @@ fn remove(w: &mut World, kind: i32, id: u32, clock: f64, commit: bool) -> Result
         next.api.remove_station(dense_id)
     };
     if status != 0 {
-        return Err(format!("Studio menolak pembongkaran. {}", next.api.issue_kinds()));
+        return Err(format!("Studio menolak pembongkaran. {}", crate::issue_text::describe(&next.api.issue_kinds())));
     }
 
     let mut affected = Vec::new();

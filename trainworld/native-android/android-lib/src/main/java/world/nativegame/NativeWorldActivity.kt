@@ -1341,7 +1341,9 @@ class NativeWorldActivity : Activity() {
         mapSearch.visibility = if (drawing) View.GONE else View.VISIBLE
         mapSearch.isEnabled = ready
         build.isEnabled = ready && (!drawing || (map.draft.size >= plan.tool.minPoints && !openBend))
-        dockTitle.text = if (drawing) plan.specification else ""
+        if (!drawing) dockTitle.text = "" else if (plan.tool == BuildTool.STATION) {
+            if (!dockTitle.text.startsWith(stationTitle())) dockTitle.text = stationTitle()
+        } else if (dockTitle.text.isEmpty()) dockTitle.text = plan.specification
         dockTitle.visibility = if (drawing) View.VISIBLE else View.GONE
         controlHint.visibility = if (!ready || drawing || selectingInfrastructure || removingTrack) View.VISIBLE else View.GONE
         speedChip.isEnabled = ready
@@ -1530,6 +1532,7 @@ class NativeWorldActivity : Activity() {
         }
     }
 
+    private fun stationTitle() = (map.draft.lastOrNull()?.let { stationName(it) } ?: if (plan.deferred) "Rencana stasiun" else "Stasiun") + " · peron ${plan.platform} m"
     private fun stationName(point: PointF): String {
         if(plan.name.isNotBlank()) return plan.name
         val base = (map.cityLayers.asSequence().flatMap { it.places.asSequence() }.minByOrNull { kotlin.math.hypot(it.x-point.x,it.y-point.y) }?.name
@@ -1612,7 +1615,7 @@ class NativeWorldActivity : Activity() {
             dockTitle.text="${plan.specification} · ≈ ${java.lang.String.format(java.util.Locale.forLanguageTag("id-ID"),"%.1f",metres/1000)} km"
         }
         if(railMode && n==2) status.text="Geser ujung, ketuk lagi, atau pilih Konfirmasi."
-        if(plan.tool==BuildTool.STATION) dockTitle.text=(if(n>0) stationName(map.draft.last()) else if (plan.deferred) "Rencana stasiun" else "Stasiun") + " · peron ${plan.platform} m"
+        if(plan.tool==BuildTool.STATION) dockTitle.text=stationTitle()
         previewDraft()
         status.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
         map.contentDescription="Peta konstruksi ${plan.tool.label}. ${status.text}"

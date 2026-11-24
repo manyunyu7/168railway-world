@@ -35,6 +35,7 @@ mod station_map;
 mod passages;
 mod track_inspection;
 mod train_scene;
+mod issue_text;
 mod line_bands;
 mod achievements;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
@@ -290,7 +291,7 @@ impl World {
                 let mut ends = end(pair[0], a).to_vec();
                 ends.extend(end(pair[1], b));
                 if api.add_route(&ends, &pis, 2, false) != 0 {
-                    return Err(format!("Ruas {} ditolak: {}", i + 1, api.issue_kinds()));
+                    return Err(format!("Ruas {} ditolak: {}", i + 1, crate::issue_text::describe(&api.issue_kinds())));
                 }
             }
             let mut endpoints = [None, None];
@@ -311,7 +312,7 @@ impl World {
                             format!("{name} {label}"),
                         ) != 0
                         {
-                            return Err(format!("Stasiun {label} ditolak: {}", api.issue_kinds()));
+                            return Err(format!("Stasiun {label} ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
                         }
                         (id, x, y)
                     }
@@ -342,7 +343,7 @@ impl World {
             || (mode == 1 && api.set_line_fast(line, true) != 0)
             || (needs_construction && api.construct_line(line) != 0)
         {
-            return Err(format!("Layanan ditolak: {}", api.issue_kinds()));
+            return Err(format!("Layanan ditolak: {}", crate::issue_text::describe(&api.issue_kinds())));
         }
         self.accept_service(next, line, clock, name)
     }

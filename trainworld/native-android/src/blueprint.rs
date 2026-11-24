@@ -753,7 +753,7 @@ impl World {
             return Err(match op {
                 OP_SWITCH => "Tidak ada yang berubah.".into(),
                 OP_REMOVE => "Gagal menghapus. Coba lagi.".into(),
-                _ => format!("Rencana gagal dibangun: {}", next.api.issue_kinds()),
+                _ => format!("Rencana gagal dibangun: {}", crate::issue_text::describe(&next.api.issue_kinds())),
             });
         }
         Ok(finish(self, next, clock, commit, result))
