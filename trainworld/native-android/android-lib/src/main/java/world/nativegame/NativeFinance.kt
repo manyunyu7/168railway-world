@@ -271,6 +271,40 @@ object NativeFinance {
                 }
                 body.addView(hours)
                 row("Perawatan per hari", short(state.getDouble("upkeep")), StudioUi.Icon.MENU, StudioUi.TINT_RED)
+                // web MoneyTab "Kereta": vehicles owned, needed by the lines and spare, by kind, then
+                // the value of the track and stations built
+                state.optJSONObject("fleet")?.let { f ->
+                    heading("Kereta")
+                    val price = { k: String -> StudioFormat.money(f.optDouble(k) * 1e6, currency) }
+                    fun owned(label: String, n: Int, tip: String?) = body.addView(StudioUi.row(activity, null, StudioUi.TINT_GREY, label, tip,
+                        StudioUi.text(activity, n.toString(), 15f).apply { typeface = StudioUi.heavy(activity) }),
+                        LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
+                    val cars = f.optInt("cars"); val need = f.optInt("carsNeeded")
+                    owned("Gerbong dimiliki", cars, "$cars gerbong dibeli seharga ${price("carPrice")} per buah, total ${StudioFormat.money(cars * f.optDouble("carPrice") * 1e6, currency)}")
+                    owned("Gerbong yang dibutuhkan lini", need, null)
+                    owned("Gerbong cadangan", maxOf(0, cars - need), null)
+                    if (f.optInt("fast") > 0 || f.optInt("fastNeeded") > 0) {
+                        owned("Gerbong kecepatan tinggi dimiliki", f.optInt("fast"), "${f.optInt("fastNeeded")} di lini yang berjalan · ${price("fastPrice")} per gerbong")
+                        owned("Gerbong kecepatan tinggi cadangan", maxOf(0, f.optInt("fast") - f.optInt("fastNeeded")), null)
+                    }
+                    if (f.optInt("tram") > 0 || f.optInt("tramsNeeded") > 0) {
+                        owned("Gerbong trem dimiliki", f.optInt("tram"), "${f.optInt("tramsNeeded")} di lini yang berjalan")
+                        owned("Gerbong trem cadangan", maxOf(0, f.optInt("tram") - f.optInt("tramsNeeded")), null)
+                    }
+                    if (f.optInt("bus") > 0 || f.optInt("busesNeeded") > 0) {
+                        val n = f.optInt("bus")
+                        owned("Bus dimiliki", n, "$n bus dibeli seharga ${price("busPrice")} per buah, total ${StudioFormat.money(n * f.optDouble("busPrice") * 1e6, currency)}")
+                        owned("Bus yang dibutuhkan lini", f.optInt("busesNeeded"), null)
+                        owned("Bus cadangan", maxOf(0, n - f.optInt("busesNeeded")), null)
+                    }
+                    if (f.optInt("ferry") > 0 || f.optInt("boatsNeeded") > 0) {
+                        val n = f.optInt("ferry")
+                        owned("Kapal dimiliki", n, "$n kapal dibeli seharga ${price("boatPrice")} per buah, total ${StudioFormat.money(n * f.optDouble("boatPrice") * 1e6, currency)}")
+                        owned("Kapal yang dibutuhkan lini", f.optInt("boatsNeeded"), null)
+                        owned("Kapal cadangan", maxOf(0, n - f.optInt("boatsNeeded")), null)
+                    }
+                    row("Rel dan stasiun dibangun", StudioFormat.money(state.optDouble("built") * 1e6, currency))
+                }
                 // web LoanRows: none in a sandbox; while no loan is out the three sizes, each refused past
                 // what the profit pays; while one is, the loan, its payment, the days left and Lunasi
                 if (sandbox) return

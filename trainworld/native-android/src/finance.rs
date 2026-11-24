@@ -337,6 +337,15 @@ pub(super) fn tick_with_account(
     w.api.set_cash(cash);
     w.header["clock"] = now.into();
 }
+/// The money tab's Kereta section (web MoneyTab.tsx): vehicles owned and needed by kind, with the
+/// prices its hovers quote (US$M, `money_params`).
+fn fleet(api: &trainworld_sim::track::wasm::TrackApi) -> Value {
+    let p = api.money_params();
+    json!({"cars": api.fleet(), "carsNeeded": api.cars_needed(), "fast": api.fleet_fast(),
+        "fastNeeded": api.cars_needed_fast(), "tram": api.fleet_tram(), "tramsNeeded": api.trams_needed(),
+        "bus": api.fleet_bus(), "busesNeeded": api.buses_needed(), "ferry": api.fleet_ferry(),
+        "boatsNeeded": api.boats_needed(), "carPrice": p[0], "fastPrice": p[4], "busPrice": p[11], "boatPrice": p[18]})
+}
 pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String> {
     if !clock.is_finite() {
         return Err("Jam tidak valid".into());
@@ -385,7 +394,7 @@ pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String>
         .collect();
     Ok(
         json!({"cash":cash,"ledger":h.get("ledger"),"upkeep":w.api.upkeep()[0],"operating":[w.api.running_cost(0),w.api.running_cost(1),w.api.running_cost(2)],"dailyPayment":pay,"remainingDays":days,"outstanding":pay*(1.-(1.+RATE).powf(-days))/RATE,"sandbox":h["mode"]=="sandbox",
-            "today":day,"loan":amount,"offers":offers,"startCash":START_CASH,"hours":h.get("hours"),"dayShift":super::local_time::day_shift(h),"term":TERM,"rate":RATE}),
+            "today":day,"loan":amount,"offers":offers,"startCash":START_CASH,"fleet":fleet(&w.api),"built":w.api.built_cost(),"hours":h.get("hours"),"dayShift":super::local_time::day_shift(h),"term":TERM,"rate":RATE}),
     )
 }
 #[no_mangle]
@@ -448,6 +457,11 @@ mod tests {
             .collect();
         assert_eq!(allowed, [true, false, false]);
         assert!(offers[0]["profit"].is_null());
+        // the Kereta section: the NYC network owns and needs cars, and has built something
+        let state = apply(&mut w, now, 0).unwrap();
+        assert!(state["fleet"]["cars"].as_u64().unwrap() > 0);
+        assert!(state["fleet"]["carsNeeded"].as_u64().unwrap() > 0);
+        assert!(state["built"].as_f64().unwrap() > 0.);
         assert!(apply(&mut w, now, 5000).is_err());
         assert!(apply(&mut w, now, 1000).is_ok());
         assert!(apply(&mut w, now, 1000).is_err());
