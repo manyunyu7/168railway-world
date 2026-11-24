@@ -312,7 +312,7 @@ pub(super) fn building_issue(s: &str) -> String {
         "BuildingTooSmall" => "Luas bangunan minimal 1.000 m².",
         "BuildingNoStation" => "Denah harus menyentuh peron yang sudah dibangun.",
         "BuildingOverlap" => "Denah bertumpang tindih dengan bangunan lain.",
-        _ => "Perubahan ditolak. Periksa peron, denah dan saldo.",
+        _ => return crate::issue_text::describe(s),
     }
     .into()
 }

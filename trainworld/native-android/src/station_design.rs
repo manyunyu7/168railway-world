@@ -157,7 +157,8 @@ fn refusal(kinds: &str) -> String {
         "PlatformCrossing" => "Ada rel lain yang bersilangan di sini pada tingkat yang sama.".into(),
         "StationCurveTight" => "Rel di sini menikung terlalu tajam untuk stasiun.".into(),
         "StationOnJunction" => "Stasiun tidak bisa berada di persimpangan.".into(),
-        _ => super::station_facilities::building_issue(kinds),
+        k if k.starts_with("Building") => super::station_facilities::building_issue(kinds),
+        _ => crate::issue_text::describe(kinds),
     }
 }
 
