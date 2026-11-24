@@ -1406,7 +1406,7 @@ class NativeWorldActivity : Activity() {
         render(build, if(railMode) "Konfirmasi" else if (drawing) (quoteLabel() ?: "Tinjau") else "Bangun", if(railMode) "Konfirmasi segmen rel" else if (drawing) plan.tool.review else "Bangun jalur",
             if (drawing) StudioUi.Icon.ROUTE else StudioUi.Icon.PLUS)
         render(lines,"Line","Daftar line",StudioUi.Icon.ROUTE)
-        render(finance,"Keuangan","Keuangan",StudioUi.Icon.WALLET)
+        render(finance,"Uang","Keuangan",StudioUi.Icon.WALLET)
         mapLens.visibility = mapSearch.visibility
         render(cancel,if(railMode) "Stop" else "Batal",if(railMode) "Akhiri rangkaian segmen" else "Batalkan rancangan",StudioUi.Icon.CLOSE)
         render(more,if (drawing) "Alat" else "Menu",if (drawing) "Alat rancangan" else "Cari dan menu",StudioUi.Icon.MENU)
