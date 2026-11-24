@@ -66,7 +66,7 @@ internal object BusDraft {
                     JSONObject().put("error", e.localizedMessage ?: "Rute jalan belum dapat dihitung.")
                 } finally { Engine.close(candidate) }
                 activity.runOnUiThread {
-                    if (!live()) return@runOnUiThread
+                    if (!live() || map.draftTouch?.dragging == true) return@runOnUiThread
                     if (result.has("error")) {
                         map.draftShape = null; map.junctionMarks = emptyList()
                         status.text = result.getString("error")

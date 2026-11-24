@@ -530,6 +530,7 @@ class NativeWorldActivity : Activity() {
                 true
             } else false
         }
+        map.draftTouch = BusDraftEdit(map, { drawing && plan.tool==BuildTool.BUS && !restoringEdit }, { updateDraft() }, { if (build.isEnabled) build.performClick() }) { status.text = it }
         map.onBend = { point ->
             if (drawing && plan.tool in setOf(BuildTool.BUS,BuildTool.FERRY) && map.draft.isNotEmpty() && map.draft.size < 24 && map.bends.size < 64) {
                 map.bends.add(map.draft.lastIndex to point)
@@ -1603,6 +1604,7 @@ class NativeWorldActivity : Activity() {
 
     private fun undoDraft() {
         if(map.draft.isEmpty()) return
+        if(plan.tool==BuildTool.BUS && map.draftTouch?.undo()==true) { updateDraft(); return }
         if(map.bends.lastOrNull()?.first==map.draft.lastIndex) map.bends.removeAt(map.bends.lastIndex)
         else {
             map.draft.removeAt(map.draft.lastIndex)
@@ -3147,6 +3149,10 @@ internal class NetworkView(context: Context):View(context) {
     }
 
     fun centerPoint() = PointF(centerX, centerY)
+    /** Bus route handles (web busDraw.ts): drag a stop, drag a new one out of the route, tap or hold a stop. */
+    var draftTouch: BusDraftEdit? = null
+    fun screenOf(p: PointF) = PointF((p.x-centerX)*scale+width/2f, (centerY-p.y)*scale+height/2f)
+    fun worldAt(x: Float, y: Float) = PointF(centerX+(x-width/2f)/scale, centerY-(y-height/2f)/scale)
     fun locatePlace(place: CitySurface.Place) {
         val zoom = when (place.kind) {
             0,2 -> 12.0
@@ -3676,6 +3682,7 @@ internal class NetworkView(context: Context):View(context) {
     })
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (e.actionMasked == MotionEvent.ACTION_DOWN) zoomAnimation?.cancel()
+        if (draftTouch?.onTouch(e) == true) return true
         if(railTool!=null && draft.size==2 && e.actionMasked==MotionEvent.ACTION_DOWN) {
             val tip=draft.last()
             holdingRail=kotlin.math.hypot(e.x-sx(tip.x),e.y-sy(tip.y))<=24*density
