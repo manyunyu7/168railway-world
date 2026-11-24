@@ -64,7 +64,7 @@ internal object BlueprintPanel {
         fun gap(top: Int = 8) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = StudioUi.dp(a, top) }
 
         fun open() {
-            dialog = StudioUi.sheet(a, "Rencana", pinnedAction = {
+            dialog = StudioUi.sheet(a, "Rencana", .62f, pinnedAction = {
                 StudioUi.button(a, "Bangun rencana", StudioUi.Tone.PRIMARY, StudioUi.Icon.BUILD) { build() }.also { construct = it }
             }) { col, _ -> column = col }
             render()
@@ -81,7 +81,7 @@ internal object BlueprintPanel {
             val o = runCatching { JSONObject(overview(handle())) }.getOrElse { JSONObject().put("error", it.localizedMessage) }
             last = o
             if (o.has("error")) {
-                column.addView(StudioUi.text(a, o.optString("error"), 15f, true, StudioUi.MUTED))
+                column.addView(StudioUi.text(a, o.optString("error"), 14f, true, StudioUi.MUTED))
                 construct?.isEnabled = false
                 return
             }
@@ -94,7 +94,7 @@ internal object BlueprintPanel {
                 contentDescription = "Bangun semua bagian rencana"
             }
             if (parts.length() == 0 && quote.length() == 0) {
-                column.addView(StudioUi.text(a, "Belum ada rencana. Gambar rel dengan alat Rel atau simpan stasiun sebagai rencana; semuanya muncul di sini sebelum dibangun.", 15f, true, StudioUi.MUTED))
+                column.addView(StudioUi.text(a, "Belum ada rencana. Gambar rel dengan alat Rel atau simpan stasiun sebagai rencana; semuanya muncul di sini sebelum dibangun.", 14f, true, StudioUi.MUTED))
                 return
             }
             summary(o, total)
@@ -138,39 +138,41 @@ internal object BlueprintPanel {
             if (edges + stations == 0) return
             val what = listOfNotNull(edges.takeIf { it > 0 }?.let { "$it rel" }, stations.takeIf { it > 0 }?.let { "$it stasiun" }).joinToString(", ")
             column.addView(StudioUi.section(a, "Ubah yang dipilih"))
-            column.addView(StudioUi.text(a, "$what dipilih" + if (edges > 0) " · ${distance(p.optDouble("length"))}" else "", 15f, true))
-            column.addView(StudioUi.text(a, "Yang dicentang di rincian biaya ikut diubah, dihapus, dan dibangun.", 13f, true, StudioUi.MUTED))
+            column.addView(StudioUi.text(a, "$what dipilih" + if (edges > 0) " · ${distance(p.optDouble("length"))}" else "", 14f, true))
+            column.addView(StudioUi.text(a, "Yang dicentang di rincian biaya ikut diubah, dihapus, dan dibangun.", 12f, false, StudioUi.MUTED))
             if (edges > 0) {
                 val level = if (p.isNull("level")) null else p.optInt("level")
-                column.addView(StudioUi.text(a, if (level == null) "Tingkat · campuran" else "Tingkat · ${levelName(level)}", 13f, true, StudioUi.MUTED), gap(10))
-                val levels = WrapRow(a)
-                for (l in LEVELS) levels.addView(StudioUi.button(a, levelLabel(l), if (l == level) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE) {
+                column.addView(StudioUi.text(a, if (level == null) "Tingkat · campuran" else "Tingkat · ${levelName(level)}", 13f, true, StudioUi.MUTED), gap(6))
+                // the seven levels on one sideways row of chips
+                val levels = LinearLayout(a)
+                for (l in LEVELS) levels.addView(StudioUi.choiceChip(a, levelLabel(l), l == level) {
                     if (l != level) run("Ubah tingkat rencana", LEVEL, l) { say(it) }
-                }.apply { contentDescription = "Pindahkan rel yang dipilih ke ${levelName(l).lowercase()} (${levelLabel(l)})" })
-                column.addView(levels, gap(4))
+                }.apply { contentDescription = "Pindahkan rel yang dipilih ke ${levelName(l).lowercase()} (${levelLabel(l)})" },
+                    LinearLayout.LayoutParams(-2, -2).apply { marginEnd = StudioUi.dp(a, 6) })
+                column.addView(android.widget.HorizontalScrollView(a).apply { isHorizontalScrollBarEnabled = false; addView(levels) }, gap(0))
             }
             val hsr = p.optInt("hsr"); val regular = p.optInt("regular"); val tram = p.optInt("tram")
             if (hsr + regular + tram > 0) {
-                column.addView(StudioUi.text(a, "Jenis rel", 13f, true, StudioUi.MUTED), gap(6))
+                column.addView(StudioUi.text(a, "Jenis rel", 13f, true, StudioUi.MUTED), gap(2))
                 val kinds = WrapRow(a)
                 listOf(Triple(1, "Biasa", tram == 0 && hsr == 0), Triple(2, "Cepat", tram == 0 && regular == 0), Triple(3, "Trem", tram > 0 && hsr + regular == 0)).forEach { (k, label, on) ->
-                    kinds.addView(StudioUi.button(a, label, if (on) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE) {
+                    kinds.addView(StudioUi.choiceChip(a, label, on) {
                         if (!on) run("Ubah jenis rel rencana", KIND, k) { say(it) }
                     }.apply { contentDescription = if (k == 2) "Rel kecepatan tinggi, biayanya 1,5x rel biasa" else "Jadikan rel $label".lowercase().replaceFirstChar { it.uppercase() } })
                 }
-                column.addView(kinds, gap(4))
+                column.addView(kinds, gap(0))
             }
             val ones = p.optInt("ones"); val twos = p.optInt("twos")
             if (ones + twos > 0) {
                 val own = if (ones > 0 && twos == 0) 1 else if (twos > 0 && ones == 0) 2 else 0
-                column.addView(StudioUi.text(a, "Jalur", 13f, true, StudioUi.MUTED), gap(6))
+                column.addView(StudioUi.text(a, "Jalur", 13f, true, StudioUi.MUTED), gap(2))
                 val tracks = WrapRow(a)
                 listOf(1 to "Tunggal", 2 to "Ganda").forEach { (n, label) ->
-                    tracks.addView(StudioUi.button(a, label, if (n == own) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE) {
+                    tracks.addView(StudioUi.choiceChip(a, label, n == own) {
                         if (n != own) run("Ubah jumlah jalur rencana", TRACKS, n) { say(it) }
                     }.apply { contentDescription = "Jadikan rel $label".lowercase().replaceFirstChar { it.uppercase() } })
                 }
-                column.addView(tracks, gap(4))
+                column.addView(tracks, gap(0))
             }
             column.addView(StudioUi.button(a, "Hapus yang dipilih") { remove(what) }.also { StudioUi.danger(it) },
                 LinearLayout.LayoutParams(-2, -2).apply { topMargin = StudioUi.dp(a, 6) })
@@ -193,7 +195,7 @@ internal object BlueprintPanel {
             row.addView(StudioUi.button(a, "Kosongkan") {
                 run("Matikan semua rencana", SWITCH, 1, edges.toIntArray(), stations.toIntArray())
             }.apply { isEnabled = anyOn; contentDescription = "Matikan semua bagian rencana" }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = StudioUi.dp(a, 8) })
-            column.addView(row, gap(12))
+            column.addView(row, gap(8))
         }
 
         fun check(on: Boolean, description: String, flip: () -> Unit) = CheckBox(a).apply {
@@ -250,16 +252,16 @@ internal object BlueprintPanel {
         fun line(title: String, subtitle: String?, cost: String, off: Boolean, box: CheckBox?, at: JSONObject?): LinearLayout =
             LinearLayout(a).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                background = if (at != null) StudioDepot.touch(a, 0xd9ffffff.toInt(), 18) else StudioUi.card(a, 18)
-                setPadding(StudioUi.dp(a, 4), StudioUi.dp(a, 4), StudioUi.dp(a, 12), StudioUi.dp(a, 4))
-                minimumHeight = StudioUi.dp(a, 56)
+                background = if (at != null) StudioDepot.touch(a, 0xd9ffffff.toInt(), 14) else StudioUi.card(a, 14)
+                setPadding(StudioUi.dp(a, 2), StudioUi.dp(a, 2), StudioUi.dp(a, 10), StudioUi.dp(a, 2))
+                minimumHeight = StudioUi.dp(a, 48)
                 alpha = if (off) .6f else 1f
                 if (box != null) addView(box) else addView(View(a), LinearLayout.LayoutParams(StudioUi.dp(a, 12), 1))
                 val texts = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
-                texts.addView(StudioUi.text(a, title, 15f, true))
-                if (subtitle != null) texts.addView(StudioUi.text(a, subtitle, 12f, true, StudioUi.MUTED))
-                addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = StudioUi.dp(a, 4) })
-                addView(StudioUi.text(a, cost, 15f, true, if (off) StudioUi.MUTED else StudioUi.INK))
+                texts.addView(StudioUi.text(a, title, 14f, true).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
+                if (subtitle != null) texts.addView(StudioUi.text(a, subtitle, 12f, false, StudioUi.MUTED))
+                addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = StudioUi.dp(a, 2) })
+                addView(StudioUi.text(a, cost, 13f, true, if (off) StudioUi.MUTED else StudioUi.INK))
                 at?.optJSONArray("at")?.let { xy ->
                     isClickable = true
                     contentDescription = "$title, ${subtitle ?: ""}, $cost. Ketuk untuk melihat di peta."
@@ -296,7 +298,7 @@ internal object BlueprintPanel {
             if (preview.has("error")) { Toast.makeText(a, preview.optString("error"), Toast.LENGTH_LONG).show(); return }
             val lines = preview.optInt("lines")
             val message = "Rencana yang dicentang ($what" + (if (preview.optDouble("length") > 0) ", ${distance(preview.optDouble("length"))}" else "") + ") akan dihapus. Bisa diurungkan." +
-                if (lines > 0) "\n\n$lines layanan rencana kehilangan pemberhentian atau rutenya terputus." else ""
+                if (lines > 0) "\n\n$lines line rencana kehilangan pemberhentian atau rutenya terputus." else ""
             val confirm = StudioDialogBuilder(a).setTitle("Hapus rencana terpilih?").setMessage(message)
                 .setNegativeButton("Batal", null)
                 .setPositiveButton("Hapus") { _, _ ->

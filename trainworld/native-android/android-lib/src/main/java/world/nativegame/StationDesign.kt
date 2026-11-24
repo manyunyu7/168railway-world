@@ -333,14 +333,14 @@ internal object StationDesign {
         val content = a.findViewById<ViewGroup>(android.R.id.content) ?: return
         val root = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL
-            background = StudioUi.glass(a, 28, 0xfffbfaff.toInt())
+            background = StudioUi.glass(a, 24, 0xfffbfaff.toInt())
             clipToOutline = true
-            setPadding(dp(16), dp(8), dp(16), dp(12))
+            setPadding(dp(16), dp(6), dp(16), dp(10))
             isClickable = true // the map behind does not take the panel's touches
             elevation = dp(12).toFloat()
         }
         root.addView(View(a).apply { background = StudioUi.pill(a, 0x3822204a) },
-            LinearLayout.LayoutParams(dp(40), dp(5)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(6) })
+            LinearLayout.LayoutParams(dp(36), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(4) })
         val head = LinearLayout(a).apply { gravity = Gravity.CENTER_VERTICAL }
         head.addView(StudioUi.title(a, s.start.optString("name"), 20f).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
             LinearLayout.LayoutParams(0, -2, 1f))
@@ -349,14 +349,15 @@ internal object StationDesign {
         s.body = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
         s.scroll = ScrollView(a).apply { addView(s.body) }
         root.addView(s.scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        s.status = StudioUi.text(a, "", 13f, true, StudioUi.MUTED).apply { setPadding(dp(4), dp(6), dp(4), dp(4)) }
+        s.status = StudioUi.text(a, "", 12f, true, StudioUi.MUTED).apply { setPadding(dp(2), dp(4), dp(2), dp(2)); maxLines = 2 }
         root.addView(s.status)
         val foot = LinearLayout(a)
-        foot.addView(StudioUi.button(a, "Batal") { back() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(6) })
+        foot.addView(StudioUi.button(a, "Batal") { back() }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) })
         s.confirm = StudioUi.button(a, "Bangun", StudioUi.Tone.PRIMARY) { if (!s.busy && s.error == null && ops(s).length() > 0) commit(s) }
-        foot.addView(s.confirm, LinearLayout.LayoutParams(0, dp(52), 1.4f).apply { marginStart = dp(6) })
+        foot.addView(s.confirm, LinearLayout.LayoutParams(0, dp(48), 1.4f).apply { marginStart = dp(6) })
         root.addView(foot)
-        val height = (content.height.takeIf { it > 0 } ?: a.resources.displayMetrics.heightPixels) * 46 / 100
+        // owner: the old 46% left ~180 dp for the content; 56% with the slimmer head and foot leaves room
+        val height = (content.height.takeIf { it > 0 } ?: a.resources.displayMetrics.heightPixels) * 56 / 100
         content.addView(root, FrameLayout.LayoutParams(-1, height, Gravity.BOTTOM).apply { setMargins(dp(8), 0, dp(8), dp(8)) })
         s.panel = root
     }
@@ -371,8 +372,7 @@ internal object StationDesign {
         val body = s.body
         body.removeAllViews()
         fun choice(label: String, on: Boolean, pending: Boolean, describe: String = label, click: () -> Unit) =
-            StudioUi.button(a, label, if (on) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE) { click() }.apply {
-                textSize = 13f; minHeight = dp(48); minimumHeight = dp(48)
+            StudioUi.choiceChip(a, label, on) { click() }.apply {
                 contentDescription = describe + (if (on) ", dipilih" else "") + (if (pending) ", belum dibangun" else "")
             }
         val port = st.optBoolean("port")
@@ -390,7 +390,7 @@ internal object StationDesign {
             row.addView(StudioUi.button(a, "−") { step(-1) }.apply { contentDescription = "Perpendek stasiun"; isEnabled = s.length > min },
                 LinearLayout.LayoutParams(dp(56), dp(48)))
             val cars = Math.round(s.length / 20.0)
-            row.addView(StudioUi.text(a, "$cars gerbong · ${s.length} m", 16f, true,
+            row.addView(StudioUi.text(a, "$cars gerbong · ${s.length} m", 14f, true,
                 if (s.length != s.start.getInt("length")) StudioUi.BLUE else StudioUi.INK).apply { gravity = Gravity.CENTER },
                 LinearLayout.LayoutParams(0, -2, 1f))
             row.addView(StudioUi.button(a, "+") { step(1) }.apply { contentDescription = "Perpanjang stasiun"; isEnabled = s.length < max },
@@ -415,20 +415,22 @@ internal object StationDesign {
             if (s.start.optBoolean("double")) {
                 val l = "Stasiun satu arah (${way(s.start.optString("leftWay"))})"
                 val r = "Stasiun satu arah (${way(s.start.optString("rightWay"))})"
-                sides.addView(choice("◧ ${way(s.start.optString("leftWay"))}", kind == "left", s.tracks == "left", "$l. $free") { pick("left") },
+                // one word each so no chip wraps: "Barat / Dua arah / Timur"
+                fun word(w: String) = way(w).removePrefix("arah ").replaceFirstChar { it.uppercaseChar() }
+                sides.addView(choice(word(s.start.optString("leftWay")), kind == "left", s.tracks == "left", "$l. $free") { pick("left") },
                     LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
                 sides.addView(choice("Dua arah", one == 0, s.tracks == "both", "Stasiun dua arah. $cost") { pick("both") },
                     LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-                sides.addView(choice("${way(s.start.optString("rightWay"))} ◨", kind == "right", s.tracks == "right", "$r. $free") { pick("right") },
+                sides.addView(choice(word(s.start.optString("rightWay")), kind == "right", s.tracks == "right", "$r. $free") { pick("right") },
                     LinearLayout.LayoutParams(0, -2, 1f))
             } else {
-                sides.addView(choice("Tanpa jalur persilangan", one != 0, s.tracks == "one") { pick("one") },
+                sides.addView(choice("Tanpa persilangan", one != 0, s.tracks == "one") { pick("one") },
                     LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
                 sides.addView(choice("Jalur persilangan", one == 0, s.tracks == "both", "Jalur persilangan. $cost") { pick("both") },
                     LinearLayout.LayoutParams(0, -2, 1f))
             }
             body.addView(sides)
-            if (one == 0 && s.start.optInt("one") != 0) body.addView(StudioUi.text(a, cost, 12.5f, true, StudioUi.MUTED).apply { setPadding(dp(4), dp(4), 0, 0) })
+            // the cost shows on the Bangun button only (owner: no second copy here)
         }
         // web StationUpgrades: each a toggle, its price; built ones go without money back
         val offered = st.optJSONArray("upgrades")
@@ -449,16 +451,16 @@ internal object StationDesign {
                     pending -> "Dihapus"
                     else -> price
                 }
-                val chip = StudioUi.text(a, tag, 13f, true, if (on && !pending) StudioUi.GOOD else if (pending) StudioUi.WHITE else StudioUi.INK).apply {
-                    background = StudioUi.pill(a, if (on && !pending) StudioUi.TINT_GREEN else if (pending) StudioUi.BLUE else StudioUi.TINT_GREY, 19)
-                    setPadding(dp(12), dp(8), dp(12), dp(8))
+                val chip = StudioUi.text(a, tag, 12f, true, if (on && !pending) StudioUi.GOOD else if (pending) StudioUi.WHITE else StudioUi.INK).apply {
+                    background = StudioUi.pill(a, if (on && !pending) StudioUi.TINT_GREEN else if (pending) StudioUi.NAVY else StudioUi.TINT_GREY, 19)
+                    setPadding(dp(10), dp(5), dp(10), dp(5))
                 }
                 val sub = (StationInspector.UPGRADE_DOES[bit] ?: "") + if (on && !pending) " Ketuk untuk menghapus; uang tidak kembali." else ""
                 body.addView(StudioUi.row(a, null, 0, name, sub, chip) {
                     val target = !on
                     if (target == (was[bit] ?: false)) s.upgrades.remove(bit) else s.upgrades[bit] = target
                     schedule(s)
-                }.apply { contentDescription = "$name, $tag" }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+                }.apply { contentDescription = "$name, $tag" }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
             }
         }
         // web StationUpgrades BuildingButton and StationBuilding: the outline drawn on the map
@@ -507,7 +509,7 @@ internal object StationDesign {
             s.busy -> "Menghitung…"
             s.error != null -> s.error
             changes == 0 -> "Belum ada perubahan. Ubah stasiun, lalu lihat hasilnya di peta."
-            s.charge > 0 -> "Biaya ${StudioFormat.money(s.charge * 1e6, currency)} · terlihat di peta sebelum dibangun"
+            s.charge > 0 -> "Terlihat di peta sebelum dibangun"
             else -> "Tanpa biaya · terlihat di peta sebelum disimpan"
         }
         s.confirm.isEnabled = !s.busy && s.error == null && changes > 0
