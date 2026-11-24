@@ -200,21 +200,19 @@ internal object ServicePanel {
             for (i in 0 until ideas.length()) add(ideas.getString(i))
             for (p in listOf("Commuter Line", "KRL", "Lin")) for (b in bodies) add("$p $b")
             for (b in bodies) for (x in listOf("Ekspres", "Lokal")) add("$b $x")
-        }.map { it.trim().take(48) }.filter { it.isNotBlank() && it != current }.distinct().take(8)
+        }.map { it.trim().take(48) }.filter { it.isNotBlank() && it != current }.distinct().take(6)
         if (ready.isNotEmpty()) {
             box.addView(StudioUi.text(host, "Usulan nama", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
-            ready.chunked(2).forEach { pair ->
-                val line = LinearLayout(host).apply { setPadding(dp(16), dp(3), dp(16), dp(3)) }
-                pair.forEach { n ->
-                    line.addView(StudioUi.text(host, n, 13f, true, StudioUi.INK).apply {
-                        gravity = android.view.Gravity.CENTER_VERTICAL; minHeight = dp(44); maxLines = 2
-                        setPadding(dp(12), dp(4), dp(10), dp(4)); background = StudioUi.pill(host, 0x1422204a, 14); isClickable = true
-                        setOnClickListener { field.setText(n); field.setSelection(n.length) }
-                    }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
-                }
-                if (pair.size == 1) line.addView(View(host), LinearLayout.LayoutParams(0, 1, 1f))
-                box.addView(line)
+            // one neat column: every idea one line high, cut with "…" when long
+            val list = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), 0, dp(16), 0) }
+            ready.forEach { n ->
+                list.addView(StudioUi.text(host, n, 14f, true, StudioUi.INK).apply {
+                    gravity = android.view.Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(dp(14), 0, dp(12), 0); background = StudioUi.pill(host, 0x1422204a, 14); isClickable = true
+                    setOnClickListener { field.setText(n); field.setSelection(n.length) }
+                }, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(6) })
             }
+            box.addView(list)
         }
         if (bodies.isNotEmpty()) {
             chips("Awalan", prefixes, { pre }) { pre = it }

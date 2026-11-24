@@ -365,21 +365,19 @@ internal object StationInspector {
         repeat(8) { StationNames.nextFor(handle, node, probe)?.let { n -> if (!seen.add(n)) return@repeat; probe = n } }
         val base = (seen.firstOrNull() ?: current).replace(Regex(" (Baru|Timur|Barat|Utara|Selatan|\\d+)$"), "")
         for (w in listOf("$base Baru", "$base Timur", "$base Barat", "$base Raya", "Pasar $base")) if (seen.size < 8) seen.add(w)
-        val ready = seen.filter { it != current }.take(8)
+        val ready = seen.filter { it != current }.take(6)
         if (ready.isNotEmpty()) {
             box.addView(StudioUi.text(activity, "Usulan nama", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
-            ready.chunked(2).forEach { pair ->
-                val line = LinearLayout(activity).apply { setPadding(dp(16), dp(3), dp(16), dp(3)) }
-                pair.forEach { n ->
-                    line.addView(StudioUi.text(activity, n, 13f, true, StudioUi.INK).apply {
-                        gravity = android.view.Gravity.CENTER_VERTICAL; minHeight = dp(44); maxLines = 2
-                        setPadding(dp(12), dp(4), dp(10), dp(4)); background = StudioUi.pill(activity, 0x1422204a, 14); isClickable = true
-                        setOnClickListener { field.setText(n); field.setSelection(n.length) }
-                    }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
-                }
-                if (pair.size == 1) line.addView(android.view.View(activity), LinearLayout.LayoutParams(0, 1, 1f))
-                box.addView(line)
+            // one neat column: every idea one line high, cut with "…" when long
+            val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), 0, dp(16), 0) }
+            ready.forEach { n ->
+                list.addView(StudioUi.text(activity, n, 14f, true, StudioUi.INK).apply {
+                    gravity = android.view.Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(dp(14), 0, dp(12), 0); background = StudioUi.pill(activity, 0x1422204a, 14); isClickable = true
+                    setOnClickListener { field.setText(n); field.setSelection(n.length) }
+                }, LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(6) })
             }
+            box.addView(list)
         }
         // suffixes to add to whatever is typed
         box.addView(StudioUi.text(activity, "Tambah akhiran", 12f, true, StudioUi.MUTED).apply { setPadding(dp(20), dp(10), 0, dp(2)) })
