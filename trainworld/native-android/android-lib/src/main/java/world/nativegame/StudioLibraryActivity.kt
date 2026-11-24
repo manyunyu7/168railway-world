@@ -181,8 +181,9 @@ class StudioLibraryActivity : Activity() {
             if (sync.startsWith("Tersinkron")) chip(sync,StudioUi.TINT_GREEN,StudioUi.GOOD)
             else if (cover == null) chip(sync,StudioUi.TINT_PURPLE,0xff3f2aa8.toInt())
             card.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) })
+            // The card already shows the world; "Main lagi" opens it, as the web's saves list does, without a second sheet.
             card.addView(StudioUi.button(this,"Main lagi",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
-                if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
+                if (!locked) open(slot)
             }.apply { minHeight = dp(56); textSize = 17f },LinearLayout.LayoutParams(-1,-2).apply { marginStart = dp(6); marginEnd = dp(6) })
             // Deleting is rare and cannot be undone: a quiet text action, not a second big button beside "Main lagi".
             if (active == null) card.addView(StudioUi.text(this,"Hapus dari HP ini",14f,true,StudioUi.BAD).apply {
@@ -214,7 +215,7 @@ class StudioLibraryActivity : Activity() {
             // web SlotFacts: lines and when it was saved
             val detail = cover?.let { "${it.lines} lini · " + WorldDocuments.savedWhen(slot.at) } ?: details(slot,link)
             (KScene.worldCard(this,slot.title,detail,0xffb5e08f.toInt(),cover?.image) {
-                if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
+                if (!locked) open(slot)
             } as LinearLayout).apply {
                 // web SavesPanel: a bin on every card but the game being played
                 if (slot.id != source) addView(StudioUi.iconButton(this@StudioLibraryActivity,"Hapus ${slot.title} dari HP ini",StudioUi.Icon.DELETE) {
