@@ -55,6 +55,9 @@ use super::twin::Twin;
 /// are set by hand (else 0); without it every line runs its weekday trains every day. Then 1 where
 /// weekends were settled on their own (`Network::rest_solved`), and then their rates and kept lines
 /// as `LRT1` gives the weekdays'.
+/// A trailing `LSG1` block gives the pieces of track whose signalling is other than closed block
+/// (`Network::edge_signal`): count, then edge index and level (`SIGNAL_*`); without it every piece
+/// has closed block, so a save that never changed one is byte for byte as before.
 const MAGIC: &[u8; 4] = b"TWT4";
 /// TWT5 (T-125) is TWT4 byte for byte except that the metres are in the Lambert conformal world
 /// frame (`frame.rs`). TWT4 and older are always the legacy equirectangular frame, and a network
@@ -67,12 +70,12 @@ const MAGIC_TWT6: &[u8; 4] = b"TWT6";
 
 /// T-1826: the trailing blocks this build reads, in the order they are written. A block it does not
 /// know stops the decoder, which then reports the bytes left over (`decode_read`).
-pub const BLOCKS: [&[u8; 4]; 27] = [b"LUI1", b"LNK1", b"LAU1", b"LHS1", b"LBS1", b"LBS2", b"LRT1", b"LGR1", b"LGL1", b"LOR1", b"LPH1", b"LSP1", b"LFR1", b"LFR2", b"LFR3", b"BLD1", b"LBD1", b"LBP1", b"LHO1", b"LMN1", b"LBH1", b"LOW1", b"LSL1", b"LPC1", b"LTW1", b"LPS1", b"LWE1"];
+pub const BLOCKS: [&[u8; 4]; 28] = [b"LUI1", b"LNK1", b"LAU1", b"LHS1", b"LBS1", b"LBS2", b"LRT1", b"LGR1", b"LGL1", b"LOR1", b"LPH1", b"LSP1", b"LFR1", b"LFR2", b"LFR3", b"BLD1", b"LBD1", b"LBP1", b"LHO1", b"LMN1", b"LBH1", b"LOW1", b"LSL1", b"LPC1", b"LTW1", b"LPS1", b"LWE1", b"LSG1"];
 /// T-1826: the save level this build writes into the game header (`level`) and reads up to. Raised
 /// with every new block, every new field inside a header field (a new top-level header field is seen
 /// as unknown on its own) and every new meaning of existing bytes, so an older build knows a newer
 /// save even when it has nothing left over. Saves from before it have none, read as 0.
-pub const LEVEL: u32 = 21;
+pub const LEVEL: u32 = 22;
 
 /// An edge's kind in the flag bits 8-10. Regular and high speed write nothing here (high speed keeps
 /// bit 6), so their saves are byte for byte what earlier builds wrote and earlier builds read them.
@@ -570,6 +573,16 @@ pub fn encode(net: &Network) -> Vec<u8> {
                 w.u(index[l as usize] as u64);
                 w.u(lev as u64); w.u(rate as u64); w.u(trip); w.u(trains as u64);
             }
+        }
+    }
+    // after LWE1, as the blocks are read in order
+    let signals: Vec<(usize, u8)> = edges.iter().enumerate().filter(|(_, &e)| net.edge_signal[e as usize] != SIGNAL_CLOSED).map(|(i, &e)| (i, net.edge_signal[e as usize])).collect();
+    if !signals.is_empty() {
+        w.0.extend_from_slice(b"LSG1");
+        w.u(signals.len() as u64);
+        for (i, v) in signals {
+            w.u(i as u64);
+            w.u(v as u64);
         }
     }
     w.0
@@ -1084,6 +1097,16 @@ pub fn decode_read(bytes: &[u8]) -> Result<(Network, usize), String> {
             net.rest_solved = true;
         }
     }
+    if r.0.get(r.1..r.1 + 4) == Some(b"LSG1") {
+        r.1 += 4;
+        for _ in 0..r.u()? {
+            let i = r.u()? as usize;
+            let v = r.u()?;
+            if i < n_edges && v <= SIGNAL_CBTC as u64 && net.edge_ok(i as u32) {
+                net.set_edge_signal(i as u32, v as u8).map_err(|e| format!("{e:?}"))?;
+            }
+        }
+    }
     for l in manual {
         fold_manual(&mut net, l);
     }
@@ -1259,7 +1282,7 @@ mod tests {
         for tag in &written {
             assert!(BLOCKS.iter().any(|b| &b[..] == tag.as_bytes()), "block {tag} is written but not in BLOCKS");
         }
-        assert_eq!((LEVEL, BLOCKS.len()), (21, 27), "a new block raises LEVEL: raise it, then update this pin");
+        assert_eq!((LEVEL, BLOCKS.len()), (22, 28), "a new block raises LEVEL: raise it, then update this pin");
     }
 
     /// T-2217: buildings come back as they were, in their order; a network without them encodes as

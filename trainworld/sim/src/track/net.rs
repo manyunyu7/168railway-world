@@ -518,6 +518,10 @@ pub struct Network {
     pub edge_join: Vec<[u8; 2]>,
     /// T-3405: `EdgeData::limit`.
     pub edge_limit: Vec<u16>,
+    /// The signalling on each edge (`SIGNAL_*` in params.rs): `SIGNAL_CLOSED` unless the player
+    /// chose another (`Network::set_edge_signal`). Kept apart from `EdgeData`: an edge keeps it
+    /// through every reshape, a split's new half takes it, a removal's undo puts it back.
+    pub edge_signal: Vec<u8>,
     /// Derived (T-3137): the way single track's run takes by itself (`lanes.rs` `derive_ways`): 0
     /// both, 1 a to b, 2 b to a.
     pub edge_infer: Vec<u8>,
@@ -893,6 +897,7 @@ impl Network {
             edge_oneway: vec![],
             edge_join: vec![],
             edge_limit: vec![],
+            edge_signal: vec![],
             edge_infer: vec![],
             edge_len: vec![],
             edge_pieces: vec![],
@@ -1140,6 +1145,7 @@ impl Network {
         self.edge_oneway.push(0);
         self.edge_join.push([0; 2]);
         self.edge_limit.push(0);
+        self.edge_signal.push(SIGNAL_CLOSED);
         self.edge_infer.push(0);
         self.edge_len.push(0.0);
         self.edge_pieces.push(Span::default());
@@ -1465,14 +1471,27 @@ impl Network {
     pub fn edge_section_s(&self, e: u32) -> f64 {
         self.edge_kind[e as usize].spec().section_s
     }
+    /// A crossing's conflict time on edge `e`: its kind's, shortened by its signalling (`signal.rs`).
     pub fn edge_conflict_s(&self, e: u32) -> f64 {
-        self.edge_kind[e as usize].spec().conflict_s
+        let c = self.edge_kind[e as usize].spec().conflict_s;
+        match self.edge_signal[e as usize] {
+            SIGNAL_CLOSED | SIGNAL_OPEN => c,
+            sig => c * SIGNAL_CONFLICT_MULT[sig as usize],
+        }
     }
     pub fn node_conflict_s(&self, n: u32) -> f64 {
-        self.node_kind(n).spec().conflict_s
+        let c = self.node_kind(n).spec().conflict_s;
+        match self.node_signal(n) {
+            SIGNAL_CLOSED | SIGNAL_OPEN => c,
+            sig => c * SIGNAL_CONFLICT_MULT[sig as usize],
+        }
     }
     pub fn node_margin_s(&self, n: u32) -> f64 {
-        self.node_kind(n).spec().platform_margin_s
+        let m = self.node_kind(n).spec().platform_margin_s;
+        match self.node_signal(n) {
+            SIGNAL_CLOSED | SIGNAL_OPEN => m,
+            sig => m * SIGNAL_MARGIN_MULT[sig as usize],
+        }
     }
     /// Whether a line runs on tram track: the kind of its first stop's track.
     pub fn line_tram(&self, l: u32) -> bool {
@@ -1495,6 +1514,8 @@ impl Network {
     /// player's limit on it (T-3405).
     pub fn v_cap(&self, e: u32) -> f64 {
         let cap = self.v_kind_cap(e);
+        // open block: no train runs faster than its driver can stop on sight of the next signal
+        let cap = if self.edge_signal[e as usize] == SIGNAL_OPEN { cap.min(OPEN_BLOCK_KMH / 3.6) } else { cap };
         match self.edge_limit[e as usize] {
             0 => cap,
             lim => cap.min(lim as f64 / 3.6),
@@ -1529,6 +1550,25 @@ impl Network {
 
     fn touch_node(&mut self, n: u32) {
         self.touch.nodes.push(n);
+    }
+
+    /// Set an edge's signalling (`SIGNAL_*`), returning the old one. A crossover keeps
+    /// `SIGNAL_CLOSED` (its ends' nodes take their signalling from the track beside it).
+    pub fn set_edge_signal(&mut self, e: u32, sig: u8) -> Result<u8, Issue> {
+        if !self.edge_ok(e) {
+            return Err(Issue::NoSuchEdge { edge: e });
+        }
+        let i = e as usize;
+        let sig = if self.edge_crossover[i] || sig > SIGNAL_CBTC { SIGNAL_CLOSED } else { sig };
+        let old = self.edge_signal[i];
+        if old != sig {
+            self.edge_signal[i] = sig;
+            self.touch.edges.push(e);
+            let (a, b) = (self.edge_a[i], self.edge_b[i]);
+            self.touch_node(a);
+            self.touch_node(b);
+        }
+        Ok(old)
     }
 
     pub fn set_node(&mut self, id: u32, data: Option<NodeData>) -> Result<Option<NodeData>, Issue> {
@@ -1627,6 +1667,9 @@ impl Network {
                 self.edge_oneway[i] = if d.tracks == 1 { d.oneway } else { 0 };
                 self.edge_join[i] = if d.tracks == 1 { d.join } else { [0; 2] };
                 self.edge_limit[i] = if d.crossover || d.limit == 0 { 0 } else { d.limit.clamp(EDGE_LIMIT_MIN, (d.kind.v_cap() * 3.6).round() as u16) };
+                if old.is_none() || d.crossover {
+                    self.edge_signal[i] = SIGNAL_CLOSED;
+                }
                 self.node_ports[d.a as usize].add(id << 1);
                 self.node_ports[d.b as usize].add(id << 1 | 1);
                 self.touch_node(d.a);
@@ -1650,6 +1693,7 @@ impl Network {
                 self.edge_oneway[i] = 0;
                 self.edge_join[i] = [0; 2];
                 self.edge_limit[i] = 0;
+                self.edge_signal[i] = SIGNAL_CLOSED;
                 self.edge_infer[i] = 0;
                 self.edge_free.push(id);
             }
@@ -1980,7 +2024,11 @@ impl Network {
         if self.edge_crossover[i] {
             cost::crossover_cost(self.node_level[self.edge_a[i] as usize], !wet.is_empty(), self.edge_kind[i])
         } else {
-            cost::track_cost_t(self.edge_len[i], vert, wet, terrain, self.edge_tracks[i], self.edge_kind[i]) + roads::charge(vert, cross).1
+            let c = cost::track_cost_t(self.edge_len[i], vert, wet, terrain, self.edge_tracks[i], self.edge_kind[i]) + roads::charge(vert, cross).1;
+            match self.edge_signal[i] {
+                SIGNAL_CLOSED | SIGNAL_OPEN => c,
+                sig => c + cost::signal_cost(self.edge_len[i], self.edge_tracks[i], self.edge_kind[i], sig),
+            }
         }
     }
 

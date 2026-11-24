@@ -58,6 +58,7 @@ pub mod related;
 pub mod roads;
 pub mod save;
 pub mod service;
+pub mod signal;
 pub mod spacing;
 pub mod span;
 pub mod streets;

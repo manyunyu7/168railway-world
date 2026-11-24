@@ -666,6 +666,20 @@ pub fn track_factor(tracks: u8, kind: TrackKind) -> f64 {
     if tracks == 1 { SINGLE_TRACK_COST * kind.spec().upkeep } else { kind.spec().upkeep }
 }
 
+/// Price of an edge's signalling (`SIGNAL_*`), US$M: `SIGNAL_COST_SHARE` of the same track at grade
+/// on flat ground, whatever its level (0 for open and closed block).
+pub fn signal_cost(len: f64, tracks: u8, kind: TrackKind, sig: u8) -> f64 {
+    let share = SIGNAL_COST_SHARE.get(sig as usize).copied().unwrap_or(0.0);
+    if share == 0.0 { return 0.0 }
+    len / 1000.0 * BASE_COST_PER_KM * level_mult(0) * price_scale(tracks, kind) * share
+}
+
+/// Upkeep a day per route-km of an edge's signalling over double ground rail, real US$ (times
+/// `track_factor` as the track's).
+pub fn signal_upkeep_km(sig: u8) -> f64 {
+    UPKEEP_GROUND_KM * SIGNAL_UPKEEP_SHARE.get(sig as usize).copied().unwrap_or(0.0)
+}
+
 /// What the preview's multiplier is measured against: single track's 0.6, and the kind's own price scale
 /// (high speed's 1.5), so the multiplier is the level's figure from the kind's table.
 pub fn price_scale(tracks: u8, kind: TrackKind) -> f64 {

@@ -487,7 +487,8 @@ fn build_sections(net: &Network, lines: &[LineSvc], cand: &[u32], in_k: &dyn Fn(
             let occ_s = if single {
                 profile::time_at(ph, exit) - profile::time_at(ph, entry) + SINGLE_TRACK_MARGIN_S
             } else {
-                net.edge_section_s(path_edge(run.segs[i0])) + profile::v_max(ph, entry, exit) / SIGNAL_BRAKE
+                let std = net.edge_section_s(path_edge(run.segs[i0])) + profile::v_max(ph, entry, exit) / SIGNAL_BRAKE;
+                net.section_occ(run, grouped[u..ue].iter().map(|x| x.3 as usize), std)
             };
             users.push(User { line: l, run: r, owner: true, occ: occ_s, at: entry - hold_back(lines, l as usize), stop: -1 });
             u = ue;
@@ -884,10 +885,10 @@ pub(super) fn stretches(net: &Network, lines: &[LineSvc], f: u32, live: &dyn Fn(
                 if longer < FOLLOW_MIN_S {
                     continue;
                 }
-                let spacing = net.edge_section_s(path_edge(s_run.segs[j0])) + profile::v_max(&s_run.free.phases, sa, sb) / SIGNAL_BRAKE;
+                let spacing = net.signal_spacing((j0..=j1).map(|j| path_edge(s_run.segs[j])), net.edge_section_s(path_edge(s_run.segs[j0])) + profile::v_max(&s_run.free.phases, sa, sb) / SIGNAL_BRAKE);
                 // T-2231: the slower one steps aside at passing stations inside, so the pair can part
                 let plan = if plans {
-                    let s = net.edge_section_s(path_edge(run.segs[i0])) + profile::v_max(&run.free.phases, fa, fb) / SIGNAL_BRAKE;
+                    let s = net.signal_spacing((i0..=last).map(|i| path_edge(run.segs[i])), net.edge_section_s(path_edge(run.segs[i0])) + profile::v_max(&run.free.phases, fa, fb) / SIGNAL_BRAKE);
                     overtake::plan(net, (f, fr as u8), run, (l, r), s_run, i0, last, j0, s)
                 } else {
                     None

@@ -410,6 +410,36 @@ pub const PLATFORM_MARGIN_S: f64 = 60.0;
 pub const PASSING_S: f64 = 40.0;
 pub const TERMINUS_MARGIN_S: f64 = 60.0;
 pub const CONFLICT_S: f64 = 120.0;
+
+// ---- signalling (per edge, `Network::edge_signal`) ----
+
+/// Open block, mechanical signals: one train between two stations or junctions at a time (the
+/// block's run time and `OPEN_BLOCK_MARGIN_S`), at most `OPEN_BLOCK_KMH`. Free, no upkeep.
+pub const SIGNAL_OPEN: u8 = 0;
+/// Closed block, electric colour lights: the model as it always was (`SECTION_BASE_S` and
+/// `v / SIGNAL_BRAKE`). Every edge has it unless the player chose another; the save leaves it out.
+pub const SIGNAL_CLOSED: u8 = 1;
+/// Automatic block at close spacing with train protection (ATP).
+pub const SIGNAL_ATP: u8 = 2;
+/// Moving block (CBTC).
+pub const SIGNAL_CBTC: u8 = 3;
+pub const SIGNAL_LEVELS: usize = 4;
+/// Top speed on open block, km/h.
+pub const OPEN_BLOCK_KMH: f64 = 90.0;
+/// What a train holds an open block for beyond its run through it: clearing the block, setting the
+/// route and the line-clear message back, s.
+pub const OPEN_BLOCK_MARGIN_S: f64 = 60.0;
+/// A section's spacing (`section_s + v / SIGNAL_BRAKE`) times this, by signalling.
+pub const SIGNAL_SECTION_MULT: [f64; SIGNAL_LEVELS] = [1.0, 1.0, 0.75, 0.5];
+/// A junction's or a crossing's conflict time times this.
+pub const SIGNAL_CONFLICT_MULT: [f64; SIGNAL_LEVELS] = [1.0, 1.0, 0.75, 0.6];
+/// A platform's margin times this.
+pub const SIGNAL_MARGIN_MULT: [f64; SIGNAL_LEVELS] = [1.0, 1.0, 1.0, 0.8];
+/// Price per km of the signalling as a share of the same track's price at grade on flat ground
+/// (`BASE_COST_PER_KM` at ground level, times `cost::track_factor`): ATP about 15%, CBTC 40%.
+pub const SIGNAL_COST_SHARE: [f64; SIGNAL_LEVELS] = [0.0, 0.0, 0.15, 0.40];
+/// Upkeep a day per km as a share of `UPKEEP_GROUND_KM` (times `cost::track_factor`), on top of the track's.
+pub const SIGNAL_UPKEEP_SHARE: [f64; SIGNAL_LEVELS] = [0.0, 0.0, 0.15, 0.40];
 /// A reversal's cost to the route search (s) and its least cost to the stop insertion (m; more on
 /// a longer route, `order_cost`), so a route without one wins unless it is much longer (T-797).
 pub const REVERSAL_SEARCH_S: f64 = 600.0;
