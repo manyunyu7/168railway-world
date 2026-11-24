@@ -23,11 +23,15 @@ import java.util.Locale
  * get off most. With the panel editable, a stop between the ends can be passed (web `dropStop`) and a
  * station the line passes between two stops becomes a stop (web `stopPassed`, the "dilewati" rows).
  * Edits go through the panel's transaction, as its other edits do, and reopen the panel.
+ * The loop edits the web gives a long press on a stop marker (map/stopMarkers.ts `LOOP_TIERS`): close
+ * the line into a loop, open it, and turn its end round a loop of track or take that turn off again.
  */
 internal object LineStops {
     @JvmStatic private external fun read(handle: Long, id: Int): String
     @JvmStatic private external fun skip(handle: Long, id: Int, index: Int, now: Double): String
     @JvmStatic private external fun stop(handle: Long, id: Int, node: Int, now: Double): String
+    /** Web `tools.loopStop`: `action` close, open, turn or unturn at station `node`. */
+    @JvmStatic private external fun loop(handle: Long, id: Int, action: String, node: Int, now: Double): String
 
     /** The running simulation's stop rows for a line (SimulationClock.lineRiders); null without one. */
     var riders: ((Int, (String?) -> Unit) -> Unit)? = null
@@ -64,6 +68,13 @@ internal object LineStops {
             visibility = if (riders != null) View.VISIBLE else View.GONE
         }
         strip.addView(status)
+        val nodes = edits?.optJSONArray("nodes")?.takeIf { it.length() == count }
+        val loopInfo = edits?.optJSONObject("loop")
+        val looped = loopInfo?.optBoolean("closed") == true
+        val turnAt = loopInfo?.optJSONArray("turn")?.let { t -> (0 until t.length()).map { t.optInt(it) }.toSet() } ?: emptySet()
+        val unturnAt = loopInfo?.takeIf { !it.isNull("unturn") }?.optInt("unturn", -1) ?: -1
+        fun loopEdit(action: String, node: Int, said: String) =
+            apply({ _ -> said }) { now -> JSONObject(loop(handle, id, action, node, now)) }
 
         // the line through the rows, a stop's dot (bigger at the ends), or a passed station's small grey one
         fun rail(index: Int, between: Boolean): View = object : View(host) {
@@ -119,6 +130,19 @@ internal object LineStops {
             val today = StudioUi.text(host, "", 14f, true, StudioUi.INK).apply { setPadding(dp(6), dp(8), 0, 0) }
             todays[index] = today
             addView(today, LinearLayout.LayoutParams(-2, -2))
+            val node = nodes?.optInt(index, -1) ?: -1
+            val firstVisit = nodes != null && (0 until index).none { nodes.optInt(it) == node }
+            if (editable && firstVisit && node in turnAt) {
+                val name = route.names[index]
+                addView(action("Buat putaran", "Buat putaran di $name: ujung lini berputar di rel putaran lalu kembali") {
+                    loopEdit("turn", node, "Lini kini berputar di rel putaran setelah $name.")
+                }, LinearLayout.LayoutParams(-2, -2))
+            } else if (editable && firstVisit && node == unturnAt) {
+                val name = route.names[index]
+                addView(action("Hapus putaran", "Hapus putaran di $name") {
+                    loopEdit("unturn", node, "Putaran setelah $name dihapus.")
+                }, LinearLayout.LayoutParams(-2, -2))
+            }
             if (editable && skippable?.optBoolean(index) == true) {
                 val name = route.names[index]
                 addView(action("Lewati", "Lewati $name: lini tidak lagi berhenti di sini") {
@@ -143,6 +167,21 @@ internal object LineStops {
                 if (p.optInt(0) == index) rows.add(passedRow(p.optInt(1), p.optString(2)))
             }
             return rows
+        }
+        if (looped || (editable && loopInfo?.optBoolean("close") == true && nodes != null)) {
+            val bar = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+            bar.addView(StudioUi.text(host, if (looped) "Putaran tertutup · kereta kembali ke ${route.names.firstOrNull().orEmpty()}" else "Lini terbuka",
+                12.5f, true, if (looped) StudioUi.INK else StudioUi.MUTED), LinearLayout.LayoutParams(0, -2, 1f))
+            val first = nodes?.optInt(0, -1) ?: -1
+            if (editable && first >= 0) {
+                if (looped) bar.addView(action("Buka putaran", "Buka putaran: lini berakhir lagi di ujungnya") {
+                    loopEdit("open", first, "Putaran dibuka.")
+                }, LinearLayout.LayoutParams(-2, -2))
+                else bar.addView(action("Tutup putaran", "Tutup putaran: dari perhentian terakhir lini kembali ke ${route.names.firstOrNull().orEmpty()}") {
+                    loopEdit("close", first, "Putaran ditutup: lini kembali ke ${route.names.firstOrNull().orEmpty()}.")
+                }, LinearLayout.LayoutParams(-2, -2))
+            }
+            strip.addView(bar)
         }
         (0 until minOf(VISIBLE, count)).forEach { i -> group(i).forEach { strip.addView(it) } }
         val rest = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }

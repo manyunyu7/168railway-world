@@ -534,6 +534,8 @@ class NativeWorldActivity : Activity() {
             if (drawing && plan.tool in setOf(BuildTool.BUS,BuildTool.FERRY) && map.draft.isNotEmpty() && map.draft.size < 24 && map.bends.size < 64) {
                 map.bends.add(map.draft.lastIndex to point)
                 updateDraft()
+            } else if (drawing && plan.tool==BuildTool.LINE && map.draft.isNotEmpty()) {
+                if (LineDraftLoop.apply(map,stationOrder,point) { status.text=it }) updateDraft()
             }
         }
         setContentView(root)
@@ -811,6 +813,7 @@ class NativeWorldActivity : Activity() {
         if (drawing) {
             options.add("Pengaturan alat" to { configureTool(plan.tool) })
             options.add("Pilih titik di tengah peta" to { selectPoint(map.centerPoint()) })
+            if (plan.tool==BuildTool.LINE && stationOrder.size>=2) options.add("Putaran di stasiun tengah peta" to { map.onBend?.invoke(map.centerPoint()); Unit })
             if (plan.tool in setOf(BuildTool.BUS,BuildTool.FERRY) && map.draft.isNotEmpty() && map.draft.size < 24 && map.bends.size < 64) options.add("Tambah lengkung di tengah peta" to { map.onBend?.invoke(map.centerPoint()); Unit })
             options.add("Batalkan rancangan" to { discardDraft() })
         } else {
@@ -1579,7 +1582,7 @@ class NativeWorldActivity : Activity() {
                 else -> "Geser ujung atau konfirmasi segmen."
             }
             BuildTool.STATION -> if(n==0) "Ketuk rel yang sudah dibangun untuk menempatkan peron." else "Lokasi dipilih. Ketuk rel lain atau tinjau stasiun."
-            BuildTool.LINE -> if(n==0) "Ketuk stasiun pertama yang akan dilayani." else "$n stasiun · Ketuk stasiun berikutnya sesuai urutan perjalanan."
+            BuildTool.LINE -> LineDraftLoop.status(stationOrder)
             BuildTool.BUS -> if(n==0) "Ketuk lokasi awal bus di dekat jalan." else "$n titik · Ketuk tujuan berikutnya. Rute akan mengikuti jalan."
             BuildTool.FERRY -> if(n==0) "Ketuk pesisir untuk memilih dermaga awal." else "$n dermaga · Ketuk dermaga berikutnya. Tahan untuk menandai lintasan air."
         }
@@ -1720,6 +1723,7 @@ class NativeWorldActivity : Activity() {
                 return
             }
             if(stationOrder.lastOrNull()==nearest.id) return
+            if(LineDraftLoop.closed(stationOrder)) { status.text="Putarannya sudah tertutup. Tahan stasiun mana saja untuk membukanya."; return }
             stationOrder.add(nearest.id)
             map.draft.add(PointF(nearest.x,nearest.y))
         } else {
