@@ -23,7 +23,9 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     private companion object { val executor = java.util.concurrent.Executors.newSingleThreadExecutor() }
     private var generation = 0
     private var error: String? = null
+    var onComputing: ((Boolean) -> Unit)? = null
     private var loading = ""
+        set(value) { field = value; onComputing?.invoke(value.isNotEmpty()) }
     private val loaded = mutableSetOf<String>()
     val track get() = selection[2]
     val active get() = selection[0] != "none" || selection[1] != "none" || track != "line"

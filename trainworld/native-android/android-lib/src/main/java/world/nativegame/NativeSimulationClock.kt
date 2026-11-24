@@ -81,11 +81,11 @@ internal class NativeSimulationClock(
         }
     }
     override fun play(rate: Double) {
+        val alreadyPlaying = playing
         playing=true
         val now=SystemClock.elapsedRealtime()
         submit { check(SimulationEngine.play(id,now,rate)) { "Laju simulasi tidak valid." } }
-        main.removeCallbacks(tick)
-        tick.run()
+        if (!alreadyPlaying) tick.run()
     }
     override fun snapshot(pause: Boolean, done: (Result<ByteArray>) -> Unit) {
         if (pause) {

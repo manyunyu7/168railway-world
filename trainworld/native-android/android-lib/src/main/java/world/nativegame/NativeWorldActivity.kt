@@ -96,6 +96,7 @@ class NativeWorldActivity : Activity() {
     private lateinit var info: TextView
     private lateinit var status: TextView
     private lateinit var map: NetworkView
+    private lateinit var speedChip: WorldSpeedChip
     private lateinit var play: Button
     private lateinit var save: Button
     private lateinit var more: Button
@@ -420,7 +421,11 @@ class NativeWorldActivity : Activity() {
         finance = action { openLenses() }
         cancel = action { if(railMode) resetRailRun() else discardDraft() }
         more = action { withCommittedWorld(pause = false) { if(railMode) { cancelDrawing(); chooseConstruction() } else manageWorld() } }
-        for (item in listOf(cancel, play, lines, build, finance, more)) {
+        speedChip = WorldSpeedChip(this, savedInstanceState?.getDouble("speed",1.0) ?: 1.0) {
+            if (referenceState == ReferenceState.PLAYING) reference?.play(speedChip.rate)
+        }
+        map.overlay.onComputing = { speedChip.capped = it }
+        for (item in listOf(cancel, play, lines, build, speedChip, finance, more)) {
             bar.addView(item, LinearLayout.LayoutParams(0,-2,if (item == build) 1.6f else 1f).apply {
                 marginStart = dp(3); marginEnd = dp(3)
             })
@@ -1019,6 +1024,8 @@ class NativeWorldActivity : Activity() {
         dockTitle.text = if (drawing) plan.specification else ""
         dockTitle.visibility = if (drawing) View.VISIBLE else View.GONE
         controlHint.visibility = if (!ready || drawing || selectingInfrastructure || removingTrack) View.VISIBLE else View.GONE
+        speedChip.isEnabled = ready
+        speedChip.visibility = if (drawing) View.GONE else View.VISIBLE
         lines.visibility = if (drawing) View.GONE else View.VISIBLE
         finance.visibility = lines.visibility
         cancel.visibility = if (drawing) View.VISIBLE else View.GONE
@@ -1052,7 +1059,7 @@ class NativeWorldActivity : Activity() {
             drawing -> render(play,if(railMode) "Kembali" else "Urung",if(railMode) "Kembali satu segmen" else "Urungkan titik terakhir",StudioUi.Icon.UNDO)
             running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
             playWhenWarm && computing() -> render(play,"${(warmFraction()*100).toInt()}%","Batalkan putar",StudioUi.Icon.CLOSE)
-            else -> render(play,"×8",if (parked != null) "Putar ×8, penumpang siap" else "Putar ×8",StudioUi.Icon.PLAY)
+            else -> render(play,"Putar",if (parked != null) "Putar, penumpang siap" else "Putar",StudioUi.Icon.PLAY)
         }
         // A finished forecast shows as a green dot on the play button.
         val dot = !drawing && reference == null && !running && parked != null
@@ -1063,7 +1070,7 @@ class NativeWorldActivity : Activity() {
                 drawing -> render(play,if(railMode) "Kembali" else "Urung",if(railMode) "Kembali satu segmen" else "Urungkan titik terakhir",StudioUi.Icon.UNDO)
                 running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
                 playWhenWarm && computing() -> render(play,"${(warmFraction()*100).toInt()}%","Batalkan putar",StudioUi.Icon.CLOSE)
-                else -> render(play,"×8","Putar ×8",StudioUi.Icon.PLAY)
+                else -> render(play,"Putar","Putar",StudioUi.Icon.PLAY)
             }
             if (dot) {
                 val glyph = play.compoundDrawables[1]
@@ -1542,7 +1549,7 @@ class NativeWorldActivity : Activity() {
             if (!running || handle==0L || map.requiresStudioClock) return
             val now=SystemClock.elapsedRealtime()
             if (now > lastTick) worldChanged = true
-            clock+=(now-lastTick)*0.008; lastTick=now
+            clock+=(now-lastTick)*speedChip.rate/1000.0; lastTick=now
             refresh(); map.postDelayed(this, 65)
         }
     }
@@ -1696,7 +1703,7 @@ class NativeWorldActivity : Activity() {
                 reference = idle
                 referenceState = ReferenceState.PLAYING
                 updateControls()
-                idle.play(8.0)
+                idle.play(speedChip.rate)
                 return
             }
             idle.close()
@@ -1908,6 +1915,7 @@ class NativeWorldActivity : Activity() {
         super.onSaveInstanceState(out)
         if (handle == 0L || local.baseFile.lastModified() != saveRevision) return
         if (!drawing && worldChanged) writeSave()
+        out.putDouble("speed", speedChip.multiple)
         out.putBoolean("drawing", drawing)
         plan.save(out)
         out.putIntArray("railSnaps",map.railSnaps.toIntArray())
@@ -2175,7 +2183,7 @@ class NativeWorldActivity : Activity() {
             warmChip.background = StudioUi.pill(this, StudioUi.INK, 18)
             warmChipRing.done = true
             warmChipText.setTextColor(StudioUi.WHITE)
-            warmChipText.text = "Penumpang siap · tekan ×8 untuk main"
+            warmChipText.text = "Penumpang siap · tekan Putar untuk main"
         }
     }
 
