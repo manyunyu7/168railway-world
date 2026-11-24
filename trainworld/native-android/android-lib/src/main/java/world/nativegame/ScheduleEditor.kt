@@ -286,7 +286,7 @@ internal class ScheduleEditor(
                 advanced.addView(StudioUi.text(host,title,13f,true,StudioUi.MUTED).apply { setPadding(dp(4),0,0,0) },gap(10))
                 return input(title,value,numeric).also { advanced.addView(it,gap(3)) }
             }
-            val name = option("Nama layanan", service.getString("name"), false)
+            val name = option("Nama line", service.getString("name"), false)
             watch(name) { routeTitle.text = name.text.toString().trim().ifEmpty { service.getString("name") } }
             val cars = if (route.vehicleUnit == "kereta")
                 option("Gerbong per rangkaian (0 = otomatis)", service.getInt("cars").toString()) else null
@@ -315,7 +315,7 @@ internal class ScheduleEditor(
             fun save() {
                 val title = name.text.toString().trim()
                 if (title.isEmpty() || title.codePointCount(0,title.length) > 48) {
-                    invalid(name,"Nama layanan harus 1–48 karakter.")
+                    invalid(name,"Nama line harus 1–48 karakter.")
                     return
                 }
                 val values = JSONObject().put("name",title).put("mode",if (byInterval) "headway" else "count")

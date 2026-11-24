@@ -849,7 +849,7 @@ class NativeWorldActivity : Activity() {
             }
             if (map.stops.any { it.id >= 0 }) options.add("Pilih stasiun" to { chooseStation() })
             options.add("Lensa peta lanjutan" to { passengerLayers() })
-            if (workshop) options.add("Bongkar layanan atau stasiun" to { withCommittedWorld { demolition() } })
+            if (workshop) options.add("Bongkar line atau stasiun" to { withCommittedWorld { demolition() } })
             options.add("Keuangan" to { openFinance() })
             options.add("Pencapaian" to { openProgress() })
             options.add("Tutorial bermain" to { chooseTutorial() })
@@ -1245,7 +1245,7 @@ class NativeWorldActivity : Activity() {
             column.addView(StudioUi.section(this,"Tujuan perjalanan di peta"))
             column.addView(purposeChips { dialog.dismiss() })
             group(1,"Penumpang stasiun",StudioUi.TINT_RED,StudioUi.Icon.PIN,listOf("Mati" to "none","Asal" to "origins","Pindah" to "transfers","Total" to "total"))
-            group(2,"Warna line",StudioUi.TINT_BLUE,StudioUi.Icon.TRAIN,listOf("Warna layanan" to "line","Lalu lintas" to "traffic","Kecepatan" to "speed","Ketinggian" to "height","Laba" to "profit"))
+            group(2,"Warna line",StudioUi.TINT_BLUE,StudioUi.Icon.TRAIN,listOf("Warna line" to "line","Lalu lintas" to "traffic","Kecepatan" to "speed","Ketinggian" to "height","Laba" to "profit"))
             if (map.overlay.selection[1] != "none" || map.overlay.selection[2] == "traffic") column.addView(LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(4),dp(12),dp(4),0)
@@ -1462,14 +1462,14 @@ class NativeWorldActivity : Activity() {
                 dialog.dismiss()
                 withCommittedWorld { chooseConstruction() }
             }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
-            form.addView(StudioUi.text(this, "Pilih moda, gambar jalur, lalu tempatkan stasiun atau halte dan atur layanannya.", 14f).apply {
+            form.addView(StudioUi.text(this, "Pilih moda, gambar jalur, lalu tempatkan stasiun atau halte dan atur line-nya.", 14f).apply {
                 setPadding(dp(3), dp(4), dp(3), 0)
             })
             form.addView(StudioUi.button(this, "Panduan operasi", icon = StudioUi.Icon.TRAIN) {
                 dialog.dismiss()
                 openGuide()
             }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
-            form.addView(StudioUi.text(this, "Ikuti panduan penumpang dan pengoperasian layanan di dunia ini.", 14f).apply {
+            form.addView(StudioUi.text(this, "Ikuti panduan penumpang dan pengoperasian line di dunia ini.", 14f).apply {
                 setPadding(dp(3), dp(4), dp(3), 0)
             })
         }
@@ -1498,13 +1498,13 @@ class NativeWorldActivity : Activity() {
                 dialog?.dismiss()
                 StudioUi.sheet(this,"Bongkar") { choices,menu ->
                     choices.addView(StudioUi.button(this,"Bongkar rel di peta") { menu.dismiss(); startTrackRemoval() })
-                    choices.addView(StudioUi.button(this,"Layanan dan stasiun") { menu.dismiss(); demolition() })
+                    choices.addView(StudioUi.button(this,"Line dan stasiun") { menu.dismiss(); demolition() })
                 }
             })
             val hint = when {
-                map.routeCount == 0 && map.stationCount == 0 -> "Mulai dari Rel, lalu taruh Stasiun, lalu buat Layanan."
-                map.stationCount > 0 && map.routeCount == 0 -> "Stasiun sudah ada. Buat Layanan supaya kereta jalan."
-                else -> "Saran: tambah Layanan di lintas yang padat, atau perpanjang Rel ke kawasan baru."
+                map.routeCount == 0 && map.stationCount == 0 -> "Mulai dari Rel, lalu taruh Stasiun, lalu buat Line."
+                map.stationCount > 0 && map.routeCount == 0 -> "Stasiun sudah ada. Buat Line supaya kereta jalan."
+                else -> "Saran: tambah Line di lintas yang padat, atau perpanjang Rel ke kawasan baru."
             }
             dialog = BuildWheel.show(this, "Mau bangun apa?", tiles, hint)
         }
@@ -2508,8 +2508,8 @@ class NativeWorldActivity : Activity() {
         TRIPS("Total perjalanan","both","none","line", intArrayOf(0xffd8cffd.toInt(),0xffff7a2f.toInt()), "Rumah dan destinasi perjalanan warga"),
         PASSENGERS("Penumpang","none","total","line", intArrayOf(0xfffde3e3.toInt(),0xffe5484d.toInt()), "Lingkaran makin besar = makin banyak penumpang per hari"),
         ORIGINS("Asal penumpang","none","origins","line", intArrayOf(0xffdbe6ff.toInt(),0xff2456e0.toInt()), "Penumpang yang memulai perjalanan di tiap stasiun"),
-        TRANSFERS("Transit","none","transfers","line", intArrayOf(0xffebe5ff.toInt(),0xff6c4df6.toInt()), "Penumpang yang pindah layanan di tiap stasiun"),
-        TRAFFIC("Lalu lintas","none","none","traffic", intArrayOf(0xffe5484d.toInt(),0xff3e7bfa.toInt(),0xff2fb36d.toInt()), "Warna = layanan, garis makin tebal = makin ramai"),
+        TRANSFERS("Transit","none","transfers","line", intArrayOf(0xffebe5ff.toInt(),0xff6c4df6.toInt()), "Penumpang yang pindah line di tiap stasiun"),
+        TRAFFIC("Lalu lintas","none","none","traffic", intArrayOf(0xffe5484d.toInt(),0xff3e7bfa.toInt(),0xff2fb36d.toInt()), "Warna = line, garis makin tebal = makin ramai"),
         PROFIT("Laba","none","none","profit", intArrayOf(0xffb2182b.toInt(),0xffe9853b.toInt(),0xfff1d54a.toInt(),0xff96d58f.toInt(),0xff2166ac.toInt()), "Rugi → impas → untung"),
         SPEED("Kecepatan","none","none","speed", intArrayOf(0xff8a2232.toInt(),0xffe2922e.toInt(),0xffa3c23c.toInt(),0xff397bc1.toInt(),0xffa03fc2.toInt()), "Lambat → cepat"),
         HEIGHT("Ketinggian","none","none","height", intArrayOf(0xffc2351c.toInt(),0xfff0b928.toInt(),0xff58b04a.toInt(),0xff2f6fd0.toInt(),0xff4a2c9a.toInt()), "Bawah tanah → permukaan → layang")

@@ -129,7 +129,7 @@ internal object StudioNetworkDiagram {
                 routeRows.removeAllViews()
                 val routes=diagram.visibleRoutes
                 if(routes.isEmpty()) {
-                    routeRows.addView(StudioUi.text(host,"Belum ada layanan di area ini.",15f,true,StudioUi.MUTED))
+                    routeRows.addView(StudioUi.text(host,"Belum ada line di area ini.",15f,true,StudioUi.MUTED))
                     return
                 }
                 routeRows.addView(StudioUi.section(host,"Line"))

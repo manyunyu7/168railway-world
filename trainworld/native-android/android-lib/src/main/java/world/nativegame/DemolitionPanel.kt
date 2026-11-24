@@ -17,12 +17,12 @@ internal object DemolitionPanel {
     fun danger(button: android.widget.Button) = StudioUi.danger(button, filled = true)
 
     fun show(activity: Activity, handle: Long, clock: Double, commit: (Int, Int, String) -> Unit) {
-        val kinds = arrayOf("Layanan", "Stasiun atau peron")
+        val kinds = arrayOf("Line", "Stasiun atau peron")
         StudioUi.sheet(activity, "Bongkar") { column, menu ->
             column.addView(StudioUi.text(activity, "Pilih yang ingin dibongkar. Dampaknya ditampilkan sebelum dikonfirmasi.", 14f, true, StudioUi.MUTED))
             kinds.forEachIndexed { kind, label ->
                 column.addView(StudioUi.row(activity, if (kind == 0) StudioUi.Icon.ROUTE else StudioUi.Icon.PIN, StudioUi.TINT_RED, label,
-                    if (kind == 0) "Hapus layanan beserta jadwalnya" else "Bongkar peron atau stasiun") {
+                    if (kind == 0) "Hapus line beserta jadwalnya" else "Bongkar peron atau stasiun") {
                     menu.dismiss(); choose(activity, handle, clock, kinds, commit, kind)
                 }, android.widget.LinearLayout.LayoutParams(-1, -2).apply { topMargin = StudioUi.dp(activity, 8) })
             }
@@ -61,10 +61,10 @@ internal object DemolitionPanel {
     fun impact(activity: Activity, kind: Int, preview: JSONObject): StudioDecision {
         val affected = preview.getJSONArray("affected")
         val cashChange = preview.getDouble("cashChange")
-        return StudioDecision(activity,"Dampak pembongkaran",when(kind) { 0 -> "Layanan dan jadwalnya akan dihapus."; 1 -> "Peron yang dipilih akan dibongkar."; else -> "Ruas rel yang dipilih akan dihapus dari jaringan." }).apply {
+        return StudioDecision(activity,"Dampak pembongkaran",when(kind) { 0 -> "Line dan jadwalnya akan dihapus."; 1 -> "Peron yang dipilih akan dibongkar."; else -> "Ruas rel yang dipilih akan dihapus dari jaringan." }).apply {
             val amount = StudioCurrency.current(activity).compact(abs(cashChange))
             fact(if(cashChange<0) "Biaya" else "Pengembalian dana",amount)
-            fact("Layanan terdampak",affected.length().toString())
+            fact("Line terdampak",affected.length().toString())
             for (i in 0 until affected.length()) {
                 val line = affected.getJSONObject(i)
                 val effect = when (line.getString("effect")) {

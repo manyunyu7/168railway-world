@@ -152,7 +152,7 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
                 "build"->{
                     check(drawing && viewMap.draft.size>=2){"Pilih sedikitnya dua stasiun."}
                     val service=(args["name"] as? String)?.trim().orEmpty()
-                    check(service.isNotEmpty()){"Isi nama layanan."}
+                    check(service.isNotEmpty()){"Isi nama line."}
                     val mode=(args["mode"] as? Number)?.toInt()?:0
                     check(mode in listOf(0,1,3,4,5)){"Moda belum tersedia."}
                     val coords=viewMap.draft.flatMap {listOf(it.x.toDouble(),it.y.toDouble())}.toDoubleArray()
@@ -183,8 +183,8 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
                                     Engine.close(handle);handle=candidate
                                     clock=max(clock,it.getDouble("departure"))
                                     clearDraft();viewMap.load(JSONObject(Engine.geometry(handle)),false);refresh()
-                                    message="Layanan " + it.getString("name") + " siap dijalankan."
-                                }.onFailure { Engine.close(candidate);message=it.localizedMessage ?: "Layanan belum dapat dibangun." }
+                                    message="Line " + it.getString("name") + " siap dijalankan."
+                                }.onFailure { Engine.close(candidate);message=it.localizedMessage ?: "Line belum dapat dibangun." }
                                 publish();done(snapshot())
                             }
                         }

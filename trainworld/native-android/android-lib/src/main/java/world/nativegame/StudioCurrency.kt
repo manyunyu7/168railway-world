@@ -21,14 +21,8 @@ internal data class StudioCurrency(val code: String, val label: String, val symb
     }.format(value)
 
     fun millions(millionUsd: Double) = symbol + fmt(millionUsd * rate) + " juta"
-    fun compact(millionUsd: Double): String {
-        val amount = millionUsd * rate
-        return when {
-            abs(amount) >= 1e6 -> symbol + fmt(amount / 1e6) + " T"
-            abs(amount) >= 1000 -> symbol + fmt(amount / 1000) + " miliar"
-            else -> symbol + fmt(amount) + " jt"
-        }
-    }
+    /** Short money everywhere goes through the one formatter (StudioFormat.money): "Rp 246 M", "Rp 1,54 jt". */
+    fun compact(millionUsd: Double): String = StudioFormat.money(millionUsd * 1e6, this)
 
     companion object {
         private var catalog: List<StudioCurrency>? = null

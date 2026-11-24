@@ -27,7 +27,7 @@ internal object StudioCityStart {
     private val scenarioDetails = mapOf(
         "jak_mulai" to "KRL Bogor dan Tangerang beroperasi bersama TransJakarta koridor 1–14.",
         "indo" to "KA penumpang Jawa dan Sumatera mengikuti GAPEKA 2026, bersama jaringan perkotaan Jabodetabek.",
-        "jak" to "28 layanan mencakup KRL, MRT, LRT, Kalayang, dan TransJakarta.",
+        "jak" to "28 line mencakup KRL, MRT, LRT, Kalayang, dan TransJakarta.",
         "jak_2019" to "Kembangkan Jabodetabek dari jaringan yang beroperasi pada 2019.",
         "jak_krl" to "Mulai dengan sembilan line KRL Jabodetabek.",
         "jak_tj" to "Mulai dengan 14 koridor TransJakarta, lalu bangun jaringan rel pertama.",
@@ -182,7 +182,7 @@ internal object StudioCityStart {
             val sandbox = option(modes,"Sandbox")
             val modeHint = StudioUi.text(activity,"",13f,true,StudioUi.MUTED)
             modes.setOnCheckedChangeListener { _, _ ->
-                modeHint.text = if (sandbox.isChecked) "Bangun bebas dengan dana tanpa batas." else "Kelola layanan dan anggaran kota."
+                modeHint.text = if (sandbox.isChecked) "Bangun bebas dengan dana tanpa batas." else "Kelola line dan anggaran kota."
             }
             normal.isChecked = true
             row(modes,4)

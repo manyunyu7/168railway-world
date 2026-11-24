@@ -409,7 +409,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         StudioUi.sheet(host,title) { sheet,dialog ->
             val values=if(hit.station) hit.counts else hit.counts.copyOfRange(3,7)
             val total=values.sum()
-            val labels=if(hit.station) listOf("Memulai perjalanan","Berganti layanan")
+            val labels=if(hit.station) listOf("Memulai perjalanan","Berganti line")
                 else listOf("Angkutan umum","Jalan kaki","Kendaraan jalan raya","Tanpa akses")
             val colors=if(hit.station) intArrayOf(0x2456e0,0x169a50) else modeColors
             sheet.addView(StudioDecision(host,format.format(total)+if(hit.station) " penumpang per hari" else " perjalanan per hari").apply {

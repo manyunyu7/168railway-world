@@ -87,7 +87,7 @@ internal class RailTouchBar(val host: Activity, val change: (ConstructionPlan) -
         elevation.text="Level ${value.level}"
         kind.text=kinds[value.kind]
         tracks.text="${value.tracks} sepur"
-        speed.text="${value.speed.toInt()} km/j"
+        speed.text="${value.speed.toInt()} km/jam"
         speed.contentDescription="Kecepatan desain ${value.speed.toInt()} km/jam"
     }
 }

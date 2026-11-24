@@ -94,7 +94,7 @@ object NativeFinance {
                     return currency.rate*(local.getDouble("base")+distance*local.getDouble("rate"))
                 }
                 val card=StudioDecision(activity,if(changed) "Simulasi tarif linear" else "Tarif lokal saat ini",
-                    if(changed) "Tarif acuan sebelum penyesuaian wilayah dan jenis layanan." else "Satu perjalanan tanpa transit atau pengali layanan.")
+                    if(changed) "Tarif acuan sebelum penyesuaian wilayah dan jenis line." else "Satu perjalanan tanpa transit atau pengali line.")
                 if(base==null || km==null || !base.isFinite() || !km.isFinite() || base<0 || km<0 || base+100*km>1000*currency.rate) {
                     card.fact("Simulasi","Periksa tarif dasar dan tarif per km")
                 } else {

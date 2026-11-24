@@ -145,7 +145,7 @@ internal object StudioTimetable {
                         else "Tidak ada keberangkatan dari ${route.names[selectedStop]} pukul $span."
                     val guidance = when {
                         trips.length() == 0 && noVehicles -> "Armada hari kerja untuk ketiga periode berjumlah nol."
-                        trips.length() == 0 && !service.optBoolean("running") -> "Layanan ini belum beroperasi."
+                        trips.length() == 0 && !service.optBoolean("running") -> "Line ini belum beroperasi."
                         else -> "Pilih ${route.stopType} lain atau lihat dua jam berikutnya."
                     }
                     board.addView(StudioUi.text(host,"$reason $guidance",14f,true,StudioUi.MUTED).apply {

@@ -40,9 +40,9 @@ internal object LineProfileView {
     private const val SIM_LEVEL_M = 8.0
     private fun levelOf(simH: Double) = (simH / SIM_LEVEL_M).roundToInt().coerceIn(-3, 3)
     private fun levelLabel(l: Int) = if (l > 0) "+$l" else if (l < 0) "−${-l}" else "0"
-    private fun speed(kmh: Double) = "${kmh.roundToInt()} km/h"
+    private fun speed(kmh: Double) = "${kmh.roundToInt()} km/jam"
     /** Web `distance` (format.ts). */
-    private fun distance(m: Double) = if (m >= 1000) String.format(Locale.ROOT, "%.1f km", m / 1000) else String.format(Locale.ROOT, "%.2f km", m / 1000)
+    private fun distance(m: Double) = StudioFormat.km(m)
 
     /**
      * The section for line [id], or null for a bus, a ferry or a line with no route. [setLimit]

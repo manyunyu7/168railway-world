@@ -17,7 +17,7 @@ internal object ServicePanel {
 
     /** Line colour from the archive (0xRRGGBB); falls back to the Studio purple. */
     /** What the last edit from a line's panel changed, for its undo entry. */
-    var editLabel = "Jadwal layanan"
+    var editLabel = "Jadwal line"
     fun color(service: JSONObject?): Int {
         val raw = service?.optDouble("color", Double.NaN) ?: Double.NaN
         return if (raw.isFinite() && raw > 0) (raw.toLong().toInt() and 0xffffff) or 0xff000000.toInt() else StudioUi.BLUE
@@ -43,7 +43,7 @@ internal object ServicePanel {
         StudioUi.sheet(host, "Line") { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
             if (all.length() == 0) {
-                column.addView(StudioUi.text(host, "Bangun line pertama untuk mengatur layanannya.", 16f))
+                column.addView(StudioUi.text(host, "Bangun line pertama untuk mengatur jadwalnya.", 16f))
                 column.addView(StudioUi.button(host, "Kembali ke peta") { dialog.dismiss() })
             }
             val items = List(all.length()) { all.getJSONObject(it) }
@@ -76,7 +76,7 @@ internal object ServicePanel {
                 headline.text = listOfNotNull(
                     "${items.size} line" + if (running < items.size) " ($running jalan)" else "",
                     riders?.let { "${StudioFormat.count(it)} penumpang" },
-                    profit?.let { "laba ${StudioCurrency.current(host).compact(it).replace(" miliar", " M")}" },
+                    profit?.let { "laba ${StudioCurrency.current(host).compact(it)}" },
                 ).joinToString(" · ") + if (riders != null) " / hari" else if (running > 0) " · angka muncul saat simulasi berjalan" else ""
             }
             if (items.size > 6) {
@@ -431,7 +431,7 @@ internal object ServicePanel {
     private fun edit(host: Activity, handle: Long, id: Int, clock: Double, service: JSONObject, transaction: PanelEdit, changed: (String) -> Unit) {
         ScheduleEditor(host, service,
             showTimetable = { StudioTimetable.show(host, handle, id, clock, service, null) },
-            applySchedule = { values, reply -> transaction { now -> editLabel = "Jadwal layanan"; reply(JSONObject(update(handle, id, now, values.toString()))) } },
+            applySchedule = { values, reply -> transaction { now -> editLabel = "Jadwal line"; reply(JSONObject(update(handle, id, now, values.toString()))) } },
             onApplied = { updated ->
                 changed(updated.getString("name"))
                 details(host, handle, id, clock, true, transaction, changed)

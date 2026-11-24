@@ -31,11 +31,8 @@ internal object StudioAchievements {
 
     private val ID = Locale.forLanguageTag("id-ID")
     private fun num(v: Double, dp: Int = 0) = NumberFormat.getNumberInstance(ID).apply { minimumFractionDigits = dp; maximumFractionDigits = dp }.format(v)
-    /** web `short`: three significant figures, 17.2M, 669k, 1B */
-    fun short(n: Double): String {
-        val (u, s) = when { n >= 999.5e6 -> 1e9 to "B"; n >= 999.5e3 -> 1e6 to "M"; n >= 999.5 -> 1e3 to "k"; else -> 1.0 to "" }
-        return java.math.BigDecimal(n / u).round(java.math.MathContext(3)).stripTrailingZeros().toPlainString() + s
-    }
+    /** web `short`: three significant figures, in the game's one Indonesian style (StudioFormat): "17,2 jt", "669 rb". */
+    fun short(n: Double): String = StudioFormat.points(n)
     private fun bigDistance(m: Double) = num(m / 1000, if (m / 1000 >= 100) 0 else 1).let { if (it.endsWith(",0")) it.dropLast(2) else it } + " km"
     private fun country(cc: String) = Locale("", cc).getDisplayCountry(ID).ifBlank { cc }
     private fun places(a: JSONObject) = a.optJSONArray("in")?.let { arr -> List(arr.length()) { country(arr.getString(it)) } }.orEmpty()
@@ -78,7 +75,7 @@ internal object StudioAchievements {
             First("long", "Jalan terpanjang", "Line sepanjang ${bigDistance(5e6)}") { "${of(it)} panjangnya ${bigDistance(v(it))}" },
             First("pearls", "Untaian mutiara", "Line yang untung, panjangnya minimal ${bigDistance(3e6)}") { "${of(it)} panjangnya ${bigDistance(v(it))} dan untung" },
             First("money", "Kereta uang", "Line dengan laba ${money.compact(200.0)} dalam sehari") { "${of(it)} meraih laba ${money.compact(v(it) / 1e6)} hari ini" },
-            First("bullet", "Kereta peluru", "Kereta yang melaju 300 km/h") { "${of(it)} mencapai ${Math.round(v(it))} km/h" },
+            First("bullet", "Kereta peluru", "Kereta yang melaju 300 km/jam") { "${of(it)} mencapai ${Math.round(v(it))} km/jam" },
             First("circle", "Lingkar kota", "Line lingkar dengan 10 perhentian") { "${of(it)} melingkar dengan ${v(it).toLong()} perhentian" },
             First("change", "Serba pindah", "Rata-rata satu kali pindah per perjalanan, dengan ${short(100e3)} perjalanan/hari") { "${num(v(it), 2)} pindah per perjalanan" },
             First("city", "Kota angkutan umum", "Kota yang 20% perjalanannya naik angkutan umum") { "${v(it).toInt()}% perjalanan di dalam ${of(it)} naik angkutan umum" },

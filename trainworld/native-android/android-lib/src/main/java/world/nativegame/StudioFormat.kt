@@ -100,6 +100,10 @@ internal object StudioFormat {
         return if (out.length > 10) make(3) else out
     }
 
+    /** A distance in the game's one style: "850 m", "9,8 km" (comma decimal, never "9.8 km"). */
+    fun km(m: Double): String = if (m < 1000) "${Math.round(m)} m" else
+        NumberFormat.getNumberInstance(locale).apply { minimumFractionDigits = 1; maximumFractionDigits = 1 }.format(m / 1000) + " km"
+
     /** Web `moneyNegative`: whether `money(usd)` shows a minus (the panels' red). */
     fun moneyNegative(usd: Double, currency: StudioCurrency) = usd < 0 && abs(usd) * currency.rate >= 500
 }

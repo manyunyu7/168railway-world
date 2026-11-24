@@ -22,7 +22,7 @@ internal enum class BuildTool(val key: String,val label: String,val review: Stri
     STATION("station","Stasiun","Tinjau stasiun","Bangun stasiun"),
     BUS("bus","Bus","Tinjau bus","Bangun rute bus"),
     FERRY("ferry","Feri","Tinjau feri","Bangun rute feri"),
-    LINE("line","Layanan kereta","Tinjau layanan","Buat layanan");
+    LINE("line","Line kereta","Tinjau line","Buat line");
     val minPoints get() = if (this == STATION) 1 else 2
 }
 
@@ -105,7 +105,7 @@ internal object ConstructionPanel {
                 }
             }
             val name=if(tool!=BuildTool.RAIL) {
-                label(if(tool==BuildTool.STATION) "Nama stasiun" else "Nama layanan")
+                label(if(tool==BuildTool.STATION) "Nama stasiun" else "Nama line")
                 EditText(host).apply {
                     setSingleLine(); filters=arrayOf(InputFilter.LengthFilter(48))
                     if(tool==BuildTool.STATION) hint="Otomatis dari lokasi"

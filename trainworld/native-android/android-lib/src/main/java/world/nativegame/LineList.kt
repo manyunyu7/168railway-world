@@ -172,7 +172,7 @@ internal class LineList(
 
     private fun statusLine(s: Sum, count: Int) = listOfNotNull(
         if (figures != null && s.running) "${s.trains.toInt()} armada" else null,
-        if (count > 1) "$count layanan" else null,
+        if (count > 1) "$count rute" else null,
         when { s.running -> null; s.status == "broken" -> "Rusak"; else -> "Belum beroperasi" },
     ).joinToString(" · ").ifEmpty { "Beroperasi" }
 
@@ -192,7 +192,7 @@ internal class LineList(
             minimumHeight = dp(48)
             isClickable = true
             isFocusable = true
-            contentDescription = "$title, ${statusLine(s, group.size)}" + if (many) (if (isOpen) ", ketuk untuk menutup" else ", ketuk untuk membuka layanannya") else ", buka rincian"
+            contentDescription = "$title, ${statusLine(s, group.size)}" + if (many) (if (isOpen) ", ketuk untuk menutup" else ", ketuk untuk membuka rutenya") else ", buka rincian"
             setOnClickListener {
                 if (many) { if (!open.add(groupKey)) open.remove(groupKey); refresh() }
                 else pick(first.getInt("id"))
@@ -218,7 +218,7 @@ internal class LineList(
                 setPadding(dp(10), dp(8), dp(10), dp(10))
                 minimumHeight = dp(48)
                 isClickable = true
-                val name = route.getString("name").let { if (it == title) "Layanan ${i + 1}" else it }
+                val name = route.getString("name").let { if (it == title) "Rute ${i + 1}" else it }
                 contentDescription = "$name${if (stops.isNotEmpty()) ", $stops" else ""}, buka rincian"
                 setOnClickListener { pick(id) }
                 val top = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -290,7 +290,7 @@ internal class LineList(
         // the currency is in the head ("Laba Rp"), so a cell reads "1,5 T" / "383 M"
         val cur = StudioCurrency.current(host)
         fun money(v: Double): String {
-            val t = cur.compact(v).replace(" miliar", " M").replace(cur.compact(0.0).substringBefore("0").trim(), "").trim()
+            val t = cur.compact(v).replace(cur.compact(0.0).substringBefore("0").trim(), "").trim()
             // three figures at most: "383,18 M" → "383 M", "1,51 T" stays
             return Regex("^(-?\\d+)([.,]\\d+)?( .*)$").find(t)?.let { m ->
                 val whole = m.groupValues[1]; val frac = m.groupValues[2]
@@ -339,7 +339,7 @@ internal class LineList(
             if (g.size > 1 && k in open) g.forEachIndexed { i, route ->
                 val one = sum(listOf(route))
                 val sub = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(40); isClickable = true; setOnClickListener { pick(route.getInt("id")) } }
-                val label = route.getString("name").let { if (it == name) "Layanan ${i + 1}" else it }
+                val label = route.getString("name").let { if (it == name) "Rute ${i + 1}" else it }
                 cell(sub, 0, "   ↳ $label", StudioUi.MUTED, true, false)
                 cell(sub, 1, if (known && one.riders != null) StudioFormat.count(one.riders!!) else "—", StudioUi.INK, false, true)
                 cell(sub, 2, if (known && one.money) money(one.profit) else "—", profitInk(one), false, true)

@@ -19,14 +19,14 @@ internal class StudioOperationsGuide(
         Task(16,"Cari tujuan perjalanan","Pilih Tujuan perjalanan untuk melihat kawasan yang menarik penumpang.","layers","Pilih lapisan"),
         Task(0,"Gambar rel sepanjang 5 km","Pilih jenis rel dan elevasi, lalu ketuk peta untuk menggambar lintas.","rail","Gambar rel"),
         Task(1,"Tempatkan tiga stasiun","Pilih tiga lokasi di atas rel, masing-masing berjarak setidaknya 500 meter.","station","Pasang stasiun"),
-        Task(2,"Konfirmasi pembangunan","Tinjau biaya dan konfirmasi ruas serta stasiun sebelum membuat layanan.","rail","Buka alat rel"),
-        Task(3,"Buat layanan","Pilih stasiun yang akan dilayani sesuai urutan perjalanan.","line","Buat layanan"),
-        Task(4,"Hubungkan tiga pemberhentian","Periksa urutan stasiun pada layanan yang baru dibuat.","services","Buka line")
+        Task(2,"Konfirmasi pembangunan","Tinjau biaya dan konfirmasi ruas serta stasiun sebelum membuat line.","rail","Buka alat rel"),
+        Task(3,"Buat line","Pilih stasiun yang akan dilayani sesuai urutan perjalanan.","line","Buat line"),
+        Task(4,"Hubungkan tiga pemberhentian","Periksa urutan stasiun pada line yang baru dibuat.","services","Buka line")
     )
     private val operate = listOf(
-        Task(5,"Siapkan rangkaian","Buka layanan lalu alokasikan sedikitnya satu kereta.","services","Atur layanan"),
+        Task(5,"Siapkan rangkaian","Buka line lalu alokasikan sedikitnya satu kereta.","services","Atur line"),
         Task(13,"Jalankan waktu","Mulai simulasi agar kereta bergerak dan penumpang bisa naik.","play","Jalankan simulasi"),
-        Task(7,"Periksa kepadatan","Buka detail layanan dan periksa beban penumpangnya.","services","Lihat layanan"),
+        Task(7,"Periksa kepadatan","Buka detail line dan periksa beban penumpangnya.","services","Lihat line"),
         Task(8,"Atur tiga tingkat permintaan","Sediakan sedikitnya satu kereta untuk setiap tingkat permintaan.","services","Atur armada"),
         Task(15,"Baca lalu lintas rel","Pilih warna line Lalu lintas untuk melihat ruas yang sering dilalui.","layers","Pilih lapisan"),
         Task(12,"Capai 1% perjalanan dengan angkutan umum","Periksa pembagian moda kota setelah simulasi berjalan.","summary","Lihat perjalanan")
@@ -37,7 +37,7 @@ internal class StudioOperationsGuide(
         val tasks = if (page == 2) operate else build.filter { it.bit != 6 || state.optBoolean("zoom",true) }
         val mask = state.optInt("done",0)
         val index = tasks.indexOfFirst { mask and (1 shl it.bit) == 0 }
-        StudioUi.sheet(activity, if (page == 2) "Operasikan layanan" else "Bangun lintas pertama") { body,dialog ->
+        StudioUi.sheet(activity, if (page == 2) "Operasikan line" else "Bangun lintas pertama") { body,dialog ->
             fun dp(n: Int) = StudioUi.dp(activity,n)
             val complete = tasks.count { mask and (1 shl it.bit) != 0 }
             val task = tasks.getOrNull(index)
