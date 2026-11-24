@@ -676,7 +676,7 @@ class NativeWorldActivity : Activity() {
             val start = dayStartCash
             reportDay = day
             dayStartCash = cash
-            updateSummary()
+            updateSummary(cash)
             if (referenceState == ReferenceState.PLAYING && foreground && hasWindowFocus() && !drawing &&
                 speedChip.multiple <= 24.0 && cash.isFinite() && start.isFinite())
                 StudioProgress.report(this, currency, finished, snap.trains, start, cash, null, next?.goal)
@@ -1888,10 +1888,10 @@ class NativeWorldActivity : Activity() {
             .setPositiveButton("Coba lagi") { _, _ -> startReference() }.show()
     }
 
-    private fun updateSummary() {
+    private fun updateSummary(cash: Double = map.balance) {
         val day = ((referenceTime ?: clock) / 86400).toInt() + 1
         info.text = "Hari $day · ${map.routeCount} jalur · ${map.stationCount} stasiun"
-        showBalance(map.balance)
+        showBalance(cash)
     }
 
     private fun writeSave(restoredBytes: ByteArray? = null): Boolean {
