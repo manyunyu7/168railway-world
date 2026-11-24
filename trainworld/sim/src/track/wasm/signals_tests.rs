@@ -132,6 +132,10 @@ fn open_block_holds_one_train_per_block_and_caps_the_speed() {
     assert!(3600.0 / occ < 10.0);
     let held = a.line_held(l);
     assert!(held[7 * LEVELS] > 0.0, "the line is held back: {held:?}");
+    // and the Issues list finds the open-block piece under it
+    let under = a.line_held_edges(l);
+    assert!(under[0] == e[0] as f64 || under[0] == e[1] as f64, "{under:?}");
+    assert_eq!(a.edge_signal(under[0] as u32), SIGNAL_OPEN);
     // back to closed block: as before
     assert_eq!(a.set_edges_signal(&[e[0], e[1]], SIGNAL_CLOSED), 0);
     assert!((section_occ(&a, e[0]) - closed).abs() < 1e-12);

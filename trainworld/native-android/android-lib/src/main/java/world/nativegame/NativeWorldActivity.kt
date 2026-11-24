@@ -203,6 +203,7 @@ class NativeWorldActivity : Activity() {
                 NativeRidership.inputs(this@NativeWorldActivity,bytes,local.header,local.cells,true,viewed).toString()
             }
             overlay.allowTap = { !removingTrack && !selectingInfrastructure && !restoringEdit }
+            overlay.signalLevels = { if (handle == 0L) IntArray(0) else TrackSignal.levels(handle) }
             overlay.snapshot = {
                 if (closed || !this@NativeWorldActivity.foreground || handle == 0L) null else {
                     stopTrainPreview()
@@ -2520,7 +2521,8 @@ class NativeWorldActivity : Activity() {
         TRAFFIC("Lalu lintas","none","none","traffic", intArrayOf(0xffe5484d.toInt(),0xff3e7bfa.toInt(),0xff2fb36d.toInt()), "Warna = line, garis makin tebal = makin ramai"),
         PROFIT("Laba","none","none","profit", intArrayOf(0xffb2182b.toInt(),0xffe9853b.toInt(),0xfff1d54a.toInt(),0xff96d58f.toInt(),0xff2166ac.toInt()), "Rugi → impas → untung"),
         SPEED("Kecepatan","none","none","speed", intArrayOf(0xff8a2232.toInt(),0xffe2922e.toInt(),0xffa3c23c.toInt(),0xff397bc1.toInt(),0xffa03fc2.toInt()), "Lambat → cepat"),
-        HEIGHT("Ketinggian","none","none","height", intArrayOf(0xffc2351c.toInt(),0xfff0b928.toInt(),0xff58b04a.toInt(),0xff2f6fd0.toInt(),0xff4a2c9a.toInt()), "Bawah tanah → permukaan → layang")
+        HEIGHT("Ketinggian","none","none","height", intArrayOf(0xffc2351c.toInt(),0xfff0b928.toInt(),0xff58b04a.toInt(),0xff2f6fd0.toInt(),0xff4a2c9a.toInt()), "Bawah tanah → permukaan → layang"),
+        SIGNAL("Persinyalan","none","none","signal", TrackSignal.LENS_SWATCH, TrackSignal.LENS_LEGEND)
     }
 
     private fun currentLens(): Lens? = map.overlay.selection.let { sel ->

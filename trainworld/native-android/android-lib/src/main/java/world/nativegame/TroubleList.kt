@@ -37,6 +37,14 @@ internal object TroubleList {
             }
             6 -> name to "Line ini belum punya stasiun."
             else -> name to ""
-        }
+        }.let { (title, advice) -> title to (signalAdvice(item)?.let { "$advice\n$it" } ?: advice) }
+    }
+
+    /** Web `signal.trouble*`: the full track under the row is on open or closed block, which better signalling relieves. */
+    private fun signalAdvice(item: org.json.JSONObject): String? {
+        if (!item.has("signal")) return null
+        val open = item.optInt("signal") == TrackSignal.OPEN
+        return (if (open) "Relnya masih blok terbuka: hanya satu kereta antarstasiun. " else "Relnya masih blok tertutup. ") +
+            "Persinyalan yang lebih baik memuat lebih banyak kereta: pilih ATP atau CBTC di bagian Persinyalan rel ini."
     }
 }

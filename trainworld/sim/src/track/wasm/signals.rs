@@ -87,6 +87,32 @@ impl TrackApi {
         out
     }
 
+    /// Per level, the piece of track under what holds line `line` back (`line_held`'s first part) and
+    /// under what limits it (its second part): an edge id, or -1 where that is no track (a platform,
+    /// a junction) or nothing. For the Issues list's advice on signalling.
+    pub fn line_held_edges(&self, line: u32) -> Vec<f64> {
+        let mut out = vec![-1.0; 2 * LEVELS];
+        let cap = &self.w.svc.cap;
+        if line as usize >= self.w.net.line_count() {
+            return out;
+        }
+        let edge_of = |r: u32| -> f64 {
+            if r == u32::MAX { return -1.0 }
+            let res = &cap.res[r as usize];
+            match res.kind {
+                crate::track::capacity::ResKind::Section | crate::track::capacity::ResKind::SingleTrack if res.edge != u32::MAX => res.edge as f64,
+                _ => -1.0,
+            }
+        };
+        let worst = cap.bottlenecks(self.w.net.line_count())[line as usize];
+        let most = cap.line_limits(&self.w.net)[line as usize];
+        for lev in 0..LEVELS {
+            out[lev] = edge_of(worst[lev].1);
+            out[LEVELS + lev] = edge_of(most[lev].1);
+        }
+        out
+    }
+
     /// Set the signalling of these pieces to `level` (0 open block, 1 closed block, 2 ATP, 3 CBTC).
     /// One undoable edit; crossovers keep theirs. Constructed track pays the rise in its price at
     /// once (refused if the cash is short). Returns 1 when nothing changed.
