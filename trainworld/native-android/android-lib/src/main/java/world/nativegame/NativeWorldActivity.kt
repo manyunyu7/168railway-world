@@ -776,6 +776,7 @@ class NativeWorldActivity : Activity() {
             options.add("Cetak biru & konstruksi" to { withCommittedWorld { chooseConstruction() } })
             options.add("Pengaturan permainan" to { StudioGameSettings.show(this) {
                 map.displaySettings = StudioGameSettings.read(this)
+                updateLensLegend()
                 zoomTools.visibility = if (map.displaySettings.zoomButtons) View.VISIBLE else View.GONE
                 val selected = StudioCurrency.current(this)
                 if (currency != selected) {
@@ -2287,11 +2288,18 @@ class NativeWorldActivity : Activity() {
         val purpose = if (filtered && map.overlay.purpose != "all") " · " + map.overlay.purposeName() else ""
         text.addView(StudioUi.text(this, (lens?.label ?: "Lensa campuran") + purpose, 15f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) })
         if (lens != null) {
+            val ramp = if (lens.trips == "none") null else when (map.displaySettings.bubbleScheme) {
+                "ramp" -> PassengerRamps.trainShare
+                "colorblind" -> PassengerRamps.accessible
+                else -> null
+            }
+            val colours = ramp?.let { intArrayOf(it.first(),it[77],it.last()) } ?: lens.swatch
+            val legend = if (ramp != null) "Pangsa kereta · 0% hingga 100%" else lens.legend
             text.addView(LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, dp(3), 0, 0)
-                addView(View(context).apply { background = swatch(lens.swatch, 5) }, LinearLayout.LayoutParams(dp(64), dp(9)).apply { marginEnd = dp(8) })
-                addView(StudioUi.text(context, lens.legend, 11.5f, true, StudioUi.MUTED).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(View(context).apply { background = swatch(colours, 5) }, LinearLayout.LayoutParams(dp(64), dp(9)).apply { marginEnd = dp(8) })
+                addView(StudioUi.text(context, legend, 12f, true, StudioUi.MUTED).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
             })
         } else text.addView(StudioUi.text(this, "Diatur sendiri lewat Lensa peta lanjutan", 11.5f, true, StudioUi.MUTED))
         lensLegend.addView(text, LinearLayout.LayoutParams(0, -2, 1f))

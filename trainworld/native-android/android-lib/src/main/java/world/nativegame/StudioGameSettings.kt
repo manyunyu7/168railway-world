@@ -93,24 +93,24 @@ internal object StudioGameSettings {
             toggle("zoomButtons","Tombol perbesar dan perkecil")
             heading("Ukuran dan kontras")
             val schemes = linkedMapOf("mode" to "Campuran moda","ramp" to "Pangsa kereta","colorblind" to "Ramah buta warna")
-            val scheme = StudioUi.button(host,"") {
+            lateinit var scheme: android.widget.Button
+            scheme = StudioUi.button(host,"") {
                 StudioDialogBuilder(host).setTitle("Warna gelembung").setItems(schemes.values.toTypedArray()) { _,index ->
                     prefs.edit().putString("bubbleScheme",schemes.keys.elementAt(index)).apply()
                     changed()
-                    dialog.dismiss()
-                    show(host,changed)
+                    scheme.text = "Warna gelembung · " + schemes.values.elementAt(index)
                 }.setNegativeButton("Batal",null).show()
             }
             scheme.text = "Warna gelembung · " + (schemes[read(host).bubbleScheme] ?: "Campuran moda")
             scheme.minHeight = dp(48)
             group!!.addView(scheme)
-            val detail = StudioUi.button(host,"") {
+            lateinit var detail: android.widget.Button
+            detail = StudioUi.button(host,"") {
                 val levels = arrayOf("−1 · Paling renggang","0","1","2 · Paling rapat")
                 StudioDialogBuilder(host).setTitle("Detail gelembung").setItems(levels) { _,index ->
                     prefs.edit().putInt("bubbleDetail",index-1).apply()
                     changed()
-                    dialog.dismiss()
-                    show(host,changed)
+                    detail.text = "Detail gelembung · " + (index-1)
                 }.setNegativeButton("Batal",null).show()
             }
             detail.minHeight = dp(48)
