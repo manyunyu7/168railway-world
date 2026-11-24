@@ -26,7 +26,9 @@ internal object LineFare {
         fun text(v: Double) = String.format(ID, "%.2f×", v)
         val box = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; background = StudioUi.card(host, 22); setPadding(dp(14), dp(8), dp(8), dp(8)) }
         val line = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-        line.addView(StudioUi.text(host, "Kelipatan tarif", 15f, true), LinearLayout.LayoutParams(0, -2, 1f))
+        // the title on its own row: beside the stepper it wrapped into "Kelip / atan / tarif" on a phone
+        box.addView(StudioUi.text(host, "Kelipatan tarif", 15f, true))
+        line.addView(View(host), LinearLayout.LayoutParams(0, 1, 1f))
         box.addView(line)
         box.addView(StudioUi.text(host, "Mengalikan tarif untuk naik di lini ini, termasuk tarif dasar. Perjalanan lewat beberapa lini membayar tarif dasar tertinggi di antaranya.",
             12f, true, StudioUi.MUTED).apply { setPadding(0, dp(4), dp(6), 0) })
