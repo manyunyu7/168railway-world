@@ -196,6 +196,7 @@ class NativeWorldActivity : Activity() {
         map = NetworkView(this).apply {
             workshop = this@NativeWorldActivity.workshop
             trainEngine = { handle }
+            trainClock = { ms -> (reference ?: handover.ghost)?.timeAt(ms) }
             overlay.city = city.id
             val overlayCity = city.id
             overlay.manifest = { bytes, viewed ->
@@ -3116,7 +3117,9 @@ internal class NetworkView(context: Context):View(context) {
         }
         val version = contentVersion
         vw = bw; vh = bh
+        val started = System.nanoTime()
         try { drawStatic(Canvas(bmp)) } finally { vw = width; vh = height }
+        FrameLog.static(System.nanoTime() - started)
         staticVersion = version
         staticCx = centerX; staticCy = centerY; staticScale = scale
         staleSince = 0L
@@ -3142,8 +3145,12 @@ internal class NetworkView(context: Context):View(context) {
     /** Game seconds per real second while the clock plays; the clock reports only every 0,5 s. */
     var trainRate = 0.0
     private var lastShown = Double.NaN
+    /** The playing runtime's exact game time at a wall instant (TrainFrame.kt [TrainClock]). */
+    var trainClock: ((Long) -> Double?)? = null
+    private val smoothClock = TrainClock()
     private fun trainTime(now:Long): Double {
-        if (trainWindow <= 0L || !trainTo.isFinite()) return trainTo
+        if (trainWindow <= 0L || !trainTo.isFinite()) { smoothClock.reset(); return trainTo }
+        trainClock?.invoke(now)?.let { return smoothClock.at(now, it, trainRate) }
         // Run on from the last report at the clock's rate, at most one report interval ahead, and
         // never step back when the next report lands a little behind what is shown.
         val ahead = (trainRate*(now-trainAt)/1000.0).coerceIn(0.0, trainRate*.75)
@@ -3397,6 +3404,7 @@ internal class NetworkView(context: Context):View(context) {
         if (oldw == 0 || oldh == 0) fit()
     }
     override fun onDraw(c:Canvas){
+        val drawStarted = System.nanoTime()
         super.onDraw(c)
         vw = width; vh = height
         val (bw,bh) = staticSize()
@@ -3421,6 +3429,7 @@ internal class NetworkView(context: Context):View(context) {
         drawDynamic(c)
         StationDesign.draw(this, c)
         StopEditMode.draw(this, c)
+        FrameLog.frame(System.nanoTime() - drawStarted)
     }
 
     private fun drawStatic(c:Canvas){
@@ -3584,7 +3593,9 @@ internal class NetworkView(context: Context):View(context) {
     private fun drawDynamic(c:Canvas){
         drawStationReach(c)
         paint.style=Paint.Style.FILL
-        val frameTime=SystemClock.elapsedRealtime()
+        // The frame's vsync time (drawingTime, uptime clock) on the runtime's elapsedRealtime clock:
+        // evenly spaced, so trains advance the same distance every frame.
+        val frameTime=drawingTime + (SystemClock.elapsedRealtime() - SystemClock.uptimeMillis())
         trainPainter.time = trainTime(frameTime)
         trainPainter.update(centerX,centerY,scale,width,height)
         // every display frame while the clock plays (was a 50 ms timer, 20 fps)

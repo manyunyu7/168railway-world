@@ -17,7 +17,9 @@ internal class StudioTrainPainter(private val density:Float) {
     var time = Double.NaN
     private data class View(val handle:Long,val time:Double,val x:Float,val y:Float,val scale:Float,val w:Int,val h:Int)
     private var last: View? = null
-    private var bodies = FloatArray(0)
+    /** The scene's first [size] floats; the array is kept and refilled every frame. */
+    private var bodies = FloatArray(1024)
+    private var size = 0
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stripes = HashMap<Int,LinearGradient>()
     private val path = Path()
@@ -36,8 +38,8 @@ internal class StudioTrainPainter(private val density:Float) {
         zoom < 12 -> 5.25f+.75f*(zoom-11)
         else -> 6f+(zoom-12).coerceIn(0f,3f)
     }
-    val needsLoads get() = bodies.size>1 && loadEpoch != floor(time/3600).toLong()*3600
-    val count get() = bodies.firstOrNull()?.toInt() ?: 0
+    val needsLoads get() = size>1 && loadEpoch != floor(time/3600).toLong()*3600
+    val count get() = if (size > 0) bodies[0].toInt() else 0
 
     private fun blend(a:Int,b:Int,f:Float) = Color.rgb(
         (Color.red(a)*(1-f)+Color.red(b)*f).roundToInt(), (Color.green(a)*(1-f)+Color.green(b)*f).roundToInt(),
@@ -48,7 +50,7 @@ internal class StudioTrainPainter(private val density:Float) {
     }
     fun update(x:Float,y:Float,scale:Float,w:Int,h:Int) {
         val handle = engine()
-        if (handle == 0L || !time.isFinite() || scale <= 0f) { bodies = FloatArray(0); last = null; return }
+        if (handle == 0L || !time.isFinite() || scale <= 0f) { size = 0; last = null; return }
         val view = View(handle,time,x,y,scale,w,h)
         if (last == view) return
         // MapLibre uses 512 CSS pixels across its zoom-zero world.
@@ -56,14 +58,21 @@ internal class StudioTrainPainter(private val density:Float) {
         // Keep a single body until a real 20 m car has room for its rim, gap and long silhouette.
         detailed = zoom >= 14 && 20*scale >= 1.65f*baseWidth()+1.5f*density
         val detail = when { w == 0 || h == 0 || zoom < 10 -> 0; detailed -> 2; else -> 1 }
-        bodies = Engine.trainScene(handle,time,x,y,w/(2f*scale),h/(2f*scale),detail)
+        val started = System.nanoTime()
+        var n = TrainScene.fill(handle,time,x,y,w/(2f*scale),h/(2f*scale),detail,bodies)
+        if (n > bodies.size) {
+            bodies = FloatArray(n + n/2)
+            n = TrainScene.fill(handle,time,x,y,w/(2f*scale),h/(2f*scale),detail,bodies)
+        }
+        size = n.coerceIn(0, bodies.size)
+        FrameLog.scene(System.nanoTime() - started)
         last = view
     }
     /** The train drawn nearest a tap (screen px), within `radius` px: its trip profile, departure ×100 and load gauge (0–200, null before loads). */
     fun trainAt(px:Float,py:Float,scale:Float,w:Int,h:Int,radius:Float):Triple<Int,Int,Int?>? {
         var best=-1; var bestD=radius
         var i=1
-        while (i+14<bodies.size) {
+        while (i+14<size) {
             val d=hypot(w*.5f+bodies[i+4]*scale-px,h*.5f-bodies[i+5]*scale-py)
             if (d<=bestD) { bestD=d; best=i }
             i+=15
@@ -77,7 +86,7 @@ internal class StudioTrainPainter(private val density:Float) {
     fun positionOf(profile:Int,dep:Int):Pair<Float,Float>? {
         val v=last ?: return null
         var i=1
-        while (i+14<bodies.size) {
+        while (i+14<size) {
             if (bodies[i+11].toInt()==profile && bodies[i+12].toInt()==dep) {
                 val cars=bodies[i+14].toInt(); val car=bodies[i+13].toInt()
                 if (cars<=1 || car==cars/2) return Pair(v.x+bodies[i+4],v.y+bodies[i+5])
@@ -88,12 +97,12 @@ internal class StudioTrainPainter(private val density:Float) {
     }
     fun loadOf(profile:Int,dep:Int):Int? = if (loadEpoch == floor(time/3600).toLong()*3600) loads[tripKey(profile,dep)] else null
     fun draw(canvas:Canvas,scale:Float,w:Int,h:Int,display:StudioGameSettings.Display) {
-        if (bodies.size < 16) return
+        if (size < 16) return
         val detail = detailed
         val base = baseWidth()
         val useLoads = loadEpoch == floor(time/3600).toLong()*3600
         var i = 1
-        while (i + 14 < bodies.size) {
+        while (i + 14 < size) {
             val flags = bodies[i+1].toInt()
             val kind = flags and 3
             if (!display.buses && kind >= 2) { i += 15; continue }
@@ -143,15 +152,21 @@ internal class StudioTrainPainter(private val density:Float) {
                 // The overview's one continuous body bends along the chord through its midpoint.
                 val sag = ((ax+bx)*.5f-bodies[i+4]*scale)*(-dy/chord)+((ay+by)*.5f+bodies[i+5]*scale)*(dx/chord)
                 val span = max(0f,length-width)
-                path.rewind(); path.moveTo(-span/2,sag)
-                path.quadTo(0f,-sag,span/2,sag)
+                // Most bodies bend less than a pixel: a straight round-capped line is the same picture,
+                // and the GPU draws it as a capsule instead of rasterising a new path every frame.
+                val straight = abs(sag) < .35f
+                if (!straight) { path.rewind(); path.moveTo(-span/2,sag); path.quadTo(0f,-sag,span/2,sag) }
                 paint.style=Paint.Style.STROKE; paint.strokeCap=Paint.Cap.ROUND
-                paint.strokeWidth=width; paint.color=rimColor; canvas.drawPath(path,paint)
-                paint.strokeWidth=max(.5f,width-2*rim); paint.color=core; paint.shader=coreShader; canvas.drawPath(path,paint)
+                paint.strokeWidth=width; paint.color=rimColor
+                if (straight) canvas.drawLine(-span/2,0f,span/2,0f,paint) else canvas.drawPath(path,paint)
+                paint.strokeWidth=max(.5f,width-2*rim); paint.color=core; paint.shader=coreShader
+                if (straight) canvas.drawLine(-span/2,0f,span/2,0f,paint) else canvas.drawPath(path,paint)
                 paint.shader=null
                 if(divided) {
                     canvas.save(); canvas.clipRect(-2*length,-2*width,(fraction-.5f)*length,2*width)
-                    paint.color=loaded; canvas.drawPath(path,paint); canvas.restore()
+                    paint.color=loaded
+                    if (straight) canvas.drawLine(-span/2,0f,span/2,0f,paint) else canvas.drawPath(path,paint)
+                    canvas.restore()
                 }
                 paint.style=Paint.Style.FILL
             } else {
