@@ -2048,7 +2048,9 @@ class NativeWorldActivity : Activity() {
                         candidate = 0L
                         Engine.close(previous)
                         history.moved(backwards, current)
+                        // the clock goes back with the world: no ghost or old runtime carries it forward
                         handover.forget()
+                        dropParked()
                         referenceTime = null
                         clock = geometry.getDouble("clock")
                         map.load(geometry, refit = false)
