@@ -376,6 +376,43 @@ impl TrackApi {
         out
     }
 
+    /// `stop_tiers`' loop tiers alone, `[node, tier]` per station that has one (5 close, 6 open,
+    /// 7 turn, 8 unturn), without the insertion search the other tiers need: for a panel that
+    /// offers the loop edits without the map's markers.
+    pub fn loop_tiers(&self, line: u32) -> Vec<f64> {
+        let net = &self.w.net;
+        if !net.line_ok(line) {
+            return vec![];
+        }
+        let stops = net.line_stops(line);
+        let mut memo = HopMemo::new();
+        let turn_at: Vec<u32> = turns(net, line, &mut memo).into_iter().map(|t| t.branch).collect();
+        let unturn_at = unturn_branch(net, line, &mut memo);
+        let can_close = !closed(stops) && close_path(net, line, &mut memo).is_some();
+        let mut nodes: Vec<u32> = stops.to_vec();
+        nodes.extend(turn_at.iter().copied());
+        nodes.sort_unstable();
+        nodes.dedup();
+        let mut out = vec![];
+        for n in nodes {
+            let tier = if turn_at.contains(&n) && ((stops.first() != Some(&n) && stops.last() != Some(&n)) || closed(stops)) {
+                7.0
+            } else if stops.first() == Some(&n) && closed(stops) {
+                6.0
+            } else if (stops.first() == Some(&n) || stops.last() == Some(&n)) && can_close {
+                5.0
+            } else if turn_at.contains(&n) {
+                7.0
+            } else if unturn_at == Some(n) {
+                8.0
+            } else {
+                continue;
+            };
+            out.extend([n as f64, tier]);
+        }
+        out
+    }
+
     /// A line's loop (T-798): 0 none, 1 a circle, 2 a balloon.
     pub fn line_loop(&self, line: u32) -> u8 {
         match self.w.svc.lines.get(line as usize).filter(|l| l.ok).map(|l| l.kind) {

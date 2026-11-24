@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 impl World {
     /// Select only built platforms. A serialized transaction packs valid node IDs in ascending order.
-    fn line_on_existing_track(
+    pub(super) fn line_on_existing_track(
         &mut self,
         selected: &[i32],
         name: &str,
@@ -30,6 +30,10 @@ impl World {
             .filter(|(_, n)| net.is_station(*n) && net.node_built[*n as usize])
             .map(|(idx, n)| (n as i32, idx as u32))
             .collect();
+        // T-798: a loop is picked as its first station again at the end; the line is made open and then
+        // closed, as the web closes a line it has (map/tools.ts `toggle`, tier "close")
+        let loop_closed = selected.len() >= 3 && selected[0] == selected[selected.len() - 1];
+        let selected = if loop_closed { &selected[..selected.len() - 1] } else { selected };
         let stops = selected
             .iter()
             .map(|id| packed.get(id).copied())
@@ -70,6 +74,14 @@ impl World {
         }
         if api.line_stops(id) != stops && api.order_stops(id, &stops) != 0 {
             return Err("Urutan stasiun ini tidak dapat dilalui oleh satu layanan.".into());
+        }
+        if loop_closed {
+            let close = api.loop_tiers(id).chunks_exact(2).any(|p| p[1] == 5.);
+            let mut closed = api.line_stops(id);
+            closed.push(closed[0]);
+            if !close || api.set_stops(id, &closed) != 0 || api.line_loop(id) == 0 {
+                return Err("Tidak bisa membuat putaran di sini: rel dari stasiun terakhir tidak berputar kembali ke stasiun pertama.".into());
+            }
         }
         let network = &api.world().net;
         if network
@@ -114,7 +126,7 @@ impl World {
         {
             api.set_line_weekend_share(id, share as u32);
         }
-        let mut result = json!({"id":id, "line":id, "name":name, "stations":stops.len(), "cost":cash_before-api.cash()});
+        let mut result = json!({"id":id, "line":id, "name":name, "stations":stops.len(), "loop":loop_closed, "cost":cash_before-api.cash()});
         result["path"] = json!(api.run_polyline(id, 0, 70.));
         if commit {
             next.book_service_edit(self, clock);
