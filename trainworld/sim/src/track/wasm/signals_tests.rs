@@ -216,3 +216,16 @@ fn signalling_saves_and_loads_and_a_network_without_it_saves_as_before() {
     assert_eq!(a.set_edges_signal(&[e[0], e[1], e[2]], SIGNAL_CLOSED), 0);
     assert_eq!(crate::track::save::encode(&a.w.net), before);
 }
+
+#[test]
+fn the_panel_answer_holds_the_info_the_block_and_the_quotes() {
+    let (a, _l, e) = three_pieces();
+    let p = a.signal_panel(e[0]);
+    assert_eq!(p.len(), 13 + 1 + 2 + 4 * 6);
+    assert_eq!(&p[..13], &a.signal_info(e[0])[..]);
+    assert_eq!(&p[13..16], &[2.0, e[0] as f64, e[1] as f64]);
+    // CBTC: the piece alone, then the block (both 4 km pieces)
+    let cbtc = &p[16 + 3 * 6..16 + 4 * 6];
+    assert!((cbtc[3] - 2.0 * cbtc[0]).abs() < 1e-9 && cbtc[0] > 0.0, "{cbtc:?}");
+    assert!(a.signal_panel(999).is_empty());
+}

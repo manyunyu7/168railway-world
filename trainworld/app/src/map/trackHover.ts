@@ -7,6 +7,7 @@
 // tool's own tag. Trains, stations, platform crowds and station demand circles have tags of their
 // own (T-194, networkTips.ts).
 
+import { SIGNAL_KEYS, signalOf } from "../game/signalling";
 import { effect } from "@preact/signals";
 import type { Map as MlMap } from "maplibre-gl";
 import { clock } from "../game/clock";
@@ -306,7 +307,10 @@ function trackFacts(ov: Overlay, edge: number, px: number, py: number, slop: num
     const tram = edgeVehicles(world.peek(), edge) === "trams";
     rows.unshift(v >= 0 ? factRow(trainSpeedFact(v, tram ? "tram" : "train")) : t("trackHover.noVehicles", { vehicles: tram ? "trams" : "trains" }));
   }
-  if (world.peek()?.edges.find((x) => x.id === edge)?.oneWay) rows.push(t("trackHover.oneWay"));
+  const te = world.peek()?.edges.find((x) => x.id === edge);
+  if (te?.oneWay) rows.push(t("trackHover.oneWay"));
+  // the Signalling view names each piece's level
+  if (display.peek().trackColour === "signal" && te && !te.crossover) rows.unshift(t("signal.hover", { level: t(`signal.${SIGNAL_KEYS[signalOf(te)]}Long`) }));
   return rows;
 }
 

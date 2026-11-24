@@ -108,6 +108,7 @@ const TRACK_OPTIONS = [
   ["height", "demandSelector.trackLevel", "demandSelector.trackLevelTip"],
   ["speed", "demandSelector.trackSpeed", "demandSelector.trackSpeedTip"],
   ["profit", "demandSelector.trackProfit", "demandSelector.trackProfitTip"],
+  ["signal", "demandSelector.trackSignal", "demandSelector.trackSignalTip"],
 ] as const;
 
 /** The row's icon, a button folding the row down to it and opening it again (T-1448). */

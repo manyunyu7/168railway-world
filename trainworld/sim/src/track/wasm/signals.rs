@@ -68,6 +68,25 @@ impl TrackApi {
         vec![now, plan, upkeep]
     }
 
+    /// Everything the inspector's Signalling section shows for piece `e`, in one answer: `signal_info`
+    /// (13 numbers), the block's piece count n and its pieces (`signal_block`), then per level 0 to
+    /// 3 `signal_quote` for the piece alone (3 numbers) and for its whole block (3). Empty for no
+    /// such piece.
+    pub fn signal_panel(&self, e: u32) -> Vec<f64> {
+        let mut out = self.signal_info(e);
+        if out.is_empty() {
+            return out;
+        }
+        let block = self.signal_block(e);
+        out.push(block.len() as f64);
+        out.extend(block.iter().map(|&b| b as f64));
+        for level in 0..SIGNAL_LEVELS as u8 {
+            out.extend(self.signal_quote(&[e], level));
+            out.extend(self.signal_quote(&block, level));
+        }
+        out
+    }
+
     /// Set the signalling of these pieces to `level` (0 open block, 1 closed block, 2 ATP, 3 CBTC).
     /// One undoable edit; crossovers keep theirs. Constructed track pays the rise in its price at
     /// once (refused if the cash is short). Returns 1 when nothing changed.

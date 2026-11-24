@@ -119,6 +119,8 @@ export interface TrackEdge {
   vminKmh: number;
   /** T-3405: the player's speed limit on it, km/h; absent for none */
   limit?: number;
+  /** its signalling: 0 open block, 2 ATP, 3 CBTC; absent for closed block, every piece's unless the player chose another */
+  signal?: number;
   levelMin: Level;
   levelMax: Level;
   /** lines whose path uses it */

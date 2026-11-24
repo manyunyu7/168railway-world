@@ -9,6 +9,7 @@
 // cost by its route km the same way; construction by the cost of the track newly built in each
 // region (its stations go with it), new trains by the line the edit started.
 
+import { SIGNAL_UPKEEP_SHARE } from "./signalling";
 import { computed } from "@preact/signals";
 import { demandByDay, type DemandView } from "./demand";
 import { stationZone } from "./listScope";
@@ -106,11 +107,13 @@ export const lineShares = computed(() => {
 export const lineRunFactor = (num: number): number => runFactorOf(lineShares.value.get(num)?.run, zoneCountry);
 
 /** T-867: a constructed edge's upkeep a game day, US$ (0 for blueprint and crossovers). */
-export function edgeUpkeep(e: { built: boolean; crossover?: boolean; tracks: number; hsr?: boolean; kind?: number; lengthM: number; levelMin: number; levelMax: number }, m: Pick<MoneyState, "upkeepTrackKm" | "upkeepViaductKm" | "upkeepCutKm" | "upkeepBoredKm" | "upkeepSingle" | "upkeepHsr" | "economy">): number {
+export function edgeUpkeep(e: { built: boolean; crossover?: boolean; tracks: number; hsr?: boolean; kind?: number; lengthM: number; levelMin: number; levelMax: number; signal?: number }, m: Pick<MoneyState, "upkeepTrackKm" | "upkeepViaductKm" | "upkeepCutKm" | "upkeepBoredKm" | "upkeepSingle" | "upkeepHsr" | "economy">): number {
   if (!e.built || e.crossover) return 0;
   // T-1931: the dearest structure the edge touches, as the track model counts it
   const rate = e.levelMin <= -2 ? m.upkeepBoredKm : e.levelMin === -1 ? m.upkeepCutKm : e.levelMax > 0 ? m.upkeepViaductKm : m.upkeepTrackKm;
-  return (e.lengthM / 1000) * rate * (e.tracks === 1 ? m.upkeepSingle : 1) * (e.hsr ? m.upkeepHsr : e.kind ? TRACK_SPECS[e.kind === 2 ? "streetTram" : "tram"].upkeep : 1) * m.economy;
+  // and its signalling's, ATP and CBTC a share of ground track's (`signalling.ts`)
+  const sig = e.signal !== undefined ? SIGNAL_UPKEEP_SHARE[e.signal] ?? 0 : 0;
+  return (e.lengthM / 1000) * (rate + sig * m.upkeepTrackKm) * (e.tracks === 1 ? m.upkeepSingle : 1) * (e.hsr ? m.upkeepHsr : e.kind ? TRACK_SPECS[e.kind === 2 ? "streetTram" : "tram"].upkeep : 1) * m.economy;
 }
 /** T-1502: a bus route's road km by region, each piece of the route's own points (about 200 m of it) to the region
  * at its middle, the drawn ground distances scaled to the road length; a route with no points keeps T-1464's

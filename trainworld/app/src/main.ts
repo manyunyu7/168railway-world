@@ -7,6 +7,7 @@
 //
 // URL parameters: docs/code-map.md, "URL switches".
 
+import { signalLens } from "./game/signalling";
 import { editorHome, inNativeEditor, rememberEditorHome, takeEditorArchive } from "./game/nativeEditor";
 import "./ui/style.css";
 import "./ui/railway-theme.css";
@@ -269,7 +270,7 @@ const overlay = new Overlay(map, renderer, () => {
     showTrains: d.trains,
     byLevel: d.trackColour === "height",
     bySpeed: d.trackColour === "speed",
-    byProfit: d.trackColour === "profit",
+    byProfit: d.trackColour === "profit" || d.trackColour === "signal", // the Signalling view reads the Profit view's ramp
     selLine: hovered ?? (sel?.kind === "line" || sel?.kind === "train" ? Number(sel.line) : -1),
     selLines: groupLines,
     selTrain: sel?.kind === "train" ? sel : null, // T-242: drawn over the others with a halo
@@ -305,7 +306,9 @@ effect(() => {
 // T-2420: the Profit view's colours, worked out only while it is shown
 effect(() => {
   const sm = display.value.trackColour === "profit" ? stretchMoney.value : null;
-  renderer.setProfit(sm?.ratio ?? null);
+  // the Signalling view: each piece's level on the same ramp (`signalLens`)
+  const sig = display.value.trackColour === "signal" ? signalLens(world.value) : null;
+  renderer.setProfit(sig ?? sm?.ratio ?? null);
   renderer.buses.setProfit(sm?.buses ?? null); // T-2452
   overlay.invalidate();
 });
