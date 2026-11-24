@@ -50,7 +50,7 @@ internal object StudioUi {
         EDIT(0xf6fb), DOWNLOAD(0xf6df), COPY(0xf66c), MORE(0xf8d9), MORE_VERT(0xf8dc), SEARCH(0xf013d), INFO(0xf815),
         WARNING(0xf02a0), TROPHY(0xf707), PEOPLE(0xf005e), SCHEDULE(0xf012b), BUILD(0xf665), DELETE(0xf696),
         UPLOAD(0xf026a), OPEN_FILE(0xf0318), EYE(0xf0293), SPEED(0xf01b5), FLAG(0xf768), STAR(0xf01d4),
-        SWAP(0xf01fa), BOLT(0xf5ca)
+        SWAP(0xf01fa), BOLT(0xf5ca), CARDS(0xf0281), TABLE(0xf0210)
     }
 
     fun dp(c: Context, n: Int) = (c.resources.displayMetrics.density * n + .5f).toInt()

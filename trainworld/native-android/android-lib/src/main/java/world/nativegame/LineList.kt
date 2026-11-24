@@ -50,7 +50,7 @@ internal class LineList(
             v.setTextColor(if (on) StudioUi.WHITE else StudioUi.INK)
             v.contentDescription = "Urutkan menurut ${k.label.lowercase()}" + if (on) (if (dir < 0) ", menurun" else ", menaik") else ""
         }
-        bar.addView(StudioUi.text(host, "Urutkan", 12f, true, StudioUi.MUTED), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+
         Key.values().forEach { k ->
             val chip = StudioUi.text(host, k.label, 12.5f, true).apply {
                 gravity = Gravity.CENTER
@@ -67,17 +67,30 @@ internal class LineList(
             bar.addView(chip, LinearLayout.LayoutParams(-2, dp(40)).apply { marginEnd = dp(6); topMargin = dp(4); bottomMargin = dp(4) })
         }
         paint()
-        val view = StudioUi.text(host, if (table) "Kartu" else "Tabel", 12.5f, true).apply {
-            gravity = Gravity.CENTER; minHeight = dp(40); setPadding(dp(12), 0, dp(12), 0); isClickable = true
-            background = StudioUi.pill(host, 0x1422204a, 16)
-            setCompoundDrawables(StudioUi.glyph(host, StudioUi.Icon.LAYERS, StudioUi.INK), null, null, null); compoundDrawablePadding = dp(4)
-            contentDescription = "Ganti tampilan daftar"
-            setOnClickListener { table = !table; text = if (table) "Kartu" else "Tabel"; changed() }
+        sortBar = bar
+        bar.visibility = if (table) View.GONE else View.VISIBLE
+        return bar
+    }
+    private var sortBar: View? = null
+
+    /** Kartu | Tabel side by side (owner: "2 mode"), the one in use filled. */
+    fun modeToggle(changed: () -> Unit): View {
+        val view = LinearLayout(host).apply { background = StudioUi.pill(host, 0x1422204a, 16); setPadding(dp(3), dp(3), dp(3), dp(3)) }
+        // icons only (owner: "pake icon aja"): cards and table
+        val modeViews = listOf(Triple(false, "Kartu", StudioUi.Icon.CARDS), Triple(true, "Tabel", StudioUi.Icon.TABLE)).map { (isTable, label, icon) ->
+            android.widget.ImageView(host).apply {
+                scaleType = android.widget.ImageView.ScaleType.CENTER; isClickable = true
+                contentDescription = "Tampilan $label"
+                tag = icon
+            }.also { view.addView(it, LinearLayout.LayoutParams(dp(44), -1)) } to isTable
         }
-        val wrap = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-        wrap.addView(android.widget.HorizontalScrollView(host).apply { isHorizontalScrollBarEnabled = false; addView(bar) }, LinearLayout.LayoutParams(0, -2, 1f))
-        wrap.addView(view, LinearLayout.LayoutParams(-2, dp(40)).apply { marginStart = dp(6) })
-        return wrap
+        fun paintModes() = modeViews.forEach { (v, isTable) -> val on = table == isTable
+            v.background = if (on) StudioUi.pill(host, StudioUi.INK, 13) else null
+            v.setImageDrawable(StudioUi.glyph(host, v.tag as StudioUi.Icon, if (on) StudioUi.WHITE else StudioUi.INK)) }
+        modeViews.forEach { (v, isTable) -> v.setOnClickListener { if (table != isTable) {
+            table = isTable; paintModes(); sortBar?.visibility = if (table) View.GONE else View.VISIBLE; changed() } } }
+        paintModes()
+        return view
     }
 
     /** A line's or group's figures: riders, fares, running and upkeep, profit; nulls where none. */
@@ -271,16 +284,28 @@ internal class LineList(
 
     private fun tableView(groups: List<Triple<String, List<JSONObject>, String>>) {
         val box = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; background = StudioUi.card(host, 16, 0xf2ffffff.toInt()); setPadding(dp(8), dp(4), dp(8), dp(4)) }
-        val weights = floatArrayOf(2.6f, 1.15f, 1.15f, 1.15f)
+        val weights = floatArrayOf(2.7f, 1.15f, 1.35f, 0.6f)
+        // The badge already says what kind of line it is: "Commuter Line Bogor" reads as "Bogor" here.
+        fun short(n: String) = n.replace(Regex("^(Commuter Line|KRL|LRT Jabodebek Lin|LRT Jabodebek|LRT Jakarta|MRT Jakarta Lin|MRT Jakarta|TransJakarta)\\s+", RegexOption.IGNORE_CASE), "").ifBlank { n }
+        // the currency is in the head ("Laba Rp"), so a cell reads "1,5 T" / "383 M"
+        val cur = StudioCurrency.current(host)
+        fun money(v: Double): String {
+            val t = cur.compact(v).replace(" miliar", " M").replace(cur.compact(0.0).substringBefore("0").trim(), "").trim()
+            // three figures at most: "383,18 M" → "383 M", "1,51 T" stays
+            return Regex("^(-?\\d+)([.,]\\d+)?( .*)$").find(t)?.let { m ->
+                val whole = m.groupValues[1]; val frac = m.groupValues[2]
+                whole + (if (whole.trimStart('-').length >= 3) "" else frac.take(4 - whole.trimStart('-').length)) + m.groupValues[3]
+            } ?: t
+        }
         fun cell(row: LinearLayout, i: Int, text: String, ink: Int, bold: Boolean, end: Boolean) {
-            row.addView(StudioUi.text(host, text, if (bold) 12f else 12.5f, bold, ink).apply {
+            row.addView(StudioUi.text(host, text, if (bold) 11.5f else 12.5f, bold, ink).apply {
                 maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
                 gravity = (if (end) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
                 if (!bold) typeface = StudioUi.heavy(host)
             }, LinearLayout.LayoutParams(0, -1, weights[i]).apply { if (i > 0) marginStart = dp(4) })
         }
         val head = LinearLayout(host).apply { minimumHeight = dp(36); gravity = Gravity.CENTER_VERTICAL }
-        val heads = listOf("Line" to Key.NAME, "Penumpang" to Key.RIDERS, "Laba/hari" to Key.MONEY, "Armada" to Key.TRAINS)
+        val heads = listOf("Line" to Key.NAME, "Pnp" to Key.RIDERS, "Laba " + StudioCurrency.current(host).compact(0.0).substringBefore("0").trim() to Key.MONEY, "KA" to Key.TRAINS)
         heads.forEachIndexed { i, (label, k) ->
             val on = key == k
             cell(head, i, label + if (on) (if (dir < 0) " ↓" else " ↑") else "", if (on) StudioUi.INK else StudioUi.MUTED, true, i > 0)
@@ -301,13 +326,14 @@ internal class LineList(
             }
             val nameCell = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
             nameCell.addView(StudioUi.badge(host, ServicePanel.code(name), ServicePanel.color(looks[first.getInt("id")]), 22), LinearLayout.LayoutParams(dp(22), dp(22)))
-            nameCell.addView(StudioUi.text(host, name + if (g.size > 1) " (${g.size})" else "", 12.5f, true, StudioUi.INK).apply {
-                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            nameCell.addView(StudioUi.text(host, short(name) + if (g.size > 1) " (${g.size})" else "", 12.5f, true, StudioUi.INK).apply {
+                // long names wrap to a second line instead of "…" (owner: "ganti baris aja")
+                maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, dp(4), 0, dp(4))
             }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
             row.addView(nameCell, LinearLayout.LayoutParams(0, -1, weights[0]))
             val known = figures != null
             cell(row, 1, if (!s.running) (if (s.status == "broken") "Rusak" else "—") else if (known && s.riders != null) StudioFormat.count(s.riders!!) else "—", StudioUi.INK, false, true)
-            cell(row, 2, if (known && s.money) usd(s.profit) else "—", profitInk(s), false, true)
+            cell(row, 2, if (known && s.money) money(s.profit) else "—", profitInk(s), false, true)
             cell(row, 3, if (known && s.running) s.trains.toInt().toString() else "—", StudioUi.INK, false, true)
             box.addView(row)
             if (g.size > 1 && k in open) g.forEachIndexed { i, route ->
@@ -316,7 +342,7 @@ internal class LineList(
                 val label = route.getString("name").let { if (it == name) "Layanan ${i + 1}" else it }
                 cell(sub, 0, "   ↳ $label", StudioUi.MUTED, true, false)
                 cell(sub, 1, if (known && one.riders != null) StudioFormat.count(one.riders!!) else "—", StudioUi.INK, false, true)
-                cell(sub, 2, if (known && one.money) usd(one.profit) else "—", profitInk(one), false, true)
+                cell(sub, 2, if (known && one.money) money(one.profit) else "—", profitInk(one), false, true)
                 cell(sub, 3, if (known && one.running) one.trains.toInt().toString() else "—", StudioUi.INK, false, true)
                 box.addView(sub)
             }

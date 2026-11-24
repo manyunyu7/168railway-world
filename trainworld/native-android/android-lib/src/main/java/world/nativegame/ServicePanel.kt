@@ -51,8 +51,8 @@ internal object ServicePanel {
             val looks = items.associate { it.getInt("id") to runCatching { JSONObject(inspect(handle, it.getInt("id"), clock)) }.getOrNull() }
             fun vehicle(item: JSONObject) = looks[item.getInt("id")]?.optString("vehicle").orEmpty().ifEmpty { "Lainnya" }
             val running = items.count { it.optBoolean("running") }
-            val headline = StudioUi.text(host, "${items.size} line · $running beroperasi", 13f, true, StudioUi.MUTED).apply {
-                setPadding(dp(2), 0, 0, dp(8))
+            val headline = StudioUi.text(host, "${items.size} line", 13f, true, StudioUi.MUTED).apply {
+                setPadding(dp(2), 0, 0, dp(8)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }
             column.addView(headline)
             val list = LineList(host, StudioCurrency.current(host), looks) { id ->
@@ -72,12 +72,12 @@ internal object ServicePanel {
                 list.show(found, items.isNotEmpty()) { search?.setText(""); mode = "Semua"; render() }
                 val riders = list.totalRiders
                 val profit = list.totalProfit
-                headline.text = "${items.size} line · $running beroperasi" + when {
-                    riders != null -> " · ${StudioFormat.count(riders)} penumpang/24 jam" +
-                        (profit?.let { " · laba ${StudioFormat.money(it * 1e6, StudioCurrency.current(host))}/hari" } ?: "")
-                    running > 0 -> "\nPenumpang dan uang tiap line muncul saat simulasi berjalan."
-                    else -> ""
-                }
+                // one short line: count, riders a day, profit a day
+                headline.text = listOfNotNull(
+                    "${items.size} line" + if (running < items.size) " ($running jalan)" else "",
+                    riders?.let { "${StudioFormat.count(it)} penumpang" },
+                    profit?.let { "laba ${StudioCurrency.current(host).compact(it).replace(" miliar", " M")}" },
+                ).joinToString(" · ") + if (riders != null) " / hari" else if (running > 0) " · angka muncul saat simulasi berjalan" else ""
             }
             if (items.size > 6) {
                 search = EditText(host).apply {
@@ -93,7 +93,10 @@ internal object ServicePanel {
                     setCompoundDrawables(StudioUi.glyph(host, StudioUi.Icon.SEARCH, StudioUi.MUTED), null, null, null)
                     compoundDrawablePadding = dp(8)
                 }
-                column.addView(search, LinearLayout.LayoutParams(-1, dp(48)))
+                val top = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+                top.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f))
+                top.addView(list.modeToggle { render() }, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(8) })
+                column.addView(top)
                 search.addTextChangedListener(object : android.text.TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render()
@@ -119,12 +122,15 @@ internal object ServicePanel {
                     buttons.add(tab)
                     tabs.addView(tab, LinearLayout.LayoutParams(-2, -2))
                 }
-                column.addView(android.widget.HorizontalScrollView(host).apply {
-                    isHorizontalScrollBarEnabled = false
-                    addView(tabs)
-                }, lp(10, host))
             }
-            if (items.isNotEmpty()) column.addView(list.sorts { render() }, lp(10, host))
+            // filters then the sort chips on one scrolling row (the sort hides in table mode: its heads sort)
+            if (items.isNotEmpty()) {
+                val row = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+                if (modes.size > 2) row.addView(tabs, LinearLayout.LayoutParams(-2, dp(48)).apply { marginEnd = dp(8) })
+                row.addView(list.sorts { render() })
+                column.addView(android.widget.HorizontalScrollView(host).apply { isHorizontalScrollBarEnabled = false; addView(row) }, lp(8, host))
+                if (items.size <= 6) column.addView(list.modeToggle { render() }, LinearLayout.LayoutParams(-2, dp(44)).apply { topMargin = dp(8); gravity = android.view.Gravity.END })
+            }
             column.addView(list.rows, lp(4, host))
             render()
             // web useToday: the figures asked again while the list shows (here every two seconds)
