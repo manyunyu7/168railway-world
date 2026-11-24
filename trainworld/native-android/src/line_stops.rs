@@ -167,22 +167,47 @@ impl World {
     /// Every station the line passes without stopping made a stop, one after another; those the
     /// engine refuses are left passed. Booked as one edit.
     fn stop_at_all(&mut self, id: u32, clock: f64) -> Result<Value, String> {
+        self.stop_at_passed(id, None, clock)
+    }
+
+    /// Web LineInspector `addGaps` for one gap (the "N stasiun dilewati" row, then Tambah): the
+    /// stations passed between stop `gap` and the next made stops, in their order along the line.
+    fn stop_at_gap(&mut self, id: u32, gap: usize, clock: f64) -> Result<Value, String> {
+        self.stop_at_passed(id, Some(gap), clock)
+    }
+
+    /// The stations passed in `gap` (every gap with None) made stops one after another, booked as one
+    /// edit; those the engine refuses are left passed. Answers `added` and the stations' `names`.
+    fn stop_at_passed(&mut self, id: u32, gap: Option<usize>, clock: f64) -> Result<Value, String> {
         let clock = self.native_clock(clock);
         if !clock.is_finite() { return Err("Jam permainan tidak valid.".into()); }
         if !self.api.world().net.line_ok(id) { return Err("Line sudah tidak tersedia.".into()); }
+        if self.api.is_bus(id) || self.api.is_ferry(id) { return Err("Tidak ada stasiun yang dilewati line ini.".into()); }
+        let wanted: Option<Vec<u32>> = gap.map(|g| {
+            self.api.passed_stations(id).chunks_exact(2).filter(|p| p[0] as usize == g).map(|p| p[1] as u32).collect()
+        });
+        if wanted.as_ref().is_some_and(|w| w.is_empty()) || (gap.is_none() && self.api.passed_stations(id).is_empty()) {
+            return Err(if gap.is_some() { "Tidak ada stasiun yang dilewati di sini." } else { "Tidak ada stasiun yang dilewati line ini." }.into());
+        }
         finance::tick(self, clock);
         self.api.set_now(clock);
-        let mut added = 0;
+        let mut names = vec![];
         let mut tried = std::collections::HashSet::new();
         loop {
             let passed = self.api.passed_stations(id);
-            let Some(node) = passed.chunks_exact(2).map(|p| p[1] as u32).find(|n| !tried.contains(n)) else { break };
+            let next = passed.chunks_exact(2).map(|p| p[1] as u32)
+                .find(|n| !tried.contains(n) && wanted.as_ref().map_or(true, |w| w.contains(n)));
+            let Some(node) = next else { break };
             tried.insert(node);
-            if self.api.stop_passed(id, node) == 0 { added += 1; }
+            if self.api.stop_passed(id, node) == 0 { names.push(self.api.node_name(node)); }
         }
-        if added == 0 { return Err("Tidak ada stasiun yang dilewati line ini.".into()); }
+        if names.is_empty() {
+            return Err(self.refusal("Tidak ada rel yang menghubungkan stasiun-stasiun ini kalau perhentian itu disisipkan. Cek sambungan relnya."));
+        }
+        let added = names.len();
         let mut v = self.booked(clock, format!("{added} stasiun"), id);
         v["added"] = json!(added);
+        v["names"] = json!(names);
         Ok(v)
     }
 
@@ -238,6 +263,15 @@ pub extern "system" fn Java_world_nativegame_LineStops_stopAll(env: JNIEnv, _: J
         .map(|w| w.stop_at_all(id as u32, now).unwrap_or_else(|e| json!({"error": e})))
         .unwrap_or(Value::Null);
     string(&env, value)
+}
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_LineStops_stopGap(env: JNIEnv, _: JClass, handle: jlong, id: jint, gap: jint, now: jdouble) -> jstring {
+    let v = match unsafe { (handle as *mut World).as_mut() } {
+        None => Err("Dunia belum siap.".to_string()),
+        Some(_) if gap < 0 => Err("Tidak ada stasiun yang dilewati di sini.".to_string()),
+        Some(w) => w.stop_at_gap(id.max(0) as u32, gap as usize, now),
+    };
+    string(&env, v.unwrap_or_else(|e| json!({"error": e})))
 }
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_LineStops_read(env: JNIEnv, _: JClass, handle: jlong, id: jint) -> jstring {
@@ -335,6 +369,37 @@ mod tests {
         assert!(r["added"].as_i64().unwrap() >= 1);
         assert!(w.api.line_stops(id).len() > before);
         assert!(w.stop_at_all(id, t).is_err());
+    }
+
+    #[test]
+    fn a_gap_s_passed_stations_become_stops_and_the_other_gaps_stay_passed() {
+        let mut w = World::workshop();
+        let t = 111600.;
+        w.build_path(&[[0., 0.], [3000., 0.], [6000., 0.], [9000., 0.], [12000., 0.], [15000., 0.]], "Uji", t).unwrap();
+        let id = 0;
+        let s0 = w.api.line_stops(id).to_vec();
+        assert_eq!(s0.len(), 6);
+        // stops 1 and 2 passed (one gap of two stations), and stop 4 (another gap of one)
+        w.edit_line_stop(id, Some(4), None, t).unwrap();
+        w.edit_line_stop(id, Some(2), None, t).unwrap();
+        w.edit_line_stop(id, Some(1), None, t).unwrap();
+        assert_eq!(w.api.line_stops(id), &[s0[0], s0[3], s0[5]]);
+        let e = w.line_stop_edits(id).unwrap();
+        assert_eq!(e["passed"], json!([[0, s0[1], w.api.node_name(s0[1])], [0, s0[2], w.api.node_name(s0[2])], [1, s0[4], w.api.node_name(s0[4])]]));
+        assert!(w.stop_at_gap(id, 2, t).is_err(), "nothing passed after the last stop");
+        let r = w.stop_at_gap(id, 0, t).unwrap();
+        assert_eq!(r["added"], 2);
+        assert_eq!(r["names"], json!([w.api.node_name(s0[1]), w.api.node_name(s0[2])]));
+        assert_eq!(w.api.line_stops(id), &[s0[0], s0[1], s0[2], s0[3], s0[5]]);
+        assert!(running(&w, id));
+        // the other gap is still there, now after stop 3
+        let e = w.line_stop_edits(id).unwrap();
+        assert_eq!(e["passed"], json!([[3, s0[4], w.api.node_name(s0[4])]]));
+        assert!(w.stop_at_gap(id, 0, t).is_err());
+        w.stop_at_gap(id, 3, t).unwrap();
+        assert_eq!(w.api.line_stops(id), s0.as_slice());
+        let back = World::open(&w.save(t).unwrap()).unwrap();
+        assert_eq!(back.api.line_stops(id), s0.as_slice());
     }
     #[test]
     fn ends_unknown_stations_and_two_stop_lines_are_refused() {

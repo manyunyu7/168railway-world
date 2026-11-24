@@ -518,6 +518,7 @@ pub(crate) fn line(world: &World, id: u32, time: f64, riders: Option<&LineRiders
     }
     let wrap = api.world().svc.lines.get(id as usize).is_some_and(|s| s.kind == LoopKind::Circle);
     let fits = riders.filter(|lr| lr.fits(n));
+    let mut stretches = Value::Null;
     let mut rows: Vec<Value> = (0..n)
         .map(|k| json!({"today": today.as_ref().map(|v| v.get(k).copied().unwrap_or(0.))}))
         .collect();
@@ -526,6 +527,9 @@ pub(crate) fn line(world: &World, id: u32, time: f64, riders: Option<&LineRiders
         let mut board = vec![0f64; n];
         let mut alight = vec![0f64; n];
         let mut load = vec![0f64; n];
+        // per direction the riders on each stretch (k: stop k to k + 1), all day and per period
+        let mut ways = [vec![0f64; n - 1], vec![0f64; n - 1]];
+        let mut by_period = [vec![vec![0f64; n - 1]; PERIODS], vec![vec![0f64; n - 1]; PERIODS]];
         let mut to: Vec<std::collections::BTreeMap<u32, f64>> = vec![Default::default(); n];
         for run in 0..2 {
             let shares = alight_shares(lr, run, wrap);
@@ -551,7 +555,10 @@ pub(crate) fn line(world: &World, id: u32, time: f64, riders: Option<&LineRiders
                     on = (on + b(j) - a(j)).max(0.);
                     // the stretch leaving travel stop j is stop k's next one way, its previous the other
                     if j + 1 < n {
-                        load[if run == 0 { k } else { k - 1 }] += on;
+                        let s = if run == 0 { k } else { k - 1 };
+                        load[s] += on;
+                        ways[run][s] += on;
+                        by_period[run][p][s] += on;
                     }
                     let mut stay = b(j);
                     for m in j + 1..=last {
@@ -578,8 +585,14 @@ pub(crate) fn line(world: &World, id: u32, time: f64, riders: Option<&LineRiders
             row["next"] = if k + 1 < n { json!(load[k]) } else { Value::Null };
             row["to"] = json!(top);
         }
+        // web Traffic view's stretches (`dailyRiders`), kept per direction for the panel's chart
+        stretches = json!({
+            "out": ways[0],
+            "back": ways[1],
+            "periods": (0..PERIODS).map(|p| json!({"name": PERIOD_NAMES[p], "out": by_period[0][p], "back": by_period[1][p]})).collect::<Vec<_>>(),
+        });
     }
-    json!({"line": id, "forecast": fits.is_some(), "counted": today.is_some(), "stops": rows})
+    json!({"line": id, "forecast": fits.is_some(), "counted": today.is_some(), "stops": rows, "stretches": stretches})
 }
 
 #[cfg(test)]
@@ -660,6 +673,20 @@ pub(crate) mod tests {
         let bare = line(&world, 0, 111600., None);
         assert_eq!(bare["forecast"], false);
         assert!(bare["stops"][0].get("on").is_none());
+        // the chart's stretches: each way's riders add up to the row's "next", and the periods to the day
+        let st = &v["stretches"];
+        assert_eq!(st["out"].as_array().unwrap().len(), n - 1);
+        assert_eq!(st["periods"].as_array().unwrap().len(), PERIODS);
+        for k in 0..n - 1 {
+            let (o, b) = (st["out"][k].as_f64().unwrap(), st["back"][k].as_f64().unwrap());
+            assert!((o + b - f(k, "next")).abs() < 1e-3, "stretch {k}");
+            let per: f64 = (0..PERIODS).map(|p| st["periods"][p]["out"][k].as_f64().unwrap()).sum();
+            assert!((per - o).abs() < 1e-3);
+        }
+        // each way 400 board at the first stop of the run and none are aboard past the last
+        assert!((st["out"][0].as_f64().unwrap() - 400. * PERIODS as f64).abs() < 1e-6);
+        assert!((st["back"][n - 2].as_f64().unwrap() - 400. * PERIODS as f64).abs() < 1e-6);
+        assert!(bare["stretches"].is_null());
         // a forecast for another stop count is not read
         assert_eq!(line(&world, 0, 111600., Some(&figures(n + 1, 400.)))["forecast"], false);
     }
