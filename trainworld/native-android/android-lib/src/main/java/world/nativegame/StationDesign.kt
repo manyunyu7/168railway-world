@@ -28,7 +28,9 @@ import kotlin.math.hypot
  * before it is paid for.
  *
  * Each change is tried on a fork of the world (`Engine.forkCandidate`, then station_design.rs
- * `apply`), whose map is shown in place of the world's with the station building's outline drawn
+ * `apply`) on a worker: the world is copied once on opening, and every try forks that copy on the
+ * worker, so a tap never waits for a fork (the latest change wins; older tries are skipped). Its
+ * map is shown in place of the world's with the station building's outline drawn
  * over it, and whose price is the confirm button's. Bangun applies the same changes to the world
  * inside the host's panel edit (saved, one undo step, redrawn); Batal or Back puts the world's map
  * back. The building's corners are dragged on the map; the small handle in an edge's middle drags
@@ -64,7 +66,9 @@ internal object StationDesign {
         var error: String? = null
         var busy = false
         var previewed = false
-        var version = 0
+        @Volatile var version = 0
+        /** The world copied on opening; only the worker touches it after that, and closes it. */
+        var base = 0L
         var drag = -1
         lateinit var panel: View
         lateinit var body: LinearLayout
@@ -73,7 +77,7 @@ internal object StationDesign {
         lateinit var confirm: android.widget.Button
     }
 
-    private var session: Session? = null
+    @Volatile private var session: Session? = null
     val active get() = session != null
 
     /**
@@ -87,6 +91,8 @@ internal object StationDesign {
         if (start.has("error")) { Toast.makeText(activity, start.getString("error"), Toast.LENGTH_LONG).show(); return }
         val forkNode = map.stops.firstOrNull { it.id == node }?.packedId ?: node
         val s = Session(activity, map, handle, node, forkNode, clock, start, transaction, changed, reopen)
+        // the one copy taken on the UI thread (the world is the UI thread's); taps fork it on the worker
+        s.base = Engine.forkCandidate(handle, clock, RoadTileStore.directory(activity).absolutePath)
         session = s
         buildPanel(s)
         frame(s)
@@ -108,6 +114,10 @@ internal object StationDesign {
         val s = session ?: return
         session = null
         s.version++
+        val base = s.base
+        s.base = 0L
+        // after any try still queued with it
+        if (base != 0L) worker.execute { Engine.close(base) }
         (s.panel.parent as? ViewGroup)?.removeView(s.panel)
         if (restore && s.previewed) s.map.load(JSONObject(Engine.geometry(s.handle)), refit = false, keepTrainLoads = true)
         s.map.invalidate()
@@ -255,16 +265,21 @@ internal object StationDesign {
             return
         }
         val command = request(s)
-        val candidate = Engine.forkCandidate(s.handle, s.clock, RoadTileStore.directory(s.activity).absolutePath)
-        if (candidate == 0L) { s.busy = false; s.error = "Rancangan belum dapat dihitung."; render(s); return }
-        // only this worker touches the fork until it is closed
+        val base = s.base
+        if (base == 0L) { s.busy = false; s.error = "Rancangan belum dapat dihitung."; render(s); return }
+        val directory = RoadTileStore.directory(s.activity).absolutePath
+        // only this worker touches the copy and its forks until they are closed
         worker.execute {
+            if (session !== s || s.version != v) return@execute // a later change won
             val result = runCatching {
-                val r = JSONObject(apply(candidate, s.forkNode, s.clock, command))
-                if (r.has("error")) Triple(r, null, null)
-                else Triple(r, JSONObject(state(candidate, r.getInt("node"), s.at.toString())), Engine.geometry(candidate))
+                val candidate = Engine.forkCandidate(base, s.clock, directory)
+                check(candidate != 0L)
+                try {
+                    val r = JSONObject(apply(candidate, s.forkNode, s.clock, command))
+                    if (r.has("error")) Triple(r, null, null)
+                    else Triple(r, JSONObject(state(candidate, r.getInt("node"), s.at.toString())), JSONObject(Engine.geometry(candidate)))
+                } finally { Engine.close(candidate) }
             }
-            Engine.close(candidate)
             s.map.post {
                 if (session !== s || s.version != v) return@post
                 s.busy = false
@@ -273,7 +288,7 @@ internal object StationDesign {
                     s.error = null
                     s.charge = r.optDouble("charge", 0.0)
                     if (st != null && !st.has("error")) s.shown = st
-                    if (geometry != null) { s.map.load(JSONObject(geometry), refit = false, keepTrainLoads = true); s.previewed = true }
+                    if (geometry != null) { s.map.load(geometry, refit = false, keepTrainLoads = true); s.previewed = true }
                 }.onFailure { s.error = "Rancangan belum dapat dihitung." }
                 render(s)
                 s.map.invalidate()
@@ -384,9 +399,11 @@ internal object StationDesign {
             // web StationSides (double track) or PlatformTracks (single track)
             body.addView(StudioUi.section(a, "Jenis stasiun"))
             val sides = LinearLayout(a)
-            val one = st.optInt("one")
+            val was = when { s.start.optInt("one") == 0 -> "both"; s.start.optBoolean("onLeft") -> "left"; s.start.optBoolean("onRight") -> "right"; else -> "one" }
+            // the pick shows at once; the fork's figures follow
+            val kind = s.tracks ?: was
+            val one = if (kind == "both") 0 else 1
             fun pick(key: String) {
-                val was = when { s.start.optInt("one") == 0 -> "both"; s.start.optBoolean("onLeft") -> "left"; s.start.optBoolean("onRight") -> "right"; else -> "one" }
                 s.tracks = if (key == was) null else key
                 // a one-track station has no terminal or passing tracks (web T-3332)
                 if (key != "both") { s.upgrades.remove(TERMINAL); s.upgrades.remove(PASSING) }
@@ -398,11 +415,11 @@ internal object StationDesign {
             if (s.start.optBoolean("double")) {
                 val l = "Stasiun satu arah (${way(s.start.optString("leftWay"))})"
                 val r = "Stasiun satu arah (${way(s.start.optString("rightWay"))})"
-                sides.addView(choice("◧ ${way(s.start.optString("leftWay"))}", st.optBoolean("onLeft"), s.tracks == "left", "$l. $free") { pick("left") },
+                sides.addView(choice("◧ ${way(s.start.optString("leftWay"))}", kind == "left", s.tracks == "left", "$l. $free") { pick("left") },
                     LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
                 sides.addView(choice("Dua arah", one == 0, s.tracks == "both", "Stasiun dua arah. $cost") { pick("both") },
                     LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-                sides.addView(choice("${way(s.start.optString("rightWay"))} ◨", st.optBoolean("onRight"), s.tracks == "right", "$r. $free") { pick("right") },
+                sides.addView(choice("${way(s.start.optString("rightWay"))} ◨", kind == "right", s.tracks == "right", "$r. $free") { pick("right") },
                     LinearLayout.LayoutParams(0, -2, 1f))
             } else {
                 sides.addView(choice("Tanpa jalur persilangan", one != 0, s.tracks == "one") { pick("one") },
@@ -487,7 +504,7 @@ internal object StationDesign {
         val changes = ops(s).length()
         s.status.setTextColor(if (s.error != null) StudioUi.BAD else StudioUi.MUTED)
         s.status.text = when {
-            s.busy -> "Menghitung biaya…"
+            s.busy -> "Menghitung…"
             s.error != null -> s.error
             changes == 0 -> "Belum ada perubahan. Ubah stasiun, lalu lihat hasilnya di peta."
             s.charge > 0 -> "Biaya ${StudioFormat.money(s.charge * 1e6, currency)} · terlihat di peta sebelum dibangun"

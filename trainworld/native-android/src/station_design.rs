@@ -406,4 +406,32 @@ mod tests {
         assert_eq!(compass(up_axis(PI)), "east");
         assert_eq!(compass(up_axis(-PI / 2.)), "north");
     }
+
+    /// StationDesign.kt copies the world once on opening and forks that copy on its worker for
+    /// every tap: the copy's fork must price and draw a change exactly as a fork of the world.
+    #[test]
+    fn a_fork_of_the_opening_copy_previews_as_a_fork_of_the_world() {
+        let clock = 111600.;
+        let mut w = World::workshop();
+        w.build_service([0., 0.], [2300., 0.], "Rancang", clock - 86400.).unwrap();
+        let node = station(&w);
+        let s = state(&w, node, &Value::Null).unwrap();
+        let at = s["at"].clone();
+        let longer = s["length"].as_u64().unwrap() + 40;
+        let ops = json!({"at": at, "ops": [
+            {"op": "length", "m": longer},
+            {"op": "upgrade", "bit": WAITING_ROOM, "on": true},
+        ]});
+        let mut direct = w.edit_candidate(clock).unwrap();
+        let copy = w.edit_candidate(clock).unwrap();
+        let mut via = copy.edit_candidate(clock).unwrap();
+        let a = apply(&mut direct, 9999, clock, &ops).unwrap();
+        let b = apply(&mut via, 9999, clock, &ops).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(direct.api.cash(), via.api.cash());
+        assert_eq!(state(&direct, 9999, &at).unwrap(), state(&via, 9999, &at).unwrap());
+        assert_eq!(direct.geometry(), via.geometry());
+        // the copy itself stays as opened, for the next tap
+        assert_eq!(state(&copy, 9999, &at).unwrap()["length"], s["length"]);
+    }
 }
