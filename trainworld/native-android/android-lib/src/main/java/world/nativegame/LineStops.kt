@@ -30,6 +30,8 @@ internal object LineStops {
     @JvmStatic private external fun read(handle: Long, id: Int): String
     @JvmStatic private external fun skip(handle: Long, id: Int, index: Int, now: Double): String
     @JvmStatic private external fun stop(handle: Long, id: Int, node: Int, now: Double): String
+    /** Web `addGaps` for one gap: the stations passed between stop `gap` and the next made stops. */
+    @JvmStatic private external fun stopGap(handle: Long, id: Int, gap: Int, now: Double): String
     /** Web `tools.loopStop`: `action` close, open, turn or unturn at station `node`. */
     @JvmStatic external fun stopAll(handle: Long, id: Int, now: Double): String
     @JvmStatic private external fun loop(handle: Long, id: Int, action: String, node: Int, now: Double): String
@@ -49,6 +51,7 @@ internal object LineStops {
     fun interface Edit { fun run(now: Double): JSONObject }
 
     fun strip(host: Activity, handle: Long, id: Int, route: ServiceStops, color: Int, editable: Boolean,
+              onRiders: ((JSONObject?) -> Unit)?,
               apply: (success: (JSONObject) -> String, edit: Edit) -> Unit): View {
         fun dp(v: Int) = StudioUi.dp(host, v)
         val edits = runCatching { JSONObject(read(handle, id)) }.getOrNull()
@@ -151,21 +154,54 @@ internal object LineStops {
                 }, LinearLayout.LayoutParams(-2, -2))
             }
         }
-        fun passedRow(node: Int, name: String): View = LinearLayout(host).apply {
-            addView(rail(0, true), LinearLayout.LayoutParams(dp(24), -1))
-            addView(StudioUi.text(host, "$name · dilewati", 13f, true, StudioUi.MUTED).apply {
-                alpha = .8f
-                setPadding(0, dp(8), 0, dp(8))
-            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
-            if (editable) addView(action("+ Berhenti di sini", "Berhenti di $name") {
-                apply({ r -> "Line kini berhenti di ${r.optString("name", name)}." }) { now -> JSONObject(stop(handle, id, node, now)) }
-            }, LinearLayout.LayoutParams(-2, -2))
+        // Web `afterStop` (T-646): after stop `gap` one row "+ N stasiun dilewati"; tapped, it becomes
+        // "Tambah N stasiun" / "Batal" with the stations listed under it, the other gaps' rows hidden
+        // meanwhile, as the web's `pending`. Only while the line can be edited (web: its stops edited).
+        val gaps = sortedMapOf<Int, MutableList<Pair<Int, String>>>()
+        for (k in 0 until passed.length()) {
+            val p = passed.optJSONArray(k) ?: continue
+            gaps.getOrPut(p.optInt(0)) { mutableListOf() }.add(p.optInt(1) to p.optString(2))
+        }
+        val gapViews = mutableMapOf<Int, LinearLayout>()
+        var pending = -1
+        fun stations(n: Int) = "$n stasiun"
+        fun renderGaps() {
+            for ((gap, box) in gapViews) {
+                box.removeAllViews()
+                val here = gaps[gap] ?: continue
+                val names = here.map { it.second }
+                fun line(content: View) = LinearLayout(host).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(rail(0, true), LinearLayout.LayoutParams(dp(24), -1))
+                    addView(content, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
+                }
+                if (pending == gap) {
+                    val bar = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+                    bar.addView(action("Tambah ${stations(here.size)}", "Tambah ${names.joinToString(", ")} sebagai perhentian") {
+                        pending = -1
+                        apply({ r ->
+                            val added = r.optJSONArray("names")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: names
+                            "Line kini berhenti di ${added.joinToString(", ")}."
+                        }) { now -> JSONObject(stopGap(handle, id, gap, now)) }
+                    }.apply { gravity = Gravity.CENTER_VERTICAL or Gravity.START }, LinearLayout.LayoutParams(0, -2, 1f))
+                    bar.addView(action("Batal", "Batal menambah perhentian") { pending = -1; renderGaps() }, LinearLayout.LayoutParams(-2, -2))
+                    box.addView(line(bar))
+                    names.forEach { name ->
+                        box.addView(line(StudioUi.text(host, "+ $name", 13.5f, true, StudioUi.INK).apply { setPadding(0, dp(6), 0, dp(6)) }))
+                    }
+                } else if (pending < 0) {
+                    box.addView(line(action("+ ${stations(here.size)} dilewati", "${stations(here.size)} dilewati: ${names.joinToString(", ")}. Ketuk untuk menambah sebagai perhentian") {
+                        pending = gap; renderGaps()
+                    }.apply { gravity = Gravity.CENTER_VERTICAL or Gravity.START; setPadding(0, 0, dp(4), 0) }))
+                }
+            }
         }
         fun group(index: Int): List<View> {
             val rows = mutableListOf(stopRow(index))
-            if (index + 1 < count) for (k in 0 until passed.length()) {
-                val p = passed.optJSONArray(k) ?: continue
-                if (p.optInt(0) == index) rows.add(passedRow(p.optInt(1), p.optString(2)))
+            if (editable && index + 1 < count && gaps.containsKey(index)) {
+                val box = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
+                gapViews[index] = box
+                rows.add(box)
             }
             return rows
         }
@@ -188,6 +224,7 @@ internal object LineStops {
         val rest = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         (VISIBLE until count).forEach { i -> group(i).forEach { rest.addView(it) } }
         strip.addView(rest)
+        renderGaps()
         if (route.unnamedCount > 0) strip.addView(StudioUi.text(host,
             "Pemberhentian yang belum bernama ditampilkan menurut urutannya di rute.", 12f, true, StudioUi.MUTED))
         if (count > VISIBLE) {
@@ -246,14 +283,14 @@ internal object LineStops {
                     val r = text?.let { runCatching { JSONObject(it) }.getOrNull() }
                     when {
                         closed -> {}
-                        r != null && (r.optBoolean("forecast") || attempt >= TRIES) -> fill(r)
+                        r != null && (r.optBoolean("forecast") || attempt >= TRIES) -> { fill(r); onRiders?.invoke(r.takeIf { it.optBoolean("forecast") }) }
                         attempt < TRIES -> {
                             r?.let(::fill)
                             status.text = "Menghitung penumpang…"
                             status.visibility = View.VISIBLE
                             main.postDelayed({ load(attempt + 1) }, RETRY_MS)
                         }
-                        else -> status.text = "Data penumpang muncul setelah simulasi berjalan."
+                        else -> { status.text = "Data penumpang muncul setelah simulasi berjalan."; onRiders?.invoke(null) }
                     }
                 }
             }

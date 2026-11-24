@@ -243,6 +243,9 @@ internal object ServicePanel {
         field.requestFocus()
     }
 
+    /** The line panel's tab last shown (Ringkasan, Perhentian, Jadwal), kept for the session. */
+    private var lastTab = 0
+
     fun details(host: Activity, handle: Long, id: Int, clock: Double, editable: Boolean, transaction: PanelEdit, changed: (String) -> Unit) {
         val service = JSONObject(inspect(handle,id,clock))
         val route = ServiceStops(service)
@@ -251,60 +254,106 @@ internal object ServicePanel {
         val shift = service.optDouble("shift", 0.0)
         val color = color(service)
         lateinit var footer: LinearLayout
-        StudioUi.sheet(host, service.getString("name"), .6f, pinnedAction = { footer }) { column, dialog ->
+        StudioUi.sheet(host, service.getString("name"), .75f, pinnedAction = { footer }) { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
             val head = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-            head.addView(StudioUi.badge(host, code(service.getString("name")), color, 52), LinearLayout.LayoutParams(dp(52), dp(52)))
+            head.addView(StudioUi.badge(host, code(service.getString("name")), color, 44), LinearLayout.LayoutParams(dp(44), dp(44)))
             val copy = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
             copy.addView(StudioUi.text(host, if (route.names.isEmpty()) "Belum ada pemberhentian" else route.endpoints, 15f, color = StudioUi.INK).apply {
                 typeface = StudioUi.heavy(host)
             })
             copy.addView(StudioUi.text(host, service.getString("vehicle") + " · " +
                 if (service.optBoolean("running")) "Beroperasi" else "Belum beroperasi", 13f, true, StudioUi.MUTED))
-            head.addView(copy, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
-            column.addView(head)
-            val stats = LinearLayout(host)
+            // the fleet, length and round trip in one short line (owner: the three stat cards took the panel)
             val fleet = service.optJSONArray("count")
             val cycle = service.optDouble("cycle", 0.0)
-            listOf(
-                "Armada sibuk" to (fleet?.optInt(0)?.toString() ?: "—"),
-                "Panjang" to String.format(Locale.forLanguageTag("id-ID"),"%.1f km", service.getDouble("length") / 1000),
-                "Putaran" to if (cycle > 0) "±${Math.round(cycle / 60)} mnt" else "—"
-            ).forEachIndexed { i, (caption, value) ->
-                stats.addView(StudioUi.stat(host, caption, value), LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(8) })
-            }
-            column.addView(stats, lp(12, host))
-            // owner's request: every station the line runs through without stopping, made a stop at once
-            if (editable && route.vehicleUnit == "kereta") column.addView(StudioUi.button(host, "Singgahi semua stasiun", icon = StudioUi.Icon.PLUS) {
-                dialog.dismiss()
-                transaction { now ->
-                    editLabel = LineStops.LABEL
-                    val r = JSONObject(LineStops.stopAll(handle, id, now))
-                    if (r.has("error")) android.widget.Toast.makeText(host, r.getString("error"), android.widget.Toast.LENGTH_LONG).show()
-                    else { android.widget.Toast.makeText(host, "${r.optInt("added")} stasiun ditambahkan sebagai perhentian.", android.widget.Toast.LENGTH_SHORT).show(); changed(service.getString("name")) }
-                    details(host, handle, id, clock, editable, transaction, changed)
+            val figures = listOfNotNull(
+                fleet?.optInt(0)?.let { "$it armada" },
+                String.format(Locale.forLanguageTag("id-ID"), "%.1f km", service.getDouble("length") / 1000),
+                if (cycle > 0) "±${Math.round(cycle / 60)} mnt putaran" else null,
+            )
+            copy.addView(StudioUi.text(host, figures.joinToString(" · "), 13f, true, StudioUi.INK).apply {
+                contentDescription = listOfNotNull(fleet?.optInt(0)?.let { "Armada sibuk $it" }, figures.getOrNull(1)?.let { "panjang $it" },
+                    if (cycle > 0) "putaran sekitar ${Math.round(cycle / 60)} menit" else null).joinToString(", ")
+            })
+            head.addView(copy, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+            column.addView(head)
+            // the line's actions in one row of small buttons, scrolling sideways; Hapus last and only its text red
+            if (editable) {
+                val actions = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+                fun action(label: String, icon: StudioUi.Icon, ink: Int = StudioUi.INK, description: String? = null, click: () -> Unit) {
+                    actions.addView(StudioUi.text(host, label, 13.5f, true, ink).apply {
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        background = StudioUi.panel(host, StudioUi.WHITE, 14)
+                        minHeight = dp(46)
+                        setPadding(dp(10), 0, dp(12), 0)
+                        compoundDrawablePadding = dp(4)
+                        setCompoundDrawablesRelative(StudioUi.glyph(host, icon, ink), null, null, null)
+                        isClickable = true
+                        isFocusable = true
+                        contentDescription = description ?: label
+                        setOnClickListener { click() }
+                    }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
                 }
-            }, lp(10, host))
-            if (editable) column.addView(StudioUi.button(host, "Hapus line", icon = StudioUi.Icon.DELETE) {
-                dialog.dismiss(); (host as? NativeWorldActivity)?.removeLine(id, service.getString("name"))
-            }.also(DemolitionPanel::danger), lp(10, host))
-            if (editable) column.addView(StudioUi.button(host, "Ganti nama", icon = StudioUi.Icon.EDIT) {
-                askRename(host, handle, id, service.getString("name"), service.optJSONArray("stops") ?: JSONArray(), transaction) {
-                    dialog.dismiss(); changed(it); details(host, handle, id, clock, editable, transaction, changed)
-                }
-            }, lp(10, host))
-            // web LineInspector "Ubah perhentian" (toggleEditStops): the stops edited on the map (StopEditMode.kt)
-            if (editable && StopEditMode.available && route.vehicleUnit == "kereta") {
-                column.addView(StudioUi.button(host, "Ubah perhentian", icon = StudioUi.Icon.EDIT) {
+                // web LineInspector "Ubah perhentian" (toggleEditStops): the stops edited on the map (StopEditMode.kt)
+                if (StopEditMode.available && route.vehicleUnit == "kereta") action("Ubah perhentian", StudioUi.Icon.PIN,
+                    description = "Ubah perhentian: ketuk stasiun di peta untuk menambah perhentian ke line") {
                     dialog.dismiss()
                     StopEditMode.start(host, id, service.getString("name"), color, transaction, changed) {
                         details(host, StopEditMode.currentHandle(), id, clock, editable, transaction, changed)
                     }
-                }.apply { contentDescription = "Ubah perhentian: ketuk stasiun di peta untuk menambah perhentian ke line" }, lp(10, host))
+                }
+                action("Ganti nama", StudioUi.Icon.EDIT) {
+                    askRename(host, handle, id, service.getString("name"), service.optJSONArray("stops") ?: JSONArray(), transaction) {
+                        dialog.dismiss(); changed(it); details(host, handle, id, clock, editable, transaction, changed)
+                    }
+                }
+                action("Hapus line", StudioUi.Icon.DELETE, StudioUi.BAD) {
+                    dialog.dismiss(); (host as? NativeWorldActivity)?.removeLine(id, service.getString("name"))
+                }
+                column.addView(android.widget.HorizontalScrollView(host).apply {
+                    isHorizontalScrollBarEnabled = false
+                    addView(actions)
+                }, lp(10, host))
             }
+            // Owner's tabs under the head: Ringkasan (riders graph, fare, money, speed profile), Perhentian
+            // (the stop rows with the passed stations between them), Jadwal (the next departures).
+            val tabNames = listOf("Ringkasan", "Perhentian", "Jadwal")
+            val pages = tabNames.map { LinearLayout(host).apply { orientation = LinearLayout.VERTICAL } }
+            val (summaryTab, stopsTab, scheduleTab) = pages
+            val track = LinearLayout(host).apply {
+                background = StudioUi.pill(host, 0x1422204a, 18)
+                setPadding(dp(4), dp(4), dp(4), dp(4))
+            }
+            val tabs = tabNames.mapIndexed { i, name ->
+                StudioUi.text(host, name, 13.5f, true, StudioUi.MUTED).apply {
+                    gravity = android.view.Gravity.CENTER
+                    isClickable = true
+                    isFocusable = true
+                    track.addView(this, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(2); marginEnd = dp(2) })
+                }
+            }
+            fun show(k: Int) {
+                lastTab = k
+                tabs.forEachIndexed { i, t ->
+                    val on = i == k
+                    t.background = if (on) StudioUi.pill(host, StudioUi.WHITE, 14) else null
+                    t.setTextColor(if (on) StudioUi.INK else StudioUi.MUTED)
+                    t.isSelected = on
+                    t.contentDescription = "Tab ${tabNames[i]}, ${i + 1} dari ${tabNames.size}" + if (on) ", terpilih" else ""
+                }
+                pages.forEachIndexed { i, p -> p.visibility = if (i == k) View.VISIBLE else View.GONE }
+            }
+            tabs.forEachIndexed { i, t -> t.setOnClickListener { show(i) } }
+            column.addView(track, lp(12, host))
+            pages.forEach { column.addView(it, lp(4, host)) }
+
             if (route.names.isNotEmpty()) {
+                // the riders on each stretch, both ways (LineRidersChart.kt), from the same answer as the stop rows
+                val chart = if (LineStops.riders != null && route.names.size >= 2) LineRidersChart.create(host, route, color) else null
+                chart?.let { summaryTab.addView(it.view, lp(8, host)) }
                 // Vertical strip in the line colour with each stop's riders; stops passed and skipped (LineStops.kt).
-                val strip = LineStops.strip(host, handle, id, route, color, editable) { success, edit ->
+                val strip = LineStops.strip(host, handle, id, route, color, editable, chart?.fill) { success, edit ->
                     dialog.dismiss()
                     transaction { now ->
                         if (LineStops.toast(host, edit.run(now), success)) {
@@ -314,22 +363,32 @@ internal object ServicePanel {
                         details(host, handle, id, clock, editable, transaction, changed)
                     }
                 }
-                column.addView(strip, lp(12, host))
-                column.addView(StudioUi.section(host, "Keberangkatan dari ${route.names.first()}"))
+                stopsTab.addView(strip, lp(8, host))
+                scheduleTab.addView(StudioUi.section(host, "Keberangkatan dari ${route.names.first()}"))
                 val entries = if (upcoming != null) {
-                    (0 until minOf(3, upcoming.length())).map { i ->
+                    (0 until minOf(6, upcoming.length())).map { i ->
                         val row = upcoming.getJSONArray(i)
                         StudioTimetable.time(row.getDouble(1) + shift) to route.destination(row)
                     }
                 } else {
-                    (0 until minOf(3, times.length())).map { StudioTimetable.time(times.getDouble(it) + shift) to "" }
+                    (0 until minOf(6, times.length())).map { StudioTimetable.time(times.getDouble(it) + shift) to "" }
                 }
                 if (entries.isEmpty()) {
-                    column.addView(StudioUi.text(host, if (service.optBoolean("running")) "Belum ada jadwal dari pemberhentian ini dalam satu jam ke depan."
+                    scheduleTab.addView(StudioUi.text(host, if (service.optBoolean("running")) "Belum ada jadwal dari pemberhentian ini dalam satu jam ke depan."
                         else "Layanan belum beroperasi.", 14f, true, StudioUi.MUTED).apply { setPadding(dp(4), 0, 0, 0) })
-                } else entries.forEach { (time, destination) -> column.addView(StudioTimetable.departure(host,time,destination), lp(6, host)) }
+                } else entries.forEach { (time, destination) -> scheduleTab.addView(StudioTimetable.departure(host,time,destination), lp(6, host)) }
             } else {
-                column.addView(StudioUi.text(host,"Belum ada pemberhentian pada rute ini.",15f,true,StudioUi.MUTED), lp(12, host))
+                val none = "Belum ada pemberhentian pada rute ini."
+                listOf(stopsTab, scheduleTab).forEach { it.addView(StudioUi.text(host, none, 15f, true, StudioUi.MUTED), lp(12, host)) }
+            }
+            // web LineFare: the line's own fare multiple, above its money
+            summaryTab.addView(LineFare.row(host, handle, id, editable, transaction) {
+                editLabel = "Kelipatan tarif"
+                changed(service.getString("name"))
+            }, lp(12, host))
+            // web LineMoney: the line's last 30 whole days of fares and running cost
+            FinanceHistory.lineMoney(host, service.optJSONArray("lineDays"), service.optInt("today"), StudioCurrency.current(host))?.let {
+                summaryTab.addView(it, lp(12, host))
             }
             // web LineTopSpeed + LineProfile: the top speed, the speed limit and the line along its length
             LineProfileView.section(host, handle, id, color, if (editable) { kmh ->
@@ -340,16 +399,8 @@ internal object ServicePanel {
                     else { editLabel = "Batas laju line"; changed(service.getString("name")) }
                     details(host, handle, id, clock, editable, transaction, changed)
                 }
-            } else null)?.let { column.addView(it, lp(14, host)) }
-            // web LineFare: the line's own fare multiple, above its money
-            column.addView(LineFare.row(host, handle, id, editable, transaction) {
-                editLabel = "Kelipatan tarif"
-                changed(service.getString("name"))
-            }, lp(14, host))
-            // web LineMoney: the line's last 30 whole days of fares and running cost
-            FinanceHistory.lineMoney(host, service.optJSONArray("lineDays"), service.optInt("today"), StudioCurrency.current(host))?.let {
-                column.addView(it, lp(14, host))
-            }
+            } else null)?.let { summaryTab.addView(it, lp(12, host)) }
+            show(lastTab.coerceIn(0, tabNames.size - 1))
             footer = LinearLayout(host)
             if (route.names.isNotEmpty()) footer.addView(StudioUi.button(host, if (editable) "Grafik" else "Grafik perjalanan & keberangkatan", icon = StudioUi.Icon.ROUTE) {
                 dialog.dismiss()
