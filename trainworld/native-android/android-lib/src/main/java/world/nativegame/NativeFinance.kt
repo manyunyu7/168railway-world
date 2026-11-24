@@ -146,6 +146,56 @@ object NativeFinance {
         }
     }
 
+    /** Web `ledgerNet` (MoneyTab.tsx): fares less running, upkeep, the loan's payment, new trains and construction. */
+    internal fun ledgerNet(d: JSONObject) = d.optDouble("fares",0.0) - d.optDouble("running",0.0) - d.optDouble("upkeep",0.0) -
+        d.optDouble("loan",0.0) - d.optDouble("trains",0.0) - d.optDouble("build",0.0)
+
+    /**
+     * The web's ledger table (MoneyTab.tsx): Kemarin and Hari ini side by side, Tarif, Operasi
+     * kereta, Perawatan, Pinjaman (while a loan is out or was paid yesterday), Kereta baru,
+     * Pembangunan and a bold Bersih; a cost shown negative, red when it shows a minus.
+     */
+    private fun ledgerTable(activity: Activity, body: LinearLayout, ledger: org.json.JSONArray?, today: Int, loanOut: Boolean, currency: StudioCurrency) {
+        fun dp(n: Int) = StudioUi.dp(activity, n)
+        val days = (0 until (ledger?.length() ?: 0)).mapNotNull { ledger!!.optJSONObject(it) }
+        val now = days.lastOrNull { it.optInt("day", Int.MIN_VALUE) == today }
+        val prev = days.lastOrNull { it.optInt("day", Int.MIN_VALUE) == today - 1 }
+        val rows = buildList<Pair<String, (JSONObject) -> Double>> {
+            add("Tarif" to { d -> d.optDouble("fares",0.0) })
+            add("Operasi kereta" to { d -> -d.optDouble("running",0.0) })
+            add("Perawatan" to { d -> -d.optDouble("upkeep",0.0) })
+            if (loanOut || (prev?.optDouble("loan",0.0) ?: 0.0) > 0) add("Pinjaman" to { d -> -d.optDouble("loan",0.0) })
+            add("Kereta baru" to { d -> -d.optDouble("trains",0.0) })
+            add("Pembangunan" to { d -> -d.optDouble("build",0.0) })
+            add("Bersih" to ::ledgerNet)
+        }
+        val table = android.widget.TableLayout(activity).apply {
+            background = StudioUi.card(activity, 22)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setColumnStretchable(0, true)
+        }
+        fun cell(text: String, bold: Boolean, ink: Int = StudioUi.INK, end: Boolean = true) = StudioUi.text(activity, text, 14f, bold, ink).apply {
+            if (bold) typeface = StudioUi.heavy(activity)
+            gravity = if (end) android.view.Gravity.END else android.view.Gravity.START
+            setPadding(if (end) dp(12) else 0, dp(5), 0, dp(5))
+        }
+        table.addView(android.widget.TableRow(activity).apply {
+            addView(cell("", false, end = false)); addView(cell("Kemarin", true, StudioUi.MUTED)); addView(cell("Hari ini", true, StudioUi.MUTED))
+        })
+        for ((label, value) in rows) {
+            val net = label == "Bersih"
+            table.addView(android.widget.TableRow(activity).apply {
+                addView(cell(label, net, end = false))
+                for (d in listOf(prev, now)) {
+                    val v = d?.let(value)
+                    addView(cell(if (v == null) "–" else StudioFormat.money(v * 1e6, currency), net,
+                        if (v != null && StudioFormat.moneyNegative(v * 1e6, currency)) StudioUi.BAD else StudioUi.INK))
+                }
+            })
+        }
+        body.addView(table, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+    }
+
     fun show(activity: Activity, handle: Long, clock: () -> Double, transaction: PanelEdit, onCurrencyChanged: () -> Unit = {}, persist: () -> Unit) {
         if (handle == 0L) return
         val number = NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID")).apply { maximumFractionDigits = 2 }
@@ -156,6 +206,12 @@ object NativeFinance {
             val body = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
             sheet.addView(body)
             fun refresh() {
+                fun act(op: Int) = transaction { now ->
+                    val result = JSONObject(query(handle,now,op))
+                    if (result.has("error")) Toast.makeText(activity,result.getString("error"),Toast.LENGTH_LONG).show()
+                    else persist()
+                    refresh()
+                }
                 val state = JSONObject(query(handle, clock(), 0))
                 val run = state.getJSONArray("operating")
                 body.removeAllViews()
@@ -172,11 +228,17 @@ object NativeFinance {
                         setLayerInset(1, 0, 0, 0, dp(5))
                     }
                 }
-                balance.addView(StudioUi.text(activity, "Saldo kas · "+StudioCurrency.current(activity).code, 13f, true, 0xff7a5600.toInt()))
-                balance.addView(StudioUi.title(activity, StudioCurrency.current(activity).compact(state.getDouble("cash")), 36f))
+                // web MoneyTab: "Kas" to four figures, or in a sandbox "Sejak hari 1", the cash over the start
+                val currency = StudioCurrency.current(activity)
+                val sandbox = state.getBoolean("sandbox")
+                val shown = if (sandbox) state.getDouble("cash") - state.optDouble("startCash", 10000.0) else state.getDouble("cash")
+                balance.addView(StudioUi.text(activity, (if (sandbox) "Sejak hari 1" else "Kas")+" · "+currency.code, 13f, true, 0xff7a5600.toInt()))
+                balance.addView(StudioUi.title(activity, StudioFormat.cash(shown * 1e6, currency), 36f))
+                balance.contentDescription = (if (sandbox) "Sejak hari 1: tarif dikurangi biaya operasi, perawatan, kereta, dan pembangunan. " else "Kas. ") +
+                    "Semua arus uang dikali 100. Satu hari setara 100 hari untuk uang masuk dan keluar."
                 if (latest != null) {
-                    val net = latest.optDouble("fares",0.0)-latest.optDouble("running",0.0)-latest.optDouble("upkeep",0.0)
-                    balance.addView(StudioUi.chip(activity, (if (net >= 0) "▲ +" else "▼ ")+short(net)+" · Hari "+latest.optInt("day"),
+                    val net = ledgerNet(latest)
+                    balance.addView(StudioUi.chip(activity, (if (net >= 0) "▲ +" else "▼ ")+StudioFormat.money(net * 1e6, currency).removePrefix("−")+" · Hari "+latest.optInt("day"),
                         0xb3ffffff.toInt(), if (net >= 0) StudioUi.GOOD else StudioUi.BAD),
                         LinearLayout.LayoutParams(-2,-2).apply { topMargin = dp(8) })
                 }
@@ -193,7 +255,6 @@ object NativeFinance {
                     StudioCurrency.picker(activity) { onCurrencyChanged(); refresh() }
                 },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
                 if (ledger != null && ledger.length() > 0) {
-                    val days = android.widget.Spinner(activity)
                     val entries = (ledger.length()-1 downTo 0).mapNotNull { ledger.optJSONObject(it) }
                     if (entries.isNotEmpty()) {
                         heading("Riwayat kas operasi")
@@ -235,36 +296,9 @@ object NativeFinance {
                             }
                         },LinearLayout.LayoutParams(-1,dp(104)))
                         chart.addView(StudioUi.text(activity,"● Hijau · tiket     ● Oranye · operasi dan perawatan",12f,true,StudioUi.MUTED))
-                        heading("Buku harian")
-                        days.adapter = android.widget.ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item,
-                            entries.map { "Hari " + it.optInt("day") })
-                        days.background = StudioUi.card(activity, 26, -1)
-                        days.setPadding(dp(14),0,dp(8),0)
-                        body.addView(days, LinearLayout.LayoutParams(-1,dp(48)))
-                        val report = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-                        body.addView(report)
-                        fun day(index: Int) {
-                            val entry = entries[index]
-                            report.removeAllViews()
-                            data class M(val label: String, val value: String, val icon: StudioUi.Icon, val tint: Int, val ink: Int)
-                            val metrics = listOf(
-                                M("Perjalanan", number.format(entry.optDouble("rides",0.0)), StudioUi.Icon.TRAIN, StudioUi.TINT_BLUE, StudioUi.INK),
-                                M("Tiket", "+"+short(entry.optDouble("fares",0.0)), StudioUi.Icon.WALLET, StudioUi.TINT_GREEN, StudioUi.GOOD),
-                                M("Operasional", "−"+short(entry.optDouble("running",0.0)), StudioUi.Icon.ROUTE, StudioUi.TINT_RED, StudioUi.BAD),
-                                M("Perawatan", "−"+short(entry.optDouble("upkeep",0.0)), StudioUi.Icon.MENU, StudioUi.TINT_RED, StudioUi.BAD))
-                            for (m in metrics) {
-                                report.addView(StudioUi.row(activity, m.icon, m.tint, m.label, null,
-                                    StudioUi.text(activity,m.value,15f,color = m.ink).apply { typeface = StudioUi.heavy(activity) }),
-                                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
-                            }
-                        }
-                        day(0)
-                        days.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-                            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) = day(position)
-                        }
                     }
                 }
+                ledgerTable(activity, body, ledger, state.optInt("today", latest?.optInt("day") ?: 0), state.optDouble("loan", 0.0) > 0, currency)
                 body.addView(StudioUi.button(activity,"Atur tarif penumpang",StudioUi.Tone.PRIMARY,StudioUi.Icon.WALLET) {
                     editFares(activity,handle,clock,transaction,persist)
                 },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(14) })
@@ -276,39 +310,65 @@ object NativeFinance {
                 }
                 body.addView(hours)
                 row("Perawatan per hari", short(state.getDouble("upkeep")), StudioUi.Icon.MENU, StudioUi.TINT_RED)
+                // web LoanRows: none in a sandbox; while no loan is out the three sizes, each refused past
+                // what the profit pays; while one is, the loan, its payment, the days left and Lunasi
+                if (sandbox) return
                 heading("Pinjaman")
-                val loan = LinearLayout(activity)
-                loan.addView(StudioUi.stat(activity,"Sisa pinjaman",short(state.getDouble("outstanding"))),LinearLayout.LayoutParams(0,-2,1f))
-                loan.addView(StudioUi.stat(activity,"Angsuran harian",short(state.getDouble("dailyPayment"))),
-                    LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(6) })
-                body.addView(loan)
-                if (!state.getBoolean("sandbox")) body.addView(StudioUi.text(activity,
-                    "Angsuran dipotong otomatis dari kas tiap hari.",13f,true,0xff7a5600.toInt()).apply {
-                    background = StudioUi.card(activity,18,StudioUi.TINT_YELLOW)
-                    setPadding(dp(12),dp(10),dp(12),dp(10))
-                },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
-                if (state.getBoolean("sandbox")) return
-                val choices = if (state.getDouble("remainingDays") > 0) listOf(-1) else listOf(1000,5000,10000)
-                choices.forEach { op ->
-                    val label = if (op == -1) "Lunasi pinjaman" else "Pinjam " + short(op.toDouble())
-                    body.addView(StudioUi.button(activity,label,if (op == -1) StudioUi.Tone.PRIMARY else StudioUi.Tone.BLUE) {
-                        val cash = state.getDouble("cash")
-                        val delta = if (op < 0) -state.getDouble("outstanding") else op.toDouble()
-                        StudioDialogBuilder(activity).setTitle(if(op<0) "Lunasi pinjaman?" else "Ajukan pinjaman?")
-                            .setView(StudioDecision(activity,if(op<0) "Pelunasan" else "Dana pinjaman",usd(kotlin.math.abs(delta))).apply {
-                                fact("Saldo sekarang",usd(cash))
-                                fact("Saldo setelah konfirmasi",usd(cash+delta))
-                                if(op<0) fact("Angsuran setelah pelunasan",usd(0.0))
+                val money = { usdM: Double -> StudioFormat.money(usdM * 1e6, currency) }
+                val outstanding = state.getDouble("outstanding")
+                val cash = state.getDouble("cash")
+                if (state.getDouble("remainingDays") <= 0) {
+                    val offers = state.optJSONArray("offers")
+                    val term = state.optDouble("term", 60.0).toInt()
+                    for (i in 0 until (offers?.length() ?: 0)) {
+                        val o = offers!!.getJSONObject(i)
+                        val amount = o.getDouble("amount")
+                        val allowed = o.optBoolean("allowed", true)
+                        val why = when {
+                            allowed -> "Pinjam ${money(amount)} dan bayar kembali ${money(o.getDouble("payment"))} per hari selama $term hari"
+                            o.isNull("profit") -> "Sampai ada tarif satu hari penuh, pinjaman paling banyak ${money(offers.getJSONObject(0).getDouble("amount"))}."
+                            else -> "Cicilannya ${money(o.getDouble("payment"))} per hari. " +
+                                (if (o.optInt("days") == 1) "Laba kemarin ${money(o.getDouble("profit"))} per hari."
+                                else "Rata-rata laba ${o.optInt("days")} hari terakhir ${money(o.getDouble("profit"))} per hari.")
+                        }
+                        val button = StudioUi.button(activity,"Pinjam " + StudioFormat.cash(amount * 1e6, currency), StudioUi.Tone.BLUE) {
+                            StudioDialogBuilder(activity).setTitle("Ajukan pinjaman?")
+                                .setView(StudioDecision(activity,"Dana pinjaman",money(amount)).apply {
+                                    fact("Cicilan per hari",money(o.getDouble("payment")))
+                                    fact("Sisa hari",term.toString())
+                                    fact("Kas sekarang",StudioFormat.cash(cash * 1e6, currency))
+                                    fact("Kas setelah konfirmasi",StudioFormat.cash((cash + amount) * 1e6, currency))
+                                }).setNegativeButton("Batal", null)
+                                .setPositiveButton("Pinjam") { _,_ -> act(amount.toInt()) }.show()
+                        }
+                        button.isEnabled = allowed
+                        if (!allowed) button.alpha = .5f
+                        button.contentDescription = why
+                        body.addView(button,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(5) })
+                        body.addView(StudioUi.text(activity,why,12f,true,StudioUi.MUTED),LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(2) })
+                    }
+                } else {
+                    row("Dipinjam", money(state.optDouble("loan", 0.0)))
+                    body.addView(StudioUi.row(activity,null,StudioUi.TINT_GREY,"Cicilan per hari",
+                        "Bunga ${(state.optDouble("rate",0.01)*100).let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }}% per hari dari sisa pinjaman",
+                        StudioUi.text(activity,money(state.getDouble("dailyPayment")),15f).apply { typeface = StudioUi.heavy(activity) }),
+                        LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
+                    row("Sisa hari", kotlin.math.ceil(state.getDouble("remainingDays")).toInt().toString())
+                    val canPay = cash >= outstanding
+                    val repay = StudioUi.button(activity,"Lunasi",StudioUi.Tone.PRIMARY) {
+                        StudioDialogBuilder(activity).setTitle("Lunasi pinjaman?")
+                            .setView(StudioDecision(activity,"Lunasi sisa ${money(outstanding)} dari kas",money(outstanding)).apply {
+                                fact("Kas sekarang",StudioFormat.cash(cash * 1e6, currency))
+                                fact("Kas setelah konfirmasi",StudioFormat.cash((cash - outstanding) * 1e6, currency))
                             }).setNegativeButton("Batal", null)
-                            .setPositiveButton("Konfirmasi") { _,_ ->
-                                transaction { now ->
-                                    val result = JSONObject(query(handle,now,op))
-                                    if (result.has("error")) Toast.makeText(activity,result.getString("error"),Toast.LENGTH_LONG).show()
-                                    else persist()
-                                    refresh()
-                                }
-                            }.show()
-                    },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(5) })
+                            .setPositiveButton("Lunasi") { _,_ -> act(-1) }.show()
+                    }
+                    repay.isEnabled = canPay
+                    if (!canPay) repay.alpha = .5f
+                    val why = if (canPay) "Lunasi sisa ${money(outstanding)} dari kas" else "Butuh kas ${money(outstanding)}"
+                    repay.contentDescription = why
+                    body.addView(repay,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(8) })
+                    body.addView(StudioUi.text(activity,why,12f,true,StudioUi.MUTED),LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(2) })
                 }
             }
             refresh()

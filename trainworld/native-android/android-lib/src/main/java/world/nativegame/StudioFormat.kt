@@ -79,6 +79,27 @@ internal object StudioFormat {
         }
     }
 
+    /**
+     * Web `moneyCash` (format.ts): the cash to four significant figures, every digit under a
+     * million; one figure fewer when the text would run past ten characters.
+     */
+    fun cash(usd: Double, currency: StudioCurrency): String {
+        val a = abs(usd) * currency.rate
+        val s = (if (usd < 0) "−" else "") + currency.symbol
+        fun make(p: Int): String {
+            fun sig(v: Double) = BigDecimal(v).round(MathContext(p, RoundingMode.HALF_EVEN)).stripTrailingZeros().toPlainString()
+            return when {
+                a < 999.95e3 -> if (p == 4) s + exact(a) else s + compactOf(sig(a / 1e3), 1e3)
+                a >= 999.95e12 -> s + compactOf(sig(a / 1e15), 1e15)
+                a >= 999.95e9 -> s + compactOf(sig(a / 1e12), 1e12)
+                a >= 999.95e6 -> s + compactOf(sig(a / 1e9), 1e9)
+                else -> s + compactOf(sig(a / 1e6), 1e6)
+            }
+        }
+        val out = make(4)
+        return if (out.length > 10) make(3) else out
+    }
+
     /** Web `moneyNegative`: whether `money(usd)` shows a minus (the panels' red). */
     fun moneyNegative(usd: Double, currency: StudioCurrency) = usd < 0 && abs(usd) * currency.rate >= 500
 }

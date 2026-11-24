@@ -23,6 +23,43 @@ fn loan(h: &Value) -> Option<(f64, f64, f64)> {
     };
     (days > 0.).then_some((a, pay, days))
 }
+/// Web `LOAN_AMOUNTS` (game/loan.ts) and the game's starting cash (`START_CASH`), US$M.
+const AMOUNTS: [i32; 3] = [1000, 5000, 10000];
+const START_CASH: f64 = 10000.;
+/// Web `loanProfit` (game/loan.ts): the mean of fares less running and upkeep over the last 7
+/// whole days before `today`, with how many; None before any fares.
+fn loan_profit(h: &Value, today: i64) -> Option<(f64, usize)> {
+    let days: Vec<_> = h["ledger"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .rev()
+        .filter(|d| d["day"].as_i64().is_some_and(|n| n < today))
+        .take(7)
+        .collect();
+    if !days.iter().any(|d| d["fares"].as_f64().unwrap_or(0.) > 0.) {
+        return None;
+    }
+    let sum = days
+        .iter()
+        .map(|d| {
+            d["fares"].as_f64().unwrap_or(0.)
+                - d["running"].as_f64().unwrap_or(0.)
+                - d["upkeep"].as_f64().unwrap_or(0.)
+        })
+        .sum::<f64>();
+    Some((sum / days.len() as f64, days.len()))
+}
+/// Web `loanAllowed`: a payment within the profit, or before any profit only the smallest.
+fn loan_allowed(amount: i32, profit: Option<(f64, usize)>) -> bool {
+    profit.map_or(amount == AMOUNTS[0], |(per_day, _)| {
+        payment(amount as f64) <= per_day
+    })
+}
+/// The local game day `clock` falls in.
+fn today(h: &Value, clock: f64) -> i64 {
+    ((clock + super::local_time::day_shift(h)) / 86400.).floor() as i64
+}
 fn clear(h: &mut Value) {
     if let Some(o) = h.as_object_mut() {
         for key in ["loan", "loanPay", "loanDays"] {
@@ -320,29 +357,10 @@ pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String>
             clear(h);
         } else {
             let amount = op as f64;
-            if ![1000, 5000, 10000].contains(&op) || loan(h).is_some() {
+            if !AMOUNTS.contains(&op) || loan(h).is_some() {
                 return Err("Pilihan pinjaman tidak tersedia".into());
             }
-            let today = ((clock + super::local_time::day_shift(h)) / 86400.).floor() as i64;
-            let days: Vec<_> = h["ledger"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .rev()
-                .filter(|d| d["day"].as_i64().is_some_and(|n| n < today))
-                .take(7)
-                .collect();
-            let recorded = days.iter().any(|d| d["fares"].as_f64().unwrap_or(0.) > 0.);
-            let profit = days
-                .iter()
-                .map(|d| {
-                    d["fares"].as_f64().unwrap_or(0.)
-                        - d["running"].as_f64().unwrap_or(0.)
-                        - d["upkeep"].as_f64().unwrap_or(0.)
-                })
-                .sum::<f64>()
-                / (days.len().max(1) as f64);
-            if (recorded && payment(amount) > profit) || (!recorded && op != 1000) {
+            if !loan_allowed(op, loan_profit(h, today(h, clock))) {
                 return Err("Laba harian belum mencukupi untuk besaran ini".into());
             }
             cash += amount;
@@ -354,9 +372,20 @@ pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String>
         h["cash"] = cash.into();
         w.api.set_cash(cash);
     }
-    let (_, pay, days) = loan(h).unwrap_or((0., 0., 0.));
+    let (amount, pay, days) = loan(h).unwrap_or((0., 0., 0.));
+    let day = today(h, clock);
+    // the web's loan rows: each size with its payment, refused past what the profit pays (LoanRows)
+    let profit = loan_profit(h, day);
+    let offers: Vec<_> = AMOUNTS
+        .iter()
+        .map(|&a| {
+            json!({"amount": a, "payment": payment(a as f64), "allowed": loan_allowed(a, profit),
+            "profit": profit.map(|p| p.0), "days": profit.map(|p| p.1)})
+        })
+        .collect();
     Ok(
-        json!({"cash":cash,"ledger":h.get("ledger"),"upkeep":w.api.upkeep()[0],"operating":[w.api.running_cost(0),w.api.running_cost(1),w.api.running_cost(2)],"dailyPayment":pay,"remainingDays":days,"outstanding":pay*(1.-(1.+RATE).powf(-days))/RATE,"sandbox":h["mode"]=="sandbox"}),
+        json!({"cash":cash,"ledger":h.get("ledger"),"upkeep":w.api.upkeep()[0],"operating":[w.api.running_cost(0),w.api.running_cost(1),w.api.running_cost(2)],"dailyPayment":pay,"remainingDays":days,"outstanding":pay*(1.-(1.+RATE).powf(-days))/RATE,"sandbox":h["mode"]=="sandbox",
+            "today":day,"loan":amount,"offers":offers,"startCash":START_CASH,"term":TERM,"rate":RATE}),
     )
 }
 #[no_mangle]
@@ -409,6 +438,16 @@ mod tests {
         w.header["clock"] = now.into();
         w.header["cash"] = 6000.into();
         w.header["ledger"] = json!([]);
+        // before any fares only the smallest loan is offered, as the web's loanFirst
+        let offers = apply(&mut w, now, 0).unwrap()["offers"].clone();
+        let allowed: Vec<_> = offers
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| o["allowed"].as_bool().unwrap())
+            .collect();
+        assert_eq!(allowed, [true, false, false]);
+        assert!(offers[0]["profit"].is_null());
         assert!(apply(&mut w, now, 5000).is_err());
         assert!(apply(&mut w, now, 1000).is_ok());
         assert!(apply(&mut w, now, 1000).is_err());
