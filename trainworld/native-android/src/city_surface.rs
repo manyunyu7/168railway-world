@@ -284,11 +284,19 @@ mod tests {
             let a = [point[0], point[1]];
             world.build_service(a, [a[0] + 2000., a[1]], city, time).unwrap();
         }
+        let endpoints = [(106.83, -6.22), (107.64, -6.94)].map(|(lon, lat)| {
+            let xy = world.api.from_lonlat(lon, lat);
+            [xy[0], xy[1]]
+        });
+        world.build_service(endpoints[0], endpoints[1], "Jakarta–Bandung", time).unwrap();
         let archive = world.save(time).unwrap();
         let restored = World::open(&archive).unwrap();
         assert_eq!(restored.header["opened"], serde_json::json!(["jak", "bad"]));
         assert_eq!(restored.api.line_name(0), "Jakarta");
         assert_eq!(restored.api.line_name(1), "Bandung");
+        assert_eq!(restored.api.line_name(2), "Jakarta–Bandung");
+        assert_eq!(restored.api.line_stops(2).len(), 2);
+        assert!(restored.api.line_stop_s(2, 0)[1] > 100_000.);
         let demand = crate::demand_zones::plan(&archive, Path::new("/no-cached-boundaries")).unwrap();
         for k in ["local", "markets"] {
             for city in ["jak", "bad"] {
