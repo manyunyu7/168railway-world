@@ -25,7 +25,7 @@ internal object WorldDeletion {
             val handle = Engine.open(bytes)
             check(handle != 0L)
             try {
-                val stops = JSONObject(Engine.geometry(handle)).getJSONArray("stops")
+                val stops = JSONObject(Engine.geometry(handle)).getJSONArray("stations")
                 // a station stop carries its node id (a bus stop -1), as the map's station count
                 (0 until stops.length()).count { stops.getJSONArray(it).optInt(3, -1) >= 0 }
             } finally {
