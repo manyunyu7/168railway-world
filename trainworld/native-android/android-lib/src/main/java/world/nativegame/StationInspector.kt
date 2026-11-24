@@ -60,7 +60,7 @@ internal object StationInspector {
         }
         fun dismiss() { dialog?.dismiss() }
         fun show() {
-            dialog = StudioUi.sheet(activity,title ?: "",heightFraction = .78f) { column, _ -> column.addView(root) }
+            dialog = StudioUi.sheet(activity,title ?: "",heightFraction = if (title == null) .47f else .78f) { column, _ -> column.addView(root) }
         }
     }
     /** Dark price pill for facility rows, green when the facility is already installed. */

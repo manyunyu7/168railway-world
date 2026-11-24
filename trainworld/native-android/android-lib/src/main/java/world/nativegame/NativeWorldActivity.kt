@@ -2775,11 +2775,12 @@ internal class NetworkView(context: Context):View(context) {
     fun showStationAboveSheet(id:Int) {
         val station=stops.firstOrNull { it.id == id } ?: return
         inspectingStation=station
-        val minScale=density*trainPainter.mercatorPerFrame*.592f // z15.5, enough to see a platform's orientation.
-        scale=max(scale,minScale)
         val x=station.x+(station.platform?.midX ?: 0f)
         val y=station.y+(station.platform?.midY ?: 0f)
-        focusAt(x,y-height*.32f/scale)
+        // Leave the kilometre ring between the map controls and the station sheet.
+        val radiusPx = min(width*.36f,height*.12f)
+        scale = radiusPx / (1000f * kotlin.math.cosh(y / 6371008.8f))
+        focusAt(x,y-height*.15f/scale)
     }
 
     fun finishStationInspection() {
