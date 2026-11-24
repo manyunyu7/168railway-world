@@ -159,6 +159,10 @@ class StudioLibraryActivity : Activity() {
                     LinearLayout.LayoutParams(-2,-2).apply { marginStart = dp(8); bottomMargin = dp(4) }) }
             }
             card.addView(heading)
+            // The save time is a sentence, not a chip: it was cut off at the edge of the chip row.
+            if (cover != null) card.addView(StudioUi.text(this,WorldDocuments.savedWhen(slot.at),13f,false,StudioUi.MUTED).apply {
+                setPadding(dp(6),dp(2),dp(6),0)
+            })
             val chips = LinearLayout(this).apply { setPadding(dp(6),dp(8),dp(6),dp(12)) }
             fun chip(text: String, tint: Int, ink: Int) =
                 chips.addView(StudioUi.chip(this,text,tint,ink),LinearLayout.LayoutParams(-2,-2).apply { marginEnd = dp(6) })
@@ -167,7 +171,6 @@ class StudioLibraryActivity : Activity() {
                 chip("${cover.stations} stasiun",StudioUi.TINT_PURPLE,0xff3f2aa8.toInt())
                 // web savesPanel.cash: the cash when saved, as the money tab writes it
                 if (cover.cash.isFinite()) chip(StudioFormat.cash(cover.cash * 1e6, StudioCurrency.current(this)),StudioUi.TINT_YELLOW,0xff7a5600.toInt())
-                chip(WorldDocuments.savedWhen(slot.at),StudioUi.TINT_BLUE,StudioUi.INK)
             } else cities.firstOrNull { it.id == slot.city }?.name?.let { chip(it,StudioUi.TINT_ORANGE,0xff9a3a0b.toInt()) }
             // web savesPanel.playing: the world open in the game is marked
             if (active != null) chip("Dimainkan",StudioUi.TINT_GREEN,StudioUi.GOOD)
@@ -178,9 +181,15 @@ class StudioLibraryActivity : Activity() {
             card.addView(StudioUi.button(this,"Main lagi",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
                 if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
             }.apply { minHeight = dp(56); textSize = 17f },LinearLayout.LayoutParams(-1,-2).apply { marginStart = dp(6); marginEnd = dp(6) })
-            if (active == null) card.addView(StudioUi.button(this,"Hapus dari HP ini",icon = StudioUi.Icon.CLOSE) {
-                if (!locked) WorldDeletion.ask(this,worker,slot) { refresh() }
-            }.also(DemolitionPanel::danger),LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10); marginStart = dp(6); marginEnd = dp(6) })
+            // Deleting is rare and cannot be undone: a quiet text action, not a second big button beside "Main lagi".
+            if (active == null) card.addView(StudioUi.text(this,"Hapus dari HP ini",14f,true,StudioUi.BAD).apply {
+                gravity = Gravity.CENTER
+                minHeight = dp(48)
+                isClickable = true
+                background = android.util.TypedValue().let { tv ->
+                    context.theme.resolveAttribute(android.R.attr.selectableItemBackground,tv,true); context.getDrawable(tv.resourceId) }
+                setOnClickListener { if (!locked) WorldDeletion.ask(this@StudioLibraryActivity,worker,slot) { refresh() } }
+            },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
             if (active != null) {
                 card.addView(StudioUi.button(this,"Simpan perubahan ke Studio",StudioUi.Tone.BLUE,StudioUi.Icon.SAVE) { if (!locked) upload(active.first, false) },
                     LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
