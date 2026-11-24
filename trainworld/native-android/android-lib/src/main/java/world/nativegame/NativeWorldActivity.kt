@@ -1217,10 +1217,7 @@ class NativeWorldActivity : Activity() {
 
     private fun chooseStation() {
         val stations = map.stops.filter { it.id >= 0 }.sortedBy { it.name }
-        StudioDialogBuilder(this).setTitle("Pilih stasiun").setItems(stations.map { it.name }.toTypedArray()) { _, i ->
-            val station = stations[i]
-            openStation(station.id)
-        }.setNegativeButton("Tutup", null).show()
+        StationChooser.show(this, stations.map { it.id to it.name }, ::openStation)
     }
 
     private fun passengerLayers() {
@@ -2548,7 +2545,7 @@ class NativeWorldActivity : Activity() {
         val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val filtered = map.overlay.selection[0] != "none" || map.overlay.track == "traffic"
         val purpose = if (filtered && map.overlay.purpose != "all") " · " + map.overlay.purposeName() else ""
-        text.addView(StudioUi.text(this, (lens?.label ?: "Lensa campuran") + purpose, 15f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) })
+        text.addView(StudioUi.text(this, (lens?.label ?: "Lensa campuran") + purpose, 14f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) })
         if (lens != null) {
             val ramp = if (lens.trips == "none") null else when (map.displaySettings.bubbleScheme) {
                 "ramp" -> PassengerRamps.trainShare
@@ -2560,14 +2557,16 @@ class NativeWorldActivity : Activity() {
             text.addView(LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, dp(3), 0, 0)
-                addView(View(context).apply { background = swatch(colours, 5) }, LinearLayout.LayoutParams(dp(64), dp(9)).apply { marginEnd = dp(8) })
+                // the same colour blocks as the lens tile, so the key matches what the picker showed
+                addView(View(context).apply { background = StudioUi.segments(context, colours, 3) }, LinearLayout.LayoutParams(dp(14) * colours.size.coerceAtMost(5), dp(10)).apply { marginEnd = dp(8) })
                 addView(StudioUi.text(context, legend, 12f, true, StudioUi.MUTED).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
             })
         } else text.addView(StudioUi.text(this, "Diatur sendiri lewat Lapisan peta", 11.5f, true, StudioUi.MUTED))
         lensLegend.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
-        lensLegend.addView(StudioDepot.symbol(this, StudioUi.Icon.CLOSE, 18f, StudioUi.INK).apply {
+        lensLegend.addView(StudioDepot.symbol(this, StudioUi.Icon.CLOSE, 16f, StudioUi.INK).apply {
             gravity = Gravity.CENTER
-            background = StudioDepot.touch(context, 0x1422204a, 18)
+            // a round ×, not a square: the ring is drawn inside a 48 dp target
+            background = android.graphics.drawable.InsetDrawable(StudioDepot.touch(context, 0x1422204a, 20), dp(6))
             contentDescription = "Kembali ke peta normal"
             isClickable = true
             setOnClickListener { applyLens(Lens.NORMAL) }
@@ -2613,8 +2612,8 @@ class NativeWorldActivity : Activity() {
         }
         content.addView(LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), 0, dp(4), dp(10))
-            addView(StudioUi.text(context, "Lensa peta", 17f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) }, LinearLayout.LayoutParams(0, -2, 1f))
+            setPadding(dp(4), 0, dp(4), dp(8))
+            addView(StudioUi.text(context, "Lensa peta", 16f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) }, LinearLayout.LayoutParams(0, -2, 1f))
             addView(StudioUi.text(context, "ketuk untuk ganti", 12f, true, StudioUi.MUTED))
         })
         val active = currentLens()
@@ -2624,21 +2623,23 @@ class NativeWorldActivity : Activity() {
             val line = LinearLayout(this)
             row.forEachIndexed { i, (label, colors, pick) ->
                 val selected = label == active?.label || (active == null && label == "Atur sendiri")
+                // one even height per tile: a small key of distinct colours beside a one-line label
                 val tile = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    background = StudioDepot.touch(context, if (selected) StudioUi.INK else 0xf2ffffff.toInt(), 18)
-                    setPadding(dp(7), dp(7), dp(7), dp(8))
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = StudioDepot.touch(context, if (selected) StudioUi.INK else 0xf2ffffff.toInt(), 12)
+                    setPadding(dp(8), 0, dp(6), 0)
                     isClickable = true
                     contentDescription = "Lensa $label"
                     setOnClickListener { popup.dismiss(); pick() }
-                    addView(View(context).apply { background = swatch(colors, 12) }, LinearLayout.LayoutParams(-1, dp(38)))
-                    addView(StudioUi.text(context, label, 12.5f, color = if (selected) StudioUi.WHITE else StudioUi.INK).apply {
-                        typeface = StudioUi.heavy(context); gravity = Gravity.CENTER; maxLines = 2
-                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
+                    addView(View(context).apply { background = StudioUi.segments(context, colors) }, LinearLayout.LayoutParams(dp(18), dp(12)))
+                    addView(StudioUi.text(context, label, 12f, color = if (selected) StudioUi.WHITE else StudioUi.INK).apply {
+                        typeface = StudioUi.heavy(context); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                    }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
                 }
-                line.addView(tile, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(7) })
+                line.addView(tile, LinearLayout.LayoutParams(0, dp(44), 1f).apply { if (i > 0) marginStart = dp(6) })
             }
-            content.addView(line, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) })
+            repeat(3 - row.size) { line.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f).apply { marginStart = dp(6) }) }
+            content.addView(line, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
         }
         content.addView(StudioUi.text(this, "Tujuan perjalanan di peta", 12.5f, true, StudioUi.MUTED).apply { setPadding(dp(4), dp(4), dp(4), dp(6)) })
         content.addView(purposeChips { popup.dismiss() })

@@ -437,4 +437,23 @@ internal object StudioUi {
             }
         }
     }
+
+    /** A legend key as distinct colour blocks (not a blurred gradient), so each colour reads on its own. */
+    fun segments(c: Context, colors: IntArray, radius: Int = 4): Drawable = object : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val clip = android.graphics.Path()
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            clip.reset()
+            clip.addRoundRect(android.graphics.RectF(b), dp(c, radius).toFloat(), dp(c, radius).toFloat(), android.graphics.Path.Direction.CW)
+            canvas.save(); canvas.clipPath(clip)
+            val w = b.width().toFloat() / colors.size
+            colors.forEachIndexed { i, col -> paint.color = col; canvas.drawRect(b.left + i * w, b.top.toFloat(), b.left + (i + 1) * w, b.bottom.toFloat(), paint) }
+            canvas.restore()
+        }
+        override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+        override fun setColorFilter(filter: ColorFilter?) { paint.colorFilter = filter }
+        @Deprecated("Android Drawable protocol")
+        override fun getOpacity() = PixelFormat.TRANSLUCENT
+    }
 }
