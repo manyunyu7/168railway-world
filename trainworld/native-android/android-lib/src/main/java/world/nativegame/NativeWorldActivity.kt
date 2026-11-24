@@ -426,7 +426,7 @@ class NativeWorldActivity : Activity() {
         finance = action { openLenses() }
         cancel = action { if(railMode) resetRailRun() else discardDraft() }
         more = action { withCommittedWorld(pause = false) { if(railMode) { cancelDrawing(); chooseConstruction() } else manageWorld() } }
-        speedChip = WorldSpeedChip(this, savedInstanceState?.getDouble("speed",1.0) ?: 1.0) { start ->
+        speedChip = WorldSpeedChip(this, savedInstanceState?.getDouble("speed") ?: intent.getDoubleExtra("speed",1.0)) { start ->
             if (running) advanceLocalClock()
             localRate = speedChip.rate
             if (referenceState == ReferenceState.PLAYING) reference?.play(speedChip.rate)
@@ -531,6 +531,11 @@ class NativeWorldActivity : Activity() {
                         val point = CitySurface.project(handle,doubleArrayOf(origin.getDouble("lon"),origin.getDouble("lat")))
                         map.focusCity(point[0],point[1])
                     }
+                    val selection = savedInstanceState ?: intent.extras
+                    selection?.getStringArray("mapLayers")?.takeIf { it.size == map.overlay.selection.size }
+                        ?.copyInto(map.overlay.selection)
+                    selection?.getString("mapPurpose")?.let(map.overlay::choosePurpose)
+                    map.overlay.startNeeded()
                     updateSummary()
                     if(!legacyWorkshop) getSharedPreferences("world-native",0).edit().putString("last-city",homeCity).apply()
                     updateControls()
@@ -752,6 +757,9 @@ class NativeWorldActivity : Activity() {
                             withCommittedWorld { if (writeSave()) {
                                 startActivity(Intent(this,NativeWorldActivity::class.java)
                                     .putExtras(intent).putExtra("city",homeCity)
+                                    .putExtra("speed",speedChip.multiple)
+                                    .putExtra("mapLayers",map.overlay.selection.copyOf())
+                                    .putExtra("mapPurpose",map.overlay.purpose)
                                     .putExtra("viewCity",next).addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
                                 finish()
                             } }
@@ -2618,14 +2626,13 @@ internal class NetworkView(context: Context):View(context) {
     }
     fun resetCamera() { fit(); invalidate() }
     fun saveView(out: Bundle) {
+        out.putString("mapPurpose",overlay.purpose)
         out.putStringArray("mapLayers",overlay.selection.copyOf())
         out.putFloatArray("camera", floatArrayOf(centerX, centerY, scale / homeScale))
         out.putFloatArray("stops", draft.flatMap { listOf(it.x, it.y) }.toFloatArray())
         out.putFloatArray("bends", bends.flatMap { (leg, p) -> listOf(leg.toFloat(), p.x, p.y) }.toFloatArray())
     }
     fun restoreView(state: Bundle) {
-        state.getStringArray("mapLayers")?.takeIf { it.size == 3 }?.copyInto(overlay.selection)
-        overlay.startNeeded()
         state.getFloatArray("camera")?.let {
             centerX = it[0]
             centerY = it[1]
