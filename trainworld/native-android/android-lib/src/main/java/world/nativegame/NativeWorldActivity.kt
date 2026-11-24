@@ -1423,7 +1423,11 @@ class NativeWorldActivity : Activity() {
         render(more,if (drawing) "Alat" else "Menu",if (drawing) "Alat rancangan" else "Cari dan menu",StudioUi.Icon.MENU)
         when {
             drawing -> render(play,if(railMode) "Kembali" else "Urung",if(railMode) "Kembali satu segmen" else "Urungkan titik terakhir",StudioUi.Icon.UNDO)
-            running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
+            running || referenceState == ReferenceState.PLAYING -> {
+                render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
+                // the "ready · tap to play" chip has no business once the clock plays
+                if (::warmChip.isInitialized && warmChipRing.done) warmChip.visibility = View.GONE
+            }
             playWhenWarm && computing() -> render(play,"${(warmFraction()*100).toInt()}%","Batalkan putar",StudioUi.Icon.CLOSE)
             else -> render(play,"Putar",if (parked != null) "Putar, penumpang siap" else "Putar",StudioUi.Icon.PLAY)
         }
