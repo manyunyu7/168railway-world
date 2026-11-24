@@ -56,6 +56,66 @@ impl World {
             .collect()
     }
 
+    /// Web TroubleList (T-1433) from what the engine knows without the clock's day counts: broken
+    /// lines (tier 0), partway reversals (1), track that holds trains back at the current level
+    /// (2) and lines without stations (6), worst first.
+    fn troubles(&self, now: f64) -> Value {
+        const NEAR_RHO: f64 = 0.9;
+        let nodes = self.api.nodes_info();
+        let nearest = |x: f64, y: f64| {
+            nodes
+                .chunks_exact(10)
+                .filter(|n| n[7] > 0.)
+                .min_by(|a, b| (a[1] - x).hypot(a[2] - y).total_cmp(&(b[1] - x).hypot(b[2] - y)))
+                .map(|n| self.api.node_name(n[0] as u32))
+                .unwrap_or_default()
+        };
+        let mut out: Vec<(u8, f64, Value)> = Vec::new();
+        for r in self.api.lines_info().chunks_exact(22) {
+            let id = r[0] as u32;
+            let name = self.api.line_name(id);
+            let stops = self.api.line_stops(id);
+            if stops.is_empty() {
+                out.push((6, 0., json!({"tier":6,"line":id,"name":name,"color":r[1]})));
+                continue;
+            }
+            if r[4] == 1. {
+                out.push((0, 0., json!({"tier":0,"line":id,"name":name,"color":r[1]})));
+                continue;
+            }
+            for k in self.api.line_reversals(id) {
+                if let Some(&node) = stops.get(k as usize) {
+                    out.push((1, 1., json!({"tier":1,"line":id,"name":name,"color":r[1],"place":self.api.node_name(node),"node":node})));
+                }
+            }
+            let shift = self.api.world().svc.lines[id as usize].shift;
+            let level = match ((now + shift).rem_euclid(86400.) / 3600.) as u32 { 6..=19 => 0, 20..=23 => 1, _ => 2 };
+            let held = self.api.line_held(id);
+            if let Some(&[wait, kind, node, x, y, tph, most]) = held.get(7 * level..7 * level + 7) {
+                if wait > 0.01 {
+                    let place = if node >= 0. && self.api.world().net.is_station(node as u32) { self.api.node_name(node as u32) } else { nearest(x, y) };
+                    out.push((2, wait, json!({"tier":2,"line":id,"name":name,"color":r[1],"kind":kind,"place":place,"wait":wait,"tph":tph,"most":most,"x":x,"y":y})));
+                    continue;
+                }
+            }
+            // Scheduled closer than the track allows (web capacity tag over 100%): the trains past
+            // what fits wait at the end of the line.
+            let tph = r[5 + level];
+            if let Some(&[gap, kind, node, x, y]) = held.get(21 + 5 * level..26 + 5 * level) {
+                let rho = if gap > 0. { if gap.is_finite() { tph * gap / 3600. } else { f64::INFINITY } } else { 0. };
+                // web: tags from 90% (orange) up; "near" rows sit below spots over capacity (tier 4)
+                if rho >= NEAR_RHO {
+                    let place = if node >= 0. && self.api.world().net.is_station(node as u32) { self.api.node_name(node as u32) } else { nearest(x, y) };
+                    let room = if gap.is_finite() { 3600. / gap } else { 0. };
+                    let tier = if rho > 1. { 2 } else { 4 };
+                    out.push((tier, rho, json!({"tier":tier,"rho":rho,"line":id,"name":name,"color":r[1],"kind":kind,"place":place,"wait":0,"over":tph - room,"tph":tph,"most":room,"x":x,"y":y})));
+                }
+            }
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1)));
+        Value::Array(out.into_iter().map(|t| t.2).collect())
+    }
+
     fn inspect_service(&self, id: u32, now: f64) -> Option<Value> {
         // web game/periods.ts PERIODS: high 06-20, medium 20-24, low 00-06, in the line's local time
         fn level_at(local: f64) -> usize {
@@ -350,6 +410,36 @@ mod tests {
         assert!(w.schedule(0, t, &bad).is_err());
     }
     #[test]
+    #[ignore]
+    fn debug_troubles_of_a_saved_world() {
+        let bytes = std::fs::read(std::env::var("WORLD_DEBUG_SAVE").unwrap()).unwrap();
+        let w = World::open(&bytes).unwrap();
+        let t = w.header["clock"].as_f64().unwrap_or(0.);
+        println!("clock {t} troubles {}", w.troubles(t));
+        for r in w.api.lines_info().chunks_exact(22) {
+            let id = r[0] as u32;
+            if w.api.line_name(id).contains("Bogor") {
+                println!("{} tph {:?} held {:?}", w.api.line_name(id), &r[5..8], w.api.line_held(id));
+            }
+        }
+    }
+    #[test]
+    fn troubles_list_track_that_holds_trains_back() {
+        let mut w = World::workshop();
+        let t = 111600.;
+        w.build_service([0., 0.], [3500., 600.], "Hudson", t).unwrap();
+        let before = w.troubles(t)[0]["wait"].as_f64().unwrap_or(0.);
+        let busy = json!({"name":"Hudson","mode":"count","peak":60,"day":2,"night":1,"weekend":60,"cars":4,"dwell":30,"turn":120});
+        w.schedule(0, t, &busy).unwrap();
+        let list = w.troubles(t);
+        println!("troubles {list}");
+        let first = &list[0];
+        assert_eq!(first["tier"], 2);
+        assert!(first["wait"].as_f64().unwrap() > before);
+        assert_eq!(first["kind"], 3.); // the terminus turnaround, as the web's capacity tag
+        assert!(!first["place"].as_str().unwrap().is_empty());
+    }
+    #[test]
     fn timetable_edits_and_headways_survive_reload() {
         let mut w = World::workshop();
         let t = 111600.;
@@ -561,4 +651,10 @@ mod tests {
             }
         }
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_TroubleList_query(env: JNIEnv, _: JClass, handle: jlong, now: f64) -> jstring {
+    let data = unsafe { (handle as *const World).as_ref() }.map(|w| w.troubles(now));
+    string(&env, data.unwrap_or(Value::Null))
 }

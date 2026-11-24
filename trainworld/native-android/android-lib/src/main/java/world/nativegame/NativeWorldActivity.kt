@@ -332,6 +332,17 @@ class NativeWorldActivity : Activity() {
             }
         }
         rightTools.addView(mapSearch, LinearLayout.LayoutParams(dp(48),dp(48)))
+        // Web TroubleList: a red alert with a count, hidden while nothing is wrong.
+        troubleButton = StudioUi.button(this, "", StudioUi.Tone.SURFACE, StudioUi.Icon.WARNING) { openTroubles() }.apply {
+            background = StudioUi.pill(context, 0xffe5484d.toInt(), 24)
+            setTextColor(StudioUi.WHITE)
+            textSize = 13f
+            minHeight = dp(48); minWidth = dp(48)
+            setPadding(dp(8), 0, dp(10), 0)
+            elevation = dp(3).toFloat()
+            visibility = View.GONE
+        }
+        rightTools.addView(troubleButton, LinearLayout.LayoutParams(-2, dp(48)).apply { topMargin = dp(8); gravity = Gravity.END })
         listOf(
             Triple(StudioUi.Icon.PLUS, "Perbesar peta", { map.zoomStep(true) }),
             Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoomStep(false) }),
@@ -678,7 +689,7 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openServiceDetails(id: Int) {
-        ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange("Jadwal layanan"); lastStatus = -1; refresh() }
+        ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange("Jadwal layanan"); lastStatus = -1; troubleKey = ""; refresh() }
     }
 
     private fun openServices() {
@@ -990,7 +1001,7 @@ class NativeWorldActivity : Activity() {
         selectingInfrastructure=false
         updateControls()
         map.contentDescription="Peta jaringan kereta"
-        lastStatus=-1; refresh()
+        lastStatus=-1; troubleKey=""; refresh()
         fun level(n:Int)=when { n>0 -> "Viaduk +$n"; n<0 -> "Terowongan $n"; else -> "Permukaan" }
         val type=when(rail.kind) { 1 -> "Rel cepat"; 2 -> "Trem jalan"; 3 -> "Trem"; else -> "Rel konvensional" }
         StudioUi.sheet(this,type) { body,dialog ->
@@ -1278,7 +1289,49 @@ class NativeWorldActivity : Activity() {
         }
     }
 
+    private lateinit var troubleButton: Button
+    private var troubles = org.json.JSONArray()
+    private var troubleKey = ""
+    private var troubleAt = 0L
+    /** Asked again each game hour, after a change to the world, and every half minute. */
+    private fun updateTroubles() {
+        if (!::troubleButton.isInitialized) return
+        if (handle == 0L || drawing) { troubleButton.visibility = View.GONE; return }
+        val now = referenceTime ?: clock
+        val key = "$handle:${(now / 3600).toLong()}"
+        val wall = SystemClock.elapsedRealtime()
+        if (key == troubleKey && wall - troubleAt < 30_000) return
+        troubleKey = key; troubleAt = wall
+        troubles = TroubleList.read(handle, now)
+        val n = troubles.length()
+        troubleButton.visibility = if (n > 0) View.VISIBLE else View.GONE
+        troubleButton.text = n.toString()
+        troubleButton.contentDescription = "$n masalah di jaringan"
+        troubleButton.setCompoundDrawables(StudioUi.glyph(this, StudioUi.Icon.WARNING, StudioUi.WHITE), null, null, null)
+    }
+    private fun openTroubles() {
+        troubleKey = ""; updateTroubles()
+        StudioUi.sheet(this, "Masalah di jaringan") { body, sheet ->
+            body.addView(StudioUi.text(this, "Yang paling parah di atas. Ketuk untuk membuka lininya.", 13f, true, StudioUi.MUTED).apply { setPadding(dp(2), 0, 0, dp(8)) })
+            for (i in 0 until troubles.length()) {
+                val item = troubles.getJSONObject(i)
+                val (title, advice) = TroubleList.describe(item)
+                val color = item.optInt("color") or 0xff000000.toInt()
+                val row = StudioUi.row(this, null, 0, title, advice) {
+                    sheet.dismiss()
+                    if (item.has("x")) map.focusAt(item.optDouble("x").toFloat(), item.optDouble("y").toFloat())
+                    withCommittedWorld(pause = false) { openServiceDetails(item.optInt("line")) }
+                }
+                row.addView(StudioUi.badge(this, item.optString("name").split(' ').lastOrNull()?.take(1)?.uppercase() ?: "?", color, 34), 0,
+                    LinearLayout.LayoutParams(dp(34), dp(34)))
+                body.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            }
+            if (troubles.length() == 0) body.addView(StudioUi.text(this, "Tidak ada masalah saat ini.", 15f, true, StudioUi.GOOD))
+        }
+    }
+
     private fun updatePeriodStatus(second: Int) {
+        updateTroubles()
         val period = when (second / 3600) {
             in 6..9 -> "Puncak pagi"
             in 10..15 -> "Siang"
@@ -1451,7 +1504,7 @@ class NativeWorldActivity : Activity() {
                     Engine.close(handle); handle=candidate
                     history.record("Bangun rencana",before)
                     map.load(JSONObject(Engine.geometry(handle)),refit=false)
-                    worldChanged=true; updateSummary(); updateControls(); lastStatus=-1; refresh()
+                    worldChanged=true; updateSummary(); updateControls(); lastStatus=-1; troubleKey=""; refresh()
                 }
             }.show()
     }
@@ -2289,7 +2342,7 @@ class NativeWorldActivity : Activity() {
         if(removingTrack || selectingInfrastructure) {
             selectingInfrastructure=false; removingTrack=false
             map.contentDescription="Peta jaringan kereta"
-            updateControls(); lastStatus=-1; refresh(); return
+            updateControls(); lastStatus=-1; troubleKey=""; refresh(); return
         }
         if (reference != null) { withCommittedWorld { leaveWorld() }; return }
         if (handle == 0L) { finish(); return }

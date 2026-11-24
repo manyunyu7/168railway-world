@@ -105,13 +105,7 @@ internal class ScheduleEditor(
     private val limits = List(3) { service.optJSONArray("limits")?.optJSONObject(it) }
     private val tram = service.optString("vehicle") == "Trem"
     /** Web capacityKinds.ts titles by kind and whether the place reads "di" (at) or "dekat" (near). */
-    private fun kindWords(kind: Int): Pair<String, Boolean> = when (kind) {
-        1 -> "Rel tunggal" to false; 2 -> (if (tram) "Halte trem" else "Peron") to true; 3 -> "Putar balik" to true
-        4 -> "Persimpangan" to false; 5 -> "Persilangan sebidang" to false
-        6 -> (if (tram) "Berbalik di halte" else "Berbalik di peron") to true; 7 -> "Rel bersama lini lain" to false
-        8 -> "Berbalik memotong rel" to true; 9 -> "Berbalik arah" to true; 10 -> "Sepur simpan jalur balik" to true
-        12 -> "Titik gabung" to false; 14 -> "Stasiun ujung" to true; else -> "Rel" to false
-    }
+    private fun kindWords(kind: Int) = TroubleList.kindWords(kind, tram)
     /** Web `formatDuration` for Indonesian (no own units): "4m00s", "1h05m", "45s". */
     private fun duration(s: Double): String {
         val t = Math.round(s); val h = t / 3600; val m = t / 60 % 60; val sec = t % 60
