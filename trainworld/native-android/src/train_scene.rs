@@ -196,7 +196,7 @@ impl World {
         Some(serde_json::json!({
             "line": id, "name": self.api.line_name(id as u32), "color": model.net.line_colour[id] & 0xffffff,
             "run": run, "s": s, "len": r.len, "cars": service.cars, "vehicle": vehicle,
-            "towards": names.last(), "next": next.map(|k| &names[k]), "nextIndex": next,
+            "towards": names.last(), "next": next.and_then(|k| names.get(k)), "nextIndex": next,
             "stops": names, "stopS": r.stop_s,
         }))
     }
@@ -215,7 +215,11 @@ pub extern "system" fn Java_world_nativegame_Engine_trainInfo(
         return std::ptr::null_mut();
     }
     let world = unsafe { &mut *(handle as *mut World) };
-    let value = world.train_info(profile as usize, dep, time).unwrap_or(serde_json::Value::Null);
+    // A panic across JNI aborts the app (it did once on a stop past the named list): answer null instead.
+    let value = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| world.train_info(profile as usize, dep, time)))
+        .ok()
+        .flatten()
+        .unwrap_or(serde_json::Value::Null);
     env.new_string(value.to_string()).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
@@ -341,5 +345,27 @@ mod tests {
         let expected = world.train_scene(t, &camera(2));
         let mut reopened = World::open(&world.save(t).unwrap()).unwrap();
         assert_eq!(expected, reopened.train_scene(t, &camera(2)));
+    }
+}
+
+#[cfg(test)]
+mod train_info_debug {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn every_trip_of_a_saved_world_answers() {
+        let bytes = std::fs::read(std::env::var("WORLD_DEBUG_SAVE").unwrap()).unwrap();
+        let mut w = World::open(&bytes).unwrap();
+        let t0 = w.header["clock"].as_f64().unwrap_or(0.);
+        for k in 0..6 {
+            let t = t0 + 600. * k as f64;
+            w.load_trip_hour(t);
+            let trips: Vec<f32> = w.trips.clone();
+            for trip in trips.chunks_exact(4) {
+                let dep = (f64::from(trip[1]) * 100.).round() / 100.;
+                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.train_info(trip[0] as usize, dep, t)));
+                if r.is_err() { println!("PANIC profile {} dep {} t {}", trip[0], dep, t); }
+            }
+        }
     }
 }
