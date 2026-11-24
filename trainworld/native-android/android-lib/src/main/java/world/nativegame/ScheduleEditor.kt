@@ -79,7 +79,11 @@ internal class ScheduleEditor(
         /** Seconds as the minutes typed and shown: "5", "5,37". */
         fun minutes(s: Double): String = number.format(s / 60)
         /** Minutes typed back to seconds; null when not a number. */
-        fun seconds(text: String): Int? = runCatching { number.parse(text.trim())?.toDouble() }.getOrNull()?.let { Math.round(it * 60).toInt() }
+        fun seconds(text: String): Int? {
+            val minutes = text.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: return null
+            if (minutes <= 0) return 0
+            return (Math.round(minutes.coerceAtMost(240.0) * 12) * 5).toInt().coerceIn(HEADWAY_MIN_S, HEADWAY_MAX_S)
+        }
         /**
          * Web `nextHeadway`: to the whole minute above or below (15 minutes at a time from an hour
          * up), from no service plus 15 minutes and minus 5, minus at the 1-minute limit no service.
@@ -240,7 +244,9 @@ internal class ScheduleEditor(
                 val values = JSONObject().put("name",title).put("mode",if (byInterval) "headway" else "count")
                 listOf("peak","day","night").forEachIndexed { i, key ->
                     val n = if (byInterval) {
-                        val s = seconds(fields[i].text.toString())
+                        val typed = fields[i].text.toString()
+                        val old = service.getJSONArray("headway").optInt(i,-1)
+                        val s = if (old >= 0 && typed == minutes(old.toDouble())) old else seconds(typed)
                         if (s == null || s < 0 || s > HEADWAY_MAX_S || s in 1 until HEADWAY_MIN_S) {
                             invalid(fields[i], "Isi 0 untuk tidak ada layanan, atau selang 1–240 mnt.")
                             return
