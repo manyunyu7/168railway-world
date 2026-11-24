@@ -260,10 +260,16 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     private val groups = mutableMapOf<Long,DoubleArray>()
     private val modeColors = intArrayOf(0x317bb8,0x67ab55,0xd99154,0x88758a)
     /** Web modeMix on the light basemap, including the share of trips without a route. */
-    private fun bubbleColor(g: DoubleArray): Int {
+    private fun bubbleColor(g: DoubleArray, scheme: String): Int {
         val train = g[3]; val walk = g[4]; val car = g[5]
         val moved = train + walk + car
         if (moved <= 0) return Color.rgb(182,182,182)
+        val ramp = when (scheme) {
+            "colorblind" -> PassengerRamps.accessible
+            "ramp" -> PassengerRamps.trainShare
+            else -> null
+        }
+        if (ramp != null) return mix(ramp[(255*train/moved).roundToInt().coerceIn(0,255)],0xb6b6b6,(g[6]/g[2]).toFloat())
         val r = (30*train + 30*walk + 230*car) / moved
         val green = (60*train + 170*walk + 30*car) / moved
         val b = (230*train + 60*walk + 30*car) / moved
@@ -304,7 +310,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 val rad=(sqrt(g[2])/sqrt(bin)*1.6f*density).toFloat().coerceIn(2*density,24*density) * display.bubbleSize
                 if(x < -rad || y < -rad || x>w+rad || y>h+rad) continue
                 discs.add(Disc(x,y,rad,(g[0]/g[2]).toFloat(),(g[1]/g[2]).toFloat(),g,false))
-                paint.color = bubbleColor(g)
+                paint.color = bubbleColor(g,display.bubbleScheme)
                 paint.alpha = (255 * display.bubbleOpacity).roundToInt()
                 c.drawCircle(x,y,rad,paint)
             }

@@ -10,14 +10,14 @@ import android.widget.Switch
 internal object StudioGameSettings {
     data class Display(val trains:Boolean, val capacity:Boolean, val fullMarks:Boolean, val names:Boolean,
         val mapNames:Boolean, val zoomButtons:Boolean, val lineWidth:Float, val circleSize:Float,
-        val contrast:Float, val buses:Boolean, val bubbleSize:Float, val bubbleOpacity:Float)
+        val contrast:Float, val buses:Boolean, val bubbleSize:Float, val bubbleOpacity:Float, val bubbleScheme:String)
 
     private fun prefs(c:Context) = c.getSharedPreferences("studio-display", Context.MODE_PRIVATE)
     fun read(c:Context):Display = with(prefs(c)) {
         Display(getBoolean("trains",true),getBoolean("capacity",true),getBoolean("fullMarks",true),
             getBoolean("stationNames",true),getBoolean("basemapLabels",true),getBoolean("zoomButtons",true),
             getFloat("lineWidth",1f),getFloat("stationCircleSize",1f),getFloat("basemapContrast",1f),getBoolean("buses",true),
-            getFloat("bubbleSize",1f),getFloat("bubbleOpacity",.7f))
+            getFloat("bubbleSize",1f),getFloat("bubbleOpacity",.7f),getString("bubbleScheme","mode") ?: "mode")
     }
 
     fun show(host:Activity, changed:()->Unit) {
@@ -92,6 +92,18 @@ internal object StudioGameSettings {
             toggle("basemapLabels","Nama jalan dan kawasan")
             toggle("zoomButtons","Tombol perbesar dan perkecil")
             heading("Ukuran dan kontras")
+            val schemes = linkedMapOf("mode" to "Campuran moda","ramp" to "Pangsa kereta","colorblind" to "Ramah buta warna")
+            val scheme = StudioUi.button(host,"") {
+                StudioDialogBuilder(host).setTitle("Warna gelembung").setItems(schemes.values.toTypedArray()) { _,index ->
+                    prefs.edit().putString("bubbleScheme",schemes.keys.elementAt(index)).apply()
+                    changed()
+                    dialog.dismiss()
+                    show(host,changed)
+                }.setNegativeButton("Batal",null).show()
+            }
+            scheme.text = "Warna gelembung · " + (schemes[read(host).bubbleScheme] ?: "Campuran moda")
+            scheme.minHeight = dp(48)
+            group!!.addView(scheme)
             slider("bubbleSize","Ukuran gelembung",25,200)
             slider("bubbleOpacity","Opasitas gelembung",20,100,.7f)
             slider("lineWidth","Ketebalan jalur",50,200)
