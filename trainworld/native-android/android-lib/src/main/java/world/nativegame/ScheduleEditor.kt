@@ -23,7 +23,7 @@ internal class ScheduleEditor(
     private val host: Activity,
     private val service: JSONObject,
     private val showTimetable: () -> Unit,
-    private val applySchedule: (JSONObject) -> JSONObject,
+    private val applySchedule: (JSONObject, (JSONObject) -> Unit) -> Unit,
     private val onApplied: (JSONObject) -> Unit
 ) {
     private val route = ServiceStops(service)
@@ -213,13 +213,14 @@ internal class ScheduleEditor(
                 values.put("cars",if (cars == null) service.getInt("cars") else read(cars,0,12) ?: return)
                 values.put("dwell",read(dwell,5,600) ?: return)
                 values.put("turn",read(turn,15,1800) ?: return)
-                val result = applySchedule(values)
-                if (result.has("error")) {
-                    error.text = result.getString("error")
-                    error.visibility = View.VISIBLE
-                } else {
-                    dialog.dismiss()
-                    onApplied(result)
+                applySchedule(values) { result ->
+                    if (result.has("error")) {
+                        error.text = result.getString("error")
+                        error.visibility = View.VISIBLE
+                    } else {
+                        dialog.dismiss()
+                        onApplied(result)
+                    }
                 }
             }
             footer = group()

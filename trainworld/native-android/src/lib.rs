@@ -634,6 +634,13 @@ pub extern "system" fn Java_world_nativegame_Engine_save(
         .and_then(|v| env.byte_array_from_slice(&v).ok())
         .map_or(std::ptr::null_mut(), |a| a.into_raw())
 }
+// Dialogs may still hold the editor handle when a checkpoint completes.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_Engine_swapWorlds(
+    _: JNIEnv, _: JClass, editor: jlong, candidate: jlong,
+) {
+    unsafe { std::ptr::swap(editor as *mut World, candidate as *mut World) }
+}
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_Engine_close(_: JNIEnv, _: JClass, handle: jlong) {
     if handle != 0 {

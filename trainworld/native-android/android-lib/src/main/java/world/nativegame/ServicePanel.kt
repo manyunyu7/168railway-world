@@ -33,7 +33,7 @@ internal object ServicePanel {
 
     private fun lp(top: Int = 0, host: Activity) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = StudioUi.dp(host, top) }
 
-    fun open(host: Activity, handle: Long, clock: Double, editable: Boolean, changed: (String) -> Unit) {
+    fun open(host: Activity, handle: Long, clock: Double, editable: Boolean, transaction: PanelEdit, changed: (String) -> Unit) {
         val all = JSONArray(services(handle))
         StudioUi.sheet(host, "Koleksi jalur") { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
@@ -73,14 +73,14 @@ internal object ServicePanel {
                     setOnClickListener {
                         if (group.size == 1) {
                             dialog.dismiss()
-                            details(host, handle, first.getInt("id"), clock, editable, changed)
+                            details(host, handle, first.getInt("id"), clock, editable, transaction, changed)
                         } else StudioUi.sheet(host, name) { list, picker ->
                             group.forEachIndexed { i, route ->
                                 val stops = looks[route.getInt("id")]?.let { ServiceStops(it).endpoints }.orEmpty()
                                 list.addView(StudioUi.row(host, null, 0, "Layanan ${i + 1}" + if (stops.isNotEmpty()) " · $stops" else "",
                                     if (route.optBoolean("running")) "Beroperasi" else "Belum beroperasi") {
                                     picker.dismiss(); dialog.dismiss()
-                                    details(host, handle, route.getInt("id"), clock, editable, changed)
+                                    details(host, handle, route.getInt("id"), clock, editable, transaction, changed)
                                 }.apply { addView(StudioUi.badge(host, code(name), color, 34), 0, LinearLayout.LayoutParams(dp(34), dp(34))) }, lp(6, host))
                             }
                         }
@@ -182,7 +182,7 @@ internal object ServicePanel {
         }
     }
 
-    fun details(host: Activity, handle: Long, id: Int, clock: Double, editable: Boolean, changed: (String) -> Unit) {
+    fun details(host: Activity, handle: Long, id: Int, clock: Double, editable: Boolean, transaction: PanelEdit, changed: (String) -> Unit) {
         val service = JSONObject(inspect(handle,id,clock))
         val route = ServiceStops(service)
         val upcoming = service.optJSONArray("upcoming")
@@ -288,24 +288,24 @@ internal object ServicePanel {
             if (route.names.isNotEmpty()) footer.addView(StudioUi.button(host, if (editable) "Grafik" else "Grafik perjalanan & keberangkatan", icon = StudioUi.Icon.ROUTE) {
                 dialog.dismiss()
                 val editSchedule: (() -> Unit)? = if (editable) {
-                    { edit(host,handle,id,clock,service,changed) }
+                    { edit(host,handle,id,clock,service,transaction,changed) }
                 } else null
                 StudioTimetable.show(host,handle,id,clock,service,editSchedule)
             }, LinearLayout.LayoutParams(0,-2,1f))
             if (editable) footer.addView(StudioUi.button(host,"Atur jadwal",StudioUi.Tone.PRIMARY) {
                 dialog.dismiss()
-                edit(host,handle,id,clock,service,changed)
+                edit(host,handle,id,clock,service,transaction,changed)
             }, LinearLayout.LayoutParams(0,-2,1.4f).apply { if (route.names.isNotEmpty()) marginStart = StudioUi.dp(host, 8) })
         }
     }
 
-    private fun edit(host: Activity, handle: Long, id: Int, clock: Double, service: JSONObject, changed: (String) -> Unit) {
+    private fun edit(host: Activity, handle: Long, id: Int, clock: Double, service: JSONObject, transaction: PanelEdit, changed: (String) -> Unit) {
         ScheduleEditor(host, service,
             showTimetable = { StudioTimetable.show(host, handle, id, clock, service, null) },
-            applySchedule = { values -> JSONObject(update(handle, id, clock, values.toString())) },
+            applySchedule = { values, reply -> transaction { now -> reply(JSONObject(update(handle, id, now, values.toString()))) } },
             onApplied = { updated ->
                 changed(updated.getString("name"))
-                details(host, handle, id, clock, true, changed)
+                details(host, handle, id, clock, true, transaction, changed)
             }
         ).show()
     }

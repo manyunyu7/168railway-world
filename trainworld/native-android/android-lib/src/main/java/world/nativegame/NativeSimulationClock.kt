@@ -12,7 +12,7 @@ internal interface SimulationClock {
     var onTrainLoads: ((Long, JSONArray) -> Unit)?
     fun open(snapshot: ByteArray, ready: () -> Unit)
     fun play(rate: Double)
-    fun snapshot(done: (Result<ByteArray>) -> Unit)
+    fun snapshot(pause: Boolean, done: (Result<ByteArray>) -> Unit)
     fun close()
 }
 
@@ -87,13 +87,15 @@ internal class NativeSimulationClock(
         main.removeCallbacks(tick)
         tick.run()
     }
-    override fun snapshot(done: (Result<ByteArray>) -> Unit) {
-        playing=false
-        main.removeCallbacks(tick)
+    override fun snapshot(pause: Boolean, done: (Result<ByteArray>) -> Unit) {
+        if (pause) {
+            playing=false
+            main.removeCallbacks(tick)
+        }
         val now=SystemClock.elapsedRealtime()
         submit {
             val result=runCatching {
-                check(SimulationEngine.pause(id,now))
+                if (pause) check(SimulationEngine.pause(id,now))
                 checkNotNull(SimulationEngine.snapshot(id,now)) { "Simpanan simulasi tidak tersedia." }
             }
             main.post { if (!closed) done(result) }

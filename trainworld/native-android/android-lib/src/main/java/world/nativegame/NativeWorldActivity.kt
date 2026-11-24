@@ -37,6 +37,8 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
 
+internal typealias PanelEdit = ((Double) -> Unit) -> Unit
+
 internal object Engine {
     init { System.loadLibrary("world_native") }
     @JvmStatic external fun forkCandidate(handle: Long, clock: Double, roadDir: String): Long
@@ -50,6 +52,7 @@ internal object Engine {
     @JvmStatic external fun trainScene(handle:Long,time:Double,x:Float,y:Float,halfWidth:Float,halfHeight:Float,detail:Int):FloatArray
     @JvmStatic external fun positions(handle: Long, time: Double): FloatArray
     @JvmStatic external fun save(handle: Long, time: Double): ByteArray
+    @JvmStatic external fun swapWorlds(editor: Long, candidate: Long)
     @JvmStatic external fun close(handle: Long)
 }
 
@@ -139,7 +142,8 @@ class NativeWorldActivity : Activity() {
     private var referenceTime: Double? = null
     private var trainPreview: java.util.concurrent.Future<*>? = null
     private var previewGeneration = 0L
-    private var afterCheckpoint: (() -> Unit)? = null
+    private var resumeOnPanelClose = false
+    private var checkpointInFlight = false
     private var foreground = false
     // A replacement activity must read the completed checkpoint after a rotation.
     private companion object {
@@ -227,7 +231,7 @@ class NativeWorldActivity : Activity() {
             setPadding(dp(12), dp(3), dp(12), dp(4))
             isClickable = true
             contentDescription = "Buka keuangan"
-            setOnClickListener { withCommittedWorld { openFinance() } }
+            setOnClickListener { withCommittedWorld(pause = false) { openFinance() } }
         }
         currency = StudioCurrency.current(this)
         balanceUnit = StudioUi.text(this, "KAS · ${currency.code}", 9f, true, StudioUi.MUTED)
@@ -412,10 +416,10 @@ class NativeWorldActivity : Activity() {
                 if (running) map.post(tick)
             }
         }
-        lines = action { withCommittedWorld { openServices() } }
+        lines = action { withCommittedWorld(pause = false) { openServices() } }
         finance = action { openLenses() }
         cancel = action { if(railMode) resetRailRun() else discardDraft() }
-        more = action { withCommittedWorld { if(railMode) { cancelDrawing(); chooseConstruction() } else manageWorld() } }
+        more = action { withCommittedWorld(pause = false) { if(railMode) { cancelDrawing(); chooseConstruction() } else manageWorld() } }
         for (item in listOf(cancel, play, lines, build, finance, more)) {
             bar.addView(item, LinearLayout.LayoutParams(0,-2,if (item == build) 1.6f else 1f).apply {
                 marginStart = dp(3); marginEnd = dp(3)
@@ -434,7 +438,7 @@ class NativeWorldActivity : Activity() {
             if (!drawing && !removingTrack && !restoringEdit && handle != 0L) {
                 selectingInfrastructure=false
                 updateControls()
-                withCommittedWorld { openStation(station) }
+                withCommittedWorld(pause = false) { openStation(station) }
                 true
             } else false
         }
@@ -580,10 +584,8 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openServices() {
-        stopClock()
-        val record = trackPanelChanges("Jadwal layanan")
-        ServicePanel.open(this, handle, clock, true) { name ->
-            record()
+        ServicePanel.open(this, handle, clock, true, ::editPanel) { name ->
+            recordPanelChange("Jadwal layanan")
             lastService = name
             lastStatus = -1
             refresh()
@@ -591,14 +593,11 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openFinance() {
-        stopClock()
-        val record = trackPanelChanges("Keuangan")
-        NativeFinance.show(this, handle, { clock }, onCurrencyChanged = {
+        NativeFinance.show(this, handle, { clock }, ::editPanel, onCurrencyChanged = {
             currency = StudioCurrency.current(this)
             showBalance(NativeFinance.balance(handle, clock))
         }) {
-            record()
-            writeSave()
+            recordPanelChange("Keuangan")
             showBalance(NativeFinance.balance(handle, clock))
         }
     }
@@ -677,20 +676,22 @@ class NativeWorldActivity : Activity() {
             for (backwards in listOf(true, false)) {
                 history.next(backwards)?.let { entry ->
                     val verb = if (backwards) "Urungkan" else "Ulangi"
-                    options.add("$verb · ${entry.label}" to { restoreEdit(backwards, entry) })
+                    options.add("$verb · ${entry.label}" to {
+                        val resume = reference != null || playWhenWarm
+                        withCommittedWorld { restoreEdit(backwards, entry) { if (resume) startReference() } }
+                    })
                 }
             }
             if (map.stops.any { it.id >= 0 }) options.add("Pilih stasiun" to { chooseStation() })
             options.add("Lensa peta lanjutan" to { passengerLayers() })
-            if (workshop) options.add("Bongkar layanan atau stasiun" to { demolition() })
+            if (workshop) options.add("Bongkar layanan atau stasiun" to { withCommittedWorld { demolition() } })
             options.add("Keuangan" to { openFinance() })
             options.add("Pencapaian & misi" to { openProgress() })
             options.add("Tutorial bermain" to { chooseTutorial() })
             options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), city.name, ::openStation, map.cityLayer) { id ->
-                val record = trackPanelChanges("Jadwal layanan")
-                ServicePanel.details(this,handle,id,clock,true) { record(); lastStatus = -1; refresh() }
+                ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange("Jadwal layanan"); lastStatus = -1; refresh() }
             } })
-            options.add("Cetak biru & konstruksi" to { chooseConstruction() })
+            options.add("Cetak biru & konstruksi" to { withCommittedWorld { chooseConstruction() } })
             options.add("Pengaturan permainan" to { StudioGameSettings.show(this) {
                 map.displaySettings = StudioGameSettings.read(this)
                 zoomTools.visibility = if (map.displaySettings.zoomButtons) View.VISIBLE else View.GONE
@@ -700,7 +701,7 @@ class NativeWorldActivity : Activity() {
                     showBalance(NativeFinance.balance(handle,clock))
                 }
             } })
-            options.add("Arsip dan akun" to { if (writeSave()) openLibrary() })
+            options.add("Arsip dan akun" to { withCommittedWorld { if (writeSave()) openLibrary() } })
             if (hostLibrary && archiveSlot != null) options.add("Jelajahi kota lain" to {
                 StudioZonePicker.show(this,cityStore,city.id) { next ->
                     val destination = cityStore.city(next)
@@ -718,16 +719,16 @@ class NativeWorldActivity : Activity() {
                         .setMessage("Kota ini akan dibuka di dunia yang sedang dimainkan.")
                         .setNegativeButton("Kembali",null)
                         .setPositiveButton("Buka kota") { _,_ ->
-                            if (writeSave()) {
+                            withCommittedWorld { if (writeSave()) {
                                 startActivity(Intent(this,NativeWorldActivity::class.java)
                                     .putExtra("archiveSlot",archiveSlot!!.id).putExtra("hostLibrary",true)
                                     .putExtra("viewCity",next).addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
                                 finish()
-                            }
+                            } }
                         }.show()
                 }
             })
-            if (!hostLibrary) options.add("Pilih kota" to { showCityPicker(this, cityStore, city.id) { writeSave() } })
+            if (!hostLibrary) options.add("Pilih kota" to { withCommittedWorld { showCityPicker(this, cityStore, city.id) { writeSave() } } })
         }
         if (drawing) {
             StudioUi.sheet(this, "Rancangan jalur") { column, dialog ->
@@ -911,18 +912,21 @@ class NativeWorldActivity : Activity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && ::map.isInitialized) map.finishStationInspection()
+        if (hasFocus && ::map.isInitialized) {
+            map.finishStationInspection()
+            if (resumeOnPanelClose && foreground && !checkpointInFlight) {
+                resumeOnPanelClose = false
+                if (reference == null && !playWhenWarm && !drawing && !restoringEdit) startReference()
+            }
+        }
     }
 
     private fun openStation(node: Int) {
-        stopClock()
         map.showStationAboveSheet(node)
-        val record = trackPanelChanges("Fasilitas stasiun")
         StationInspector.riders = { id -> map.stops.firstOrNull { it.id == id }?.let { map.overlay.riders(it.x, it.y) } }
-        StationInspector.show(this,handle,node,clock, {
-            record()
+        StationInspector.show(this,handle,node,clock, ::editPanel, {
+            recordPanelChange("Fasilitas stasiun")
             map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
-            writeSave()
             showBalance(NativeFinance.balance(handle,clock))
             updateControls()
         })
@@ -1010,7 +1014,7 @@ class NativeWorldActivity : Activity() {
     private fun updateControls() {
         val openBend = map.bends.lastOrNull()?.first == map.draft.lastIndex
         val ready = handle != 0L && !placingRail && !restoringEdit &&
-            referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING
+            referenceState != ReferenceState.OPENING && !checkpointInFlight
         build.isEnabled = ready && (!drawing || (map.draft.size >= plan.tool.minPoints && !openBend))
         dockTitle.text = if (drawing) plan.specification else ""
         dockTitle.visibility = if (drawing) View.VISIBLE else View.GONE
@@ -1093,7 +1097,7 @@ class NativeWorldActivity : Activity() {
             form.addView(StudioUi.text(this, "Pilih latihan untuk dunia ini.", 15f, color = StudioUi.MUTED))
             form.addView(StudioUi.button(this, "Bangun lintas baru", StudioUi.Tone.PRIMARY, StudioUi.Icon.ROUTE) {
                 dialog.dismiss()
-                chooseConstruction()
+                withCommittedWorld { chooseConstruction() }
             }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
             form.addView(StudioUi.text(this, "Pilih moda, gambar jalur, lalu tempatkan stasiun atau halte dan atur layanannya.", 14f).apply {
                 setPadding(dp(3), dp(4), dp(3), 0)
@@ -1552,20 +1556,34 @@ class NativeWorldActivity : Activity() {
         if(second!=lastStatus) {
             lastStatus=second
             localTime.text = "%02d:%02d:%02d".format(java.util.Locale.ROOT,second/3600%24,second/60%60,second%60)
-            if (!drawing && !selectingInfrastructure && !removingTrack && !restoringEdit && referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING) {
+            if (!drawing && !selectingInfrastructure && !removingTrack && !restoringEdit && referenceState != ReferenceState.OPENING && !checkpointInFlight) {
                 val service = if (workshop && lastService.isNotEmpty()) " · $lastService" else ""
                 status.text = if (map.routeCount == 0) "Pilih moda untuk mulai membangun jaringan." else "${trainCount} kereta di peta$service"
             }
         }
     }
-    // A panel can commit several edits while its dialog remains open.
-    private fun trackPanelChanges(label: String): () -> Unit {
-        var before = Engine.save(handle, clock)
-        return {
-            history.record(label, before)
-            worldChanged = true
-            before = Engine.save(handle, clock)
+    // A panel may stay open for hours of simulated time. Settle again at Apply so
+    // the edit and its undo snapshot include all income earned since opening it.
+    private var beforePanelEdit: ByteArray? = null
+
+    private fun editPanel(apply: (Double) -> Unit) {
+        val resume = reference != null || playWhenWarm
+        withCommittedWorld {
+            cancelWarm()
+            beforePanelEdit = Engine.save(handle, clock)
+            try {
+                apply(clock)
+                if (worldChanged) writeSave()
+            } finally {
+                beforePanelEdit = null
+                if (resume && foreground && !drawing) startReference()
+            }
         }
+    }
+
+    private fun recordPanelChange(label: String) {
+        beforePanelEdit?.let { history.record(label, it) }
+        worldChanged = true
     }
 
     private fun restoreEdit(backwards: Boolean, target: WorldEditHistory.Entry, restored:(()->Unit)?=null) {
@@ -1689,33 +1707,45 @@ class NativeWorldActivity : Activity() {
         updateControls()
     }
 
-    private fun withCommittedWorld(action: (() -> Unit)? = null) {
+    private fun withCommittedWorld(pause: Boolean = true, action: (() -> Unit)? = null) {
         val runtime = reference
-        if (runtime == null) { action?.invoke(); return }
+        if (runtime == null) {
+            if (pause && foreground) { resumeOnPanelClose = false; cancelWarm() }
+            action?.invoke()
+            return
+        }
         if (referenceState == ReferenceState.OPENING) {
             finishReference(runtime)
             action?.invoke()
             return
         }
-        if (action != null && afterCheckpoint == null) afterCheckpoint = action
-        if (referenceState == ReferenceState.SAVING) return
-        referenceState = ReferenceState.SAVING
+        if (checkpointInFlight) return
+        if (pause && foreground) resumeOnPanelClose = false
+        checkpointInFlight = true
+        if (pause) referenceState = ReferenceState.SAVING
         updateControls()
         status.text = "Menyimpan hasil simulasi…"
         val key = local.baseFile.path
         val completed = CountDownLatch(1)
         pendingWrites[key] = completed
         fun done(error: String? = null) {
-            val next = afterCheckpoint
-            afterCheckpoint = null
-            if (error == null && !closed && foreground && !isFinishing) parkReference(runtime) else finishReference(runtime)
+            checkpointInFlight = false
+            when {
+                error != null || closed || !foreground || isFinishing -> finishReference(runtime)
+                pause -> parkReference(runtime)
+                else -> {
+                    referenceState = ReferenceState.PLAYING
+                    resumeOnPanelClose = true
+                    updateControls()
+                }
+            }
             completed.countDown()
             pendingWrites.remove(key, completed)
             if (closed) executor.shutdown()
             else if (error != null) referenceUnavailable(error)
-            else if (foreground && !isFinishing) next?.invoke()
+            else if (foreground && !isFinishing) action?.invoke()
         }
-        runtime.snapshot { result ->
+        runtime.snapshot(pause) { result ->
             result.onFailure { done(it.localizedMessage ?: "Snapshot simulasi tidak tersedia.") }
                 .onSuccess { bytes ->
                     val pack = activePack
@@ -1734,9 +1764,7 @@ class NativeWorldActivity : Activity() {
                                     .onSuccess { geometry ->
                                         if (!persistBytes(bytes)) { done("Hasil simulasi belum tersimpan di perangkat."); return@onSuccess }
                                         if (!closed) {
-                                            Engine.close(handle)
-                                            handle = candidate
-                                            candidate = 0L
+                                            Engine.swapWorlds(handle, candidate)
                                             clock = geometry.getDouble("clock")
                                             map.load(geometry, refit = false, keepTrainLoads = true)
                                             updateSummary()
@@ -1786,19 +1814,21 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openGuide() {
-        val guide = StudioOperationsGuide(this, { bit, card ->
-            val previous = Engine.guide(handle,-1,0)
-            val result = Engine.guide(handle, if (bit == -1 && card == 0) -2 else bit, card)
-            if (previous != result) { worldChanged = true; writeSave() }
-            if (result == "null") JSONObject() else JSONObject(result)
+        val guide = StudioOperationsGuide(this, { bit, card, show ->
+            editPanel {
+                val previous = Engine.guide(handle,-1,0)
+                val result = Engine.guide(handle, if (bit == -1 && card == 0) -2 else bit, card)
+                if (previous != result) { worldChanged = true; writeSave() }
+                show(if (result == "null") JSONObject() else JSONObject(result))
+            }
         }) { task ->
             when (task) {
                 "zoom" -> map.zoom(1.6f)
                 "summary" -> showDemand()
                 "layers" -> passengerLayers()
-                "rail" -> configureTool(BuildTool.RAIL)
-                "station" -> configureTool(BuildTool.STATION)
-                "line" -> configureTool(BuildTool.LINE)
+                "rail" -> withCommittedWorld { configureTool(BuildTool.RAIL) }
+                "station" -> withCommittedWorld { configureTool(BuildTool.STATION) }
+                "line" -> withCommittedWorld { configureTool(BuildTool.LINE) }
                 "services" -> openServices()
                 "play" -> if (play.isEnabled) play.performClick() else openServices()
                 "finance" -> openFinance()
@@ -2068,7 +2098,7 @@ class NativeWorldActivity : Activity() {
             when {
                 warming === runtime -> { val wanted = playWhenWarm; cancelWarm(); updateControls(); if (wanted) referenceUnavailable(reason) }
                 parked === runtime -> dropParked()
-                reference === runtime && referenceState != ReferenceState.SAVING -> { finishReference(runtime); referenceUnavailable(reason) }
+                reference === runtime && !checkpointInFlight -> { finishReference(runtime); referenceUnavailable(reason) }
             }
         }
         val pack = activePack
@@ -2188,7 +2218,7 @@ class NativeWorldActivity : Activity() {
         stopTrainPreview()
         dropParked()
         if (::map.isInitialized) map.removeCallbacks(tick)
-        if (referenceState != ReferenceState.SAVING) {
+        if (!checkpointInFlight) {
             reference?.close()
             executor.shutdownNow()
         }

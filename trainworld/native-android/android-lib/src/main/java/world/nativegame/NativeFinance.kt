@@ -17,7 +17,7 @@ object NativeFinance {
     internal fun balance(handle: Long, clock: Double): Double =
         JSONObject(query(handle, clock, 0)).optDouble("cash")
 
-    private fun editFares(activity: Activity, handle: Long, clock: () -> Double, persist: () -> Unit) {
+    private fun editFares(activity: Activity, handle: Long, clock: () -> Double, transaction: PanelEdit, persist: () -> Unit) {
         val state = JSONObject(fares(handle,clock(),"{}"))
         val initial = state.optJSONObject("values") ?: return
         val currency = StudioCurrency.current(activity)
@@ -129,8 +129,8 @@ object NativeFinance {
                     val factor = if (key in prices) currency.rate else 1.0
                     if (kotlin.math.abs(value-initial.getDouble(key)*factor)>1e-9) patch.put(key,value/factor)
                 }
-                fun applyPatch() {
-                    val result = JSONObject(fares(handle,clock(),patch.toString()))
+                fun applyPatch() = transaction { now ->
+                    val result = JSONObject(fares(handle,now,patch.toString()))
                     if (result.has("error")) warning.text = result.getString("error")
                     else { if (patch.length()>0) persist(); dialog.dismiss() }
                 }
@@ -146,7 +146,7 @@ object NativeFinance {
         }
     }
 
-    fun show(activity: Activity, handle: Long, clock: () -> Double, onCurrencyChanged: () -> Unit = {}, persist: () -> Unit) {
+    fun show(activity: Activity, handle: Long, clock: () -> Double, transaction: PanelEdit, onCurrencyChanged: () -> Unit = {}, persist: () -> Unit) {
         if (handle == 0L) return
         val number = NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID")).apply { maximumFractionDigits = 2 }
         fun usd(value: Double) = StudioCurrency.current(activity).millions(value)
@@ -266,7 +266,7 @@ object NativeFinance {
                     }
                 }
                 body.addView(StudioUi.button(activity,"Atur tarif penumpang",StudioUi.Tone.PRIMARY,StudioUi.Icon.WALLET) {
-                    editFares(activity,handle,clock,persist)
+                    editFares(activity,handle,clock,transaction,persist)
                 },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(14) })
                 heading("Biaya operasional per jam")
                 val hours = LinearLayout(activity)
@@ -301,10 +301,12 @@ object NativeFinance {
                                 if(op<0) fact("Angsuran setelah pelunasan",usd(0.0))
                             }).setNegativeButton("Batal", null)
                             .setPositiveButton("Konfirmasi") { _,_ ->
-                                val result = JSONObject(query(handle,clock(),op))
-                                if (result.has("error")) Toast.makeText(activity,result.getString("error"),Toast.LENGTH_LONG).show()
-                                else persist()
-                                refresh()
+                                transaction { now ->
+                                    val result = JSONObject(query(handle,now,op))
+                                    if (result.has("error")) Toast.makeText(activity,result.getString("error"),Toast.LENGTH_LONG).show()
+                                    else persist()
+                                    refresh()
+                                }
                             }.show()
                     },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(5) })
                 }

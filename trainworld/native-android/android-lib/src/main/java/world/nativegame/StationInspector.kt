@@ -69,7 +69,7 @@ internal object StationInspector {
             background = StudioUi.pill(activity,if (installed) StudioUi.TINT_GREEN else StudioUi.INK,19)
             setPadding(StudioUi.dp(activity,12),StudioUi.dp(activity,8),StudioUi.dp(activity,12),StudioUi.dp(activity,8))
         }
-    fun show(activity: Activity,handle: Long,node: Int,time: Double, changed: () -> Unit) {
+    fun show(activity: Activity,handle: Long,node: Int,time: Double, transaction: PanelEdit, changed: () -> Unit) {
         val payload=read(handle,node,-1,0,time)
         if(payload=="null") return
         val station=JSONObject(payload)
@@ -195,22 +195,22 @@ internal object StationInspector {
         if(lines.isNotEmpty()) sheet.text("Diagram rute",true)
         for(line in lines) for(direction in line.getJSONArray("runs").rows()) {
             sheet.action("${line.getString("name")} → ${direction.getString("to")}",line.getInt("color")) {
-                route(activity,handle,line.getInt("id"),direction.getInt("run"),node,time,changed)
+                route(activity,handle,line.getInt("id"),direction.getInt("run"),node,time,transaction,changed)
             }
         }
         // Actions: structure (white) and facility upgrades (orange).
         val actions = LinearLayout(activity)
         actions.addView(StudioUi.button(activity,"Bangunan") {
-            sheet.dismiss(); StationStructurePanel(activity,handle,node,time,changed).show()
+            sheet.dismiss(); StationStructurePanel(activity,handle,node,time,transaction,changed).show()
         }, LinearLayout.LayoutParams(0,-2,1f).apply { marginEnd = dp(5) })
         actions.addView(StudioUi.button(activity,"Upgrade",StudioUi.Tone.PRIMARY) {
-            sheet.dismiss(); facilities(activity,handle,node,time,platforms,changed)
+            sheet.dismiss(); facilities(activity,handle,node,time,platforms,transaction,changed)
         }, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(5) })
         sheet.add(actions,16)
         sheet.show()
     }
     private fun facilities(activity: Activity,handle: Long,node: Int,time: Double,platforms: List<JSONObject>,
-                           changed: () -> Unit) {
+                           transaction: PanelEdit, changed: () -> Unit) {
         val names = mapOf(1 to "Terminal", 2 to "Parkir & lanjut naik kereta", 4 to "Ruang tunggu", 8 to "Jalur susul")
         val symbols = mapOf(1 to R.drawable.studio_upgrade_terminal, 2 to R.drawable.studio_upgrade_park_ride,
             4 to R.drawable.studio_upgrade_waiting_room, 8 to R.drawable.studio_upgrade_passing)
@@ -222,7 +222,7 @@ internal object StationInspector {
         )
         fun reopen() {
             val station = JSONObject(read(handle,node,-1,0,time))
-            facilities(activity,handle,node,time,station.getJSONArray("platforms").rows(),changed)
+            facilities(activity,handle,node,time,station.getJSONArray("platforms").rows(),transaction,changed)
         }
         val sheet = Sheet(activity,"Upgrade stasiun")
         fun dp(n: Int) = StudioUi.dp(activity,n)
@@ -262,20 +262,22 @@ internal object StationInspector {
                         .setNegativeButton("Batal") { _,_ -> reopen() }
                         .setOnCancelListener { reopen() }
                         .setPositiveButton(if (installed) "Lepas" else "Pasang") { _,_ ->
-                            val result = JSONObject(upgrade(handle,platform.getInt("id"),bit,if (installed) 0 else 1,time))
-                            if (result.optBoolean("changed")) changed()
-                            if (result.has("error")) android.widget.Toast.makeText(activity,result.getString("error"),android.widget.Toast.LENGTH_LONG).show()
-                            reopen()
+                            transaction { now ->
+                                val result = JSONObject(upgrade(handle,platform.getInt("id"),bit,if (installed) 0 else 1,now))
+                                if (result.optBoolean("changed")) changed()
+                                if (result.has("error")) android.widget.Toast.makeText(activity,result.getString("error"),android.widget.Toast.LENGTH_LONG).show()
+                                reopen()
+                            }
                         }.show()
                 }
             }
         }
         sheet.text("Bangunan",true)
         sheet.action("Bangunan & lorong",icon=R.drawable.studio_upgrade_passage,subtitle="Denah bangunan dan lorong antarperon",
-            trailing=StudioDepot.symbol(activity,StudioUi.Icon.ROUTE,18f,StudioUi.MUTED)) { StationStructurePanel(activity,handle,node,time,changed).show() }
+            trailing=StudioDepot.symbol(activity,StudioUi.Icon.ROUTE,18f,StudioUi.MUTED)) { StationStructurePanel(activity,handle,node,time,transaction,changed).show() }
         sheet.show()
     }
-    private fun route(activity: Activity,handle: Long,line: Int,run: Int,selected: Int,time: Double, changed: () -> Unit) {
+    private fun route(activity: Activity,handle: Long,line: Int,run: Int,selected: Int,time: Double, transaction: PanelEdit, changed: () -> Unit) {
         val payload=read(handle,-1,line,run,time)
         if(payload=="null") return
         val route=JSONObject(payload)
@@ -295,7 +297,7 @@ internal object StationInspector {
             val terminal = index==0 || index==stops.lastIndex
             sheet.action(name+if(node==selected) " · Dipilih" else "",route.getInt("color"),
                 subtitle=(if (terminal) "Ujung · " else "")+times.ifEmpty { "—" }) {
-                show(activity,handle,node,time,changed)
+                show(activity,handle,node,time,transaction,changed)
             }
         }
         sheet.show()

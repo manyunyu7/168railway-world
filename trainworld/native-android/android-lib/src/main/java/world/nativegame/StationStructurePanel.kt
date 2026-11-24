@@ -18,10 +18,10 @@ import kotlin.math.hypot
 import kotlin.math.min
 
 internal class StationStructurePanel(private val activity: Activity, private val handle: Long,
-    private val node: Int, private val clock: Double, private val changed: () -> Unit) {
+    private val node: Int, private val clock: Double, private val transaction: PanelEdit, private val changed: () -> Unit) {
     private fun dp(n: Int) = StudioUi.dp(activity,n)
-    private fun call(action: String, fields: JSONObject = JSONObject()): JSONObject =
-        JSONObject(StationInspector.structure(handle,node,clock,fields.put("action",action).toString()))
+    private fun call(action: String, fields: JSONObject = JSONObject(), now: Double = clock): JSONObject =
+        JSONObject(StationInspector.structure(handle,node,now,fields.put("action",action).toString()))
     private fun error(result: JSONObject): Boolean {
         if (!result.has("error")) return false
         Toast.makeText(activity,result.getString("error"),Toast.LENGTH_LONG).show()
@@ -29,9 +29,11 @@ internal class StationStructurePanel(private val activity: Activity, private val
     }
     private fun JSONArray.rows() = List(length()) { getJSONObject(it) }
     private fun commit(action: String, request: JSONObject) {
-        val result=call(action,request)
-        if (!error(result) && result.optBoolean("changed")) changed()
-        show()
+        transaction { now ->
+            val result=call(action,request,now)
+            if (!error(result) && result.optBoolean("changed")) changed()
+            show()
+        }
     }
     fun show() {
         val data=call("list")

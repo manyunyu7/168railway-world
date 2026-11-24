@@ -7,7 +7,7 @@ import org.json.JSONObject
 
 internal class StudioOperationsGuide(
     private val activity: Activity,
-    private val checkpoint: (Int, Int) -> JSONObject,
+    private val checkpoint: (Int, Int, (JSONObject) -> Unit) -> Unit,
     private val perform: (String) -> Unit
 ) {
     private data class Task(val bit: Int, val title: String, val detail: String, val action: String, val button: String)
@@ -31,7 +31,7 @@ internal class StudioOperationsGuide(
         Task(15,"Baca lalu lintas rel","Pilih warna jalur Lalu lintas untuk melihat ruas yang sering dilalui.","layers","Pilih lapisan"),
         Task(12,"Capai 1% perjalanan dengan angkutan umum","Periksa pembagian moda kota setelah simulasi berjalan.","summary","Lihat perjalanan")
     )
-    fun show() = render(checkpoint(-1,0))
+    fun show() = checkpoint(-1,0,::render)
     private fun render(state: JSONObject) {
         val page = state.optInt("card",1)
         val tasks = if (page == 2) operate else build.filter { it.bit != 6 || state.optBoolean("zoom",true) }
@@ -79,10 +79,10 @@ internal class StudioOperationsGuide(
                 isClickable = true
                 setOnClickListener { dialog.dismiss(); click() }
             }
-            if (task != null) footer.addView(textButton("Lewati langkah") { render(checkpoint(task.bit,page)) })
+            if (task != null) footer.addView(textButton("Lewati langkah") { checkpoint(task.bit,page,::render) })
             footer.addView(android.view.View(activity), LinearLayout.LayoutParams(0,1,1f))
             footer.addView(textButton(if (page == 1) "Panduan operasi →" else "Panduan membangun →") {
-                render(checkpoint(-1,if(page == 1) 2 else 1))
+                checkpoint(-1,if(page == 1) 2 else 1,::render)
             })
             body.addView(footer, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(6) })
         }
