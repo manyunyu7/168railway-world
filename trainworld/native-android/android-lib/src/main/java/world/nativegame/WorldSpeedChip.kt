@@ -38,27 +38,54 @@ internal class WorldSpeedChip(private val host: Activity, initial: Double, priva
         changed(start)
     }
 
-    private fun slider() = StudioUi.sheet(host, "Kecepatan simulasi") { body, _ ->
+    /** Every web SLIDER_STOPS speed as a labelled button (8× included), plus the slider; the plain bar hid the values. */
+    private fun slider() = StudioUi.sheet(host, "Kecepatan simulasi") { body, sheet ->
         val value = StudioUi.text(host, label(multiple), 18f, true, StudioUi.INK)
-        body.addView(value)
-        body.addView(SeekBar(host).apply {
+        body.addView(StudioUi.text(host, "1× = 1 menit di game per detik. Saat penumpang dihitung, paling cepat 4×.", 13f, false, StudioUi.MUTED))
+        body.addView(value, LinearLayout.LayoutParams(-2, -2).apply { topMargin = StudioUi.dp(host, 8) })
+        val buttons = mutableListOf<TextView>()
+        fun mark() = buttons.forEachIndexed { i, b ->
+            val on = stops[i] == multiple
+            b.background = StudioUi.pill(host, if (on) StudioUi.INK else 0x1422204a, 14)
+            b.setTextColor(if (on) StudioUi.WHITE else StudioUi.INK)
+        }
+        val bar = SeekBar(host).apply {
             max = stops.lastIndex
             progress = stops.indexOf(multiple)
             contentDescription = "Atur kecepatan simulasi"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(bar: SeekBar, index: Int, fromUser: Boolean) {
-                    if (fromUser) { select(stops[index], start = true); value.text = label(multiple) }
+                    if (fromUser) { select(stops[index], start = true); value.text = label(multiple); mark() }
                 }
                 override fun onStartTrackingTouch(bar: SeekBar) {}
                 override fun onStopTrackingTouch(bar: SeekBar) {}
             })
-        }, LinearLayout.LayoutParams(-1, StudioUi.dp(host, 48)))
+        }
+        stops.chunked(4).forEach { row ->
+            val line = LinearLayout(host)
+            row.forEach { x ->
+                val b = StudioUi.text(host, label(x), 14f, true, StudioUi.INK).apply {
+                    gravity = Gravity.CENTER
+                    minHeight = StudioUi.dp(host, 44)
+                    isClickable = true
+                    setOnClickListener { select(x, start = true); value.text = label(multiple); bar.progress = stops.indexOf(x); mark() }
+                }
+                buttons += b
+                line.addView(b, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = StudioUi.dp(host, 6) })
+            }
+            repeat(4 - row.size) { line.addView(android.view.View(host), LinearLayout.LayoutParams(0, 1, 1f).apply { marginEnd = StudioUi.dp(host, 6) }) }
+            body.addView(line, LinearLayout.LayoutParams(-1, -2).apply { topMargin = StudioUi.dp(host, 6) })
+        }
+        mark()
+        body.addView(bar, LinearLayout.LayoutParams(-1, StudioUi.dp(host, 48)).apply { topMargin = StudioUi.dp(host, 8) })
     }
 
     private val gesture = GestureDetector(host, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent) = true
         override fun onSingleTapConfirmed(e: MotionEvent) = performClick()
         override fun onDoubleTap(e: MotionEvent): Boolean { slider(); return true }
+        // the gesture detector takes every touch, so the view's own long-click listener never fired
+        override fun onLongPress(e: MotionEvent) { performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS); slider() }
     })
     init {
         gravity = Gravity.CENTER
