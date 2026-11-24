@@ -50,11 +50,11 @@ internal class LineList(
             v.setTextColor(if (on) StudioUi.WHITE else StudioUi.INK)
             v.contentDescription = "Urutkan menurut ${k.label.lowercase()}" + if (on) (if (dir < 0) ", menurun" else ", menaik") else ""
         }
-        bar.addView(StudioUi.text(host, "Urutkan", 12.5f, true, StudioUi.MUTED), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        bar.addView(StudioUi.text(host, "Urutkan", 12f, true, StudioUi.MUTED), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         Key.values().forEach { k ->
-            val chip = StudioUi.text(host, k.label, 13f, true).apply {
+            val chip = StudioUi.text(host, k.label, 12.5f, true).apply {
                 gravity = Gravity.CENTER
-                minHeight = dp(48)
+                minHeight = dp(40)
                 setPadding(dp(12), 0, dp(12), 0)
                 isClickable = true
                 setOnClickListener {
@@ -63,7 +63,8 @@ internal class LineList(
                 }
             }
             chips += k to chip
-            bar.addView(chip, LinearLayout.LayoutParams(-2, dp(48)).apply { marginEnd = dp(6) })
+            // 40 dp drawn, 48 dp to touch (the row's padding gives the rest)
+            bar.addView(chip, LinearLayout.LayoutParams(-2, dp(40)).apply { marginEnd = dp(6); topMargin = dp(4); bottomMargin = dp(4) })
         }
         paint()
         return android.widget.HorizontalScrollView(host).apply { isHorizontalScrollBarEnabled = false; addView(bar) }
@@ -93,37 +94,64 @@ internal class LineList(
 
     private fun usd(v: Double) = StudioFormat.money(v * 1e6, currency)
 
-    /** Four columns: riders, fares, running cost with upkeep, profit (red at a loss). */
+    /** Total profit of every running line (web MoneyToday summed), null without figures. */
+    val totalProfit: Double? get() = if (figures == null) null else byId.values.sumOf { it.optJSONObject("money")?.optDouble("profit") ?: 0.0 }
+
+    private fun profitInk(s: Sum) = when {
+        !s.money || figures == null -> StudioUi.MUTED
+        StudioFormat.moneyNegative(s.profit * 1e6, currency) -> StudioUi.BAD
+        else -> StudioUi.GOOD
+    }
+
+    /** The profit, large, on the right of a row: what the player reads first (web: the Laba column). */
+    private fun profitBlock(s: Sum, small: Boolean): View = LinearLayout(host).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.END
+        val known = figures != null && s.money
+        addView(StudioUi.text(host, if (known) usd(s.profit) else "—", if (small) 14f else 16.5f, color = profitInk(s)).apply {
+            typeface = StudioUi.heavy(host); maxLines = 1; gravity = Gravity.END
+        })
+        addView(StudioUi.text(host, if (!s.running) "" else "laba/hari", 10.5f, true, StudioUi.MUTED).apply { gravity = Gravity.END })
+    }
+
+    /** Riders, fares and cost in three short columns, with a bar of how much of the fares is left as profit. */
     private fun figureRow(s: Sum, small: Boolean): View {
-        val row = LinearLayout(host)
+        val row = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
         if (!s.running) {
-            row.addView(StudioUi.text(host, if (s.status == "broken") "Rusak" else "Belum jalan", 12.5f, true, StudioUi.MUTED))
+            row.addView(StudioUi.text(host, if (s.status == "broken") "Rusak · perbaiki relnya" else "Belum jalan", 12.5f, true, StudioUi.MUTED))
             return row
         }
         val known = figures != null
         val cols = listOf(
-            Triple("Penumpang", if (s.riders != null) StudioFormat.count(s.riders!!) else "—", StudioUi.INK),
-            Triple("Pendapatan", if (s.money) usd(s.fares) else "—", StudioUi.INK),
-            Triple("Operasional", if (s.money) usd(-s.cost) else "—", StudioUi.INK),
-            Triple("Laba", if (s.money) usd(s.profit) else "—", if (s.money && StudioFormat.moneyNegative(s.profit * 1e6, currency)) StudioUi.BAD else if (s.money) StudioUi.GOOD else StudioUi.INK),
+            "penumpang" to (if (known && s.riders != null) StudioFormat.count(s.riders!!) else "—"),
+            "pendapatan" to (if (known && s.money) usd(s.fares) else "—"),
+            "biaya" to (if (known && s.money) usd(s.cost) else "—"),
         )
-        cols.forEach { (caption, value, ink) ->
+        val line = LinearLayout(host)
+        cols.forEach { (caption, value) ->
             val col = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
-            col.addView(StudioUi.text(host, caption, if (small) 10.5f else 11f, true, StudioUi.MUTED).apply { maxLines = 1 })
-            col.addView(StudioUi.text(host, if (known) value else "—", if (small) 13f else 14f, color = ink).apply {
-                typeface = StudioUi.heavy(host); maxLines = 1
-            })
-            row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+            col.addView(StudioUi.text(host, value, if (small) 12.5f else 13.5f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host); maxLines = 1 })
+            col.addView(StudioUi.text(host, caption, 10.5f, true, StudioUi.MUTED).apply { maxLines = 1 })
+            line.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        row.contentDescription = if (!known) "Angka muncul saat simulasi berjalan" else cols.joinToString(", ") { "${it.first} ${it.second}" }
+        row.addView(line)
+        if (known && s.money && s.fares > 0) {
+            val margin = (s.profit / s.fares).toFloat()
+            row.addView(StudioProgress.Bar(host, if (margin >= 0) StudioUi.GOOD else StudioUi.BAD, 0x1422204a).apply {
+                fraction = kotlin.math.abs(margin).coerceIn(0f, 1f)
+                contentDescription = "Laba ${(margin * 100).toInt()}% dari pendapatan"
+            }, LinearLayout.LayoutParams(-1, dp(4)).apply { topMargin = dp(6) })
+        }
+        row.contentDescription = if (!known) "Angka muncul saat simulasi berjalan" else cols.joinToString(", ") { "${it.second} ${it.first}" } +
+            if (s.money) ", laba ${usd(s.profit)} per hari" else ""
         return row
     }
 
-    private fun statusLine(s: Sum, count: Int) = (if (count > 1) "$count layanan · " else "") + when {
-        s.running -> "Beroperasi" + if (figures != null) " · ${s.trains.toInt()} armada sekarang" else ""
-        s.status == "broken" -> "Rusak"
-        else -> "Belum beroperasi"
-    }
+    private fun statusLine(s: Sum, count: Int) = listOfNotNull(
+        if (figures != null && s.running) "${s.trains.toInt()} armada" else null,
+        if (count > 1) "$count layanan" else null,
+        when { s.running -> null; s.status == "broken" -> "Rusak"; else -> "Belum beroperasi" },
+    ).joinToString(" · ").ifEmpty { "Beroperasi" }
 
     private fun card(groupKey: String, group: List<JSONObject>, title: String): View {
         val first = group.first()
@@ -134,51 +162,54 @@ internal class LineList(
         val card = LinearLayout(host).apply {
             orientation = LinearLayout.VERTICAL
             background = StudioUi.card(host, 18, 0xf2ffffff.toInt())
-            setPadding(dp(8), dp(8), dp(12), dp(10))
+            setPadding(dp(12), dp(10), dp(12), dp(12))
         }
         val head = LinearLayout(host).apply {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(48)
             isClickable = true
             isFocusable = true
-            contentDescription = "$title, ${statusLine(s, group.size)}" + if (many) (if (isOpen) ", ketuk untuk menutup" else ", ketuk untuk membuka layanannya") else ""
+            contentDescription = "$title, ${statusLine(s, group.size)}" + if (many) (if (isOpen) ", ketuk untuk menutup" else ", ketuk untuk membuka layanannya") else ", buka rincian"
             setOnClickListener {
                 if (many) { if (!open.add(groupKey)) open.remove(groupKey); refresh() }
                 else pick(first.getInt("id"))
             }
         }
-        if (many) head.addView(StudioUi.text(host, if (isOpen) "▾" else "▸", 20f, true, StudioUi.INK).apply {
-            gravity = Gravity.CENTER
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(dp(28), dp(48)))
-        head.addView(StudioUi.badge(host, ServicePanel.code(title), color, 40), LinearLayout.LayoutParams(dp(40), dp(40)).apply { if (!many) marginStart = dp(4) })
+        head.addView(StudioUi.badge(host, ServicePanel.code(title), color, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
         val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
         body.addView(StudioUi.text(host, title, 15f, color = StudioUi.INK).apply {
-            typeface = StudioUi.heavy(host); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            typeface = StudioUi.heavy(host); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
         })
-        body.addView(StudioUi.text(host, statusLine(s, group.size), 12.5f, true, if (s.running) StudioUi.GOOD else StudioUi.MUTED))
-        head.addView(body, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+        body.addView(StudioUi.text(host, statusLine(s, group.size) + if (many) (if (isOpen) "  ▾" else "  ▸") else "", 12f, true, StudioUi.MUTED).apply { maxLines = 1 })
+        head.addView(body, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10); marginEnd = dp(8) })
+        head.addView(profitBlock(s, false))
         card.addView(head)
-        card.addView(figureRow(s, false), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); marginStart = dp(4) })
+        card.addView(figureRow(s, false), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         if (isOpen) group.forEachIndexed { i, route ->
             val id = route.getInt("id")
             val stops = looks[id]?.let { ServiceStops(it).endpoints }.orEmpty()
             val one = sum(listOf(route))
             val child = LinearLayout(host).apply {
                 orientation = LinearLayout.VERTICAL
-                background = StudioDepot.touch(host, 0x0f22204a, 14)
-                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = StudioDepot.touch(host, 0x0c22204a, 14)
+                setPadding(dp(10), dp(8), dp(10), dp(10))
                 minimumHeight = dp(48)
                 isClickable = true
                 val name = route.getString("name").let { if (it == title) "Layanan ${i + 1}" else it }
                 contentDescription = "$name${if (stops.isNotEmpty()) ", $stops" else ""}, buka rincian"
                 setOnClickListener { pick(id) }
-                addView(StudioUi.text(host, name + if (stops.isNotEmpty()) " · $stops" else "", 13.5f, true, StudioUi.INK).apply {
+                val top = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+                val names = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
+                names.addView(StudioUi.text(host, name, 13.5f, true, StudioUi.INK).apply { maxLines = 1 })
+                if (stops.isNotEmpty()) names.addView(StudioUi.text(host, stops, 11.5f, true, StudioUi.MUTED).apply {
                     maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
                 })
-                addView(figureRow(one, true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+                top.addView(names, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
+                top.addView(profitBlock(one, true))
+                addView(top)
+                addView(figureRow(one, true), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             }
-            card.addView(child, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); marginStart = dp(28) })
+            card.addView(child, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         }
         return card
     }

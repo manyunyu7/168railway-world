@@ -69,8 +69,10 @@ internal object ServicePanel {
                 val found = items.filter { it.getString("name").contains(query, ignoreCase = true) && (mode == "Semua" || vehicle(it) == mode) }
                 list.show(found, items.isNotEmpty()) { search?.setText(""); mode = "Semua"; render() }
                 val riders = list.totalRiders
+                val profit = list.totalProfit
                 headline.text = "${items.size} line · $running beroperasi" + when {
-                    riders != null -> " · ${StudioFormat.count(riders)} penumpang dalam 24 jam terakhir"
+                    riders != null -> " · ${StudioFormat.count(riders)} penumpang/24 jam" +
+                        (profit?.let { " · laba ${StudioFormat.money(it * 1e6, StudioCurrency.current(host))}/hari" } ?: "")
                     running > 0 -> "\nPenumpang dan uang tiap line muncul saat simulasi berjalan."
                     else -> ""
                 }
@@ -80,14 +82,16 @@ internal object ServicePanel {
                     hint = "Cari nama line"
                     setSingleLine()
                     typeface = StudioUi.face(host, true)
-                    textSize = 16f
+                    textSize = 15f
                     setTextColor(StudioUi.INK)
                     setHintTextColor(StudioUi.MUTED)
-                    background = StudioUi.pill(host, StudioUi.WHITE, 26)
-                    setPadding(dp(18), 0, dp(18), 0)
-                    minHeight = dp(50)
+                    background = StudioUi.pill(host, StudioUi.WHITE, 24)
+                    setPadding(dp(16), 0, dp(16), 0)
+                    minHeight = dp(48)
+                    setCompoundDrawables(StudioUi.glyph(host, StudioUi.Icon.SEARCH, StudioUi.MUTED), null, null, null)
+                    compoundDrawablePadding = dp(8)
                 }
-                column.addView(search, LinearLayout.LayoutParams(-1, dp(50)))
+                column.addView(search, LinearLayout.LayoutParams(-1, dp(48)))
                 search.addTextChangedListener(object : android.text.TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render()
