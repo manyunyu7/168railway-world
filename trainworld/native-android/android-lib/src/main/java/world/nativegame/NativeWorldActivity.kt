@@ -856,21 +856,23 @@ class NativeWorldActivity : Activity() {
                 if (commands.isNotEmpty()) section(if (q.isEmpty()) "Menu" else "Perintah")
                 commands.forEach { (label, click) -> val (icon, tint) = iconFor(label); row(label, null, icon, tint, click) }
                 if (q.isNotEmpty()) {
-                    val cities = cityStore.cities().filter { rank(it.name,q) < Int.MAX_VALUE }
-                        .sortedBy { rank(it.name,q) }.take(8)
-                    if (cities.isNotEmpty()) section("Kota")
-                    cities.forEach { city -> row(city.name,"Buka kota",StudioUi.Icon.PIN,StudioUi.TINT_BLUE) { locateCity(city.id) } }
-                    val routes = map.routeNames.entries.filter { rank(it.value,q) < Int.MAX_VALUE }.sortedBy { rank(it.value,q) }.take(8)
-                    if (routes.isNotEmpty()) section("Jalur")
-                    routes.forEach { (id,name) -> row(name,"Buka jalur",StudioUi.Icon.ROUTE,StudioUi.TINT_BLUE) { openServiceDetails(id) } }
-                    val found = stations.filter { rank(it.name,q) < Int.MAX_VALUE }.sortedBy { rank(it.name,q) }.take(8)
-                    if (found.isNotEmpty()) section("Stasiun")
-                    found.forEach { st -> row(st.name, "Buka stasiun", StudioUi.Icon.PIN, 0xffe3edf9.toInt()) { openStation(st.id) } }
-                    val places = map.cityLayers.asSequence().flatMap { it.places.asSequence() }.filter { rank(it.name,q) < Int.MAX_VALUE }
-                        .sortedWith(compareBy({ rank(it.name,q) },{ it.kind })).take(8).toList()
-                    if (places.isNotEmpty()) section("Tempat")
-                    places.forEach { place -> row(place.name,"Lihat di peta",StudioUi.Icon.PIN,StudioUi.TINT_BLUE) { map.locatePlace(place) } }
-
+                    data class Hit(val score: Int, val kind: Int, val weight: Int, val name: String, val open: () -> Unit)
+                    val hits = mutableListOf<Hit>()
+                    fun offer(name: String, kind: Int, weight: Int = 0, open: () -> Unit) {
+                        val score = rank(name,q)
+                        if (score != Int.MAX_VALUE) hits.add(Hit(score,kind,weight,name,open))
+                    }
+                    cityStore.cities().forEach { city -> offer(city.name,0) { locateCity(city.id) } }
+                    map.routeNames.forEach { (id,name) -> offer(name,1) { openServiceDetails(id) } }
+                    stations.forEach { st -> offer(st.name,2) { openStation(st.id) } }
+                    map.cityLayers.forEach { layer -> layer.places.forEach { place ->
+                        offer(place.name,3,place.kind) { map.locatePlace(place) }
+                    } }
+                    val labels = listOf("Buka kota","Buka jalur","Buka stasiun","Lihat tempat di peta")
+                    hits.sortedWith(compareBy(Hit::score,Hit::kind,Hit::weight,Hit::name)).take(8).forEach { hit ->
+                        val icon = if (hit.kind == 1) StudioUi.Icon.ROUTE else StudioUi.Icon.PIN
+                        row(hit.name,labels[hit.kind],icon,StudioUi.TINT_BLUE,hit.open)
+                    }
                 }
                 if (results.childCount == 0) results.addView(StudioUi.text(this, "Tidak ada yang cocok dengan “$query”.", 14f, true, StudioUi.MUTED).apply {
                     setPadding(dp(4), dp(16), dp(4), dp(16))
