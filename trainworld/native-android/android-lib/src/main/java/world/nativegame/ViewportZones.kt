@@ -34,6 +34,34 @@ internal class ViewportZones(context: Context) {
         }
     }
 
+    /** On reopen, retain construction surfaces under existing track. An explored empty city
+     * only needs its outline until the camera returns. Use conservative per-edge boxes. */
+    fun constructionZones(handle: Long, geometry: JSONObject, viewed: Set<String>): Set<String> {
+        if (viewed.isEmpty()) return emptySet()
+        val boxes = viewed.mapNotNull { id ->
+            val b = zones[id]?.box ?: return@mapNotNull null
+            val mid = (b[0]+b[2])/2
+            val xy = CitySurface.project(handle,doubleArrayOf(b[0],b[1],b[0],b[3],b[2],b[1],b[2],b[3],mid,b[1],mid,b[3]))
+            val xs = xy.indices.step(2).map { xy[it] }
+            val ys = (1 until xy.size step 2).map { xy[it] }
+            id to floatArrayOf(xs.min()-2000,ys.min()-2000,xs.max()+2000,ys.max()+2000)
+        }
+        val needed = mutableSetOf<String>()
+        val tracks = geometry.getJSONArray("tracks")
+        for (j in 0 until tracks.length()) {
+            val points = tracks.getJSONObject(j).getJSONArray("points")
+            var w = Float.POSITIVE_INFINITY; var s = Float.POSITIVE_INFINITY
+            var e = Float.NEGATIVE_INFINITY; var n = Float.NEGATIVE_INFINITY
+            for (i in 0 until points.length() step 2) {
+                val x = points.getDouble(i).toFloat()
+                val y = points.getDouble(i+1).toFloat()
+                w = min(w,x); e = max(e,x); s = min(s,y); n = max(n,y)
+            }
+            for ((id,b) in boxes) if (b[0] <= e && b[2] >= w && b[1] <= n && b[3] >= s) needed.add(id)
+        }
+        return needed
+    }
+
     fun center(id: String) = zones[id]?.center
     fun visible(w: Double, s: Double, e: Double, n: Double) = zones.values.filter { z ->
         val b = z.box

@@ -487,7 +487,7 @@ impl World {
             .from_lonlat(b[2].as_f64().unwrap(), b[3].as_f64().unwrap());
         let origin = self.api.frame_origin();
         let home = self.api.from_lonlat(origin[0], origin[1]);
-        json!({"opened":self.header["opened"],"mercatorPerFrame":if self.api.frame_kind() == 2 { 1. } else {1. / origin[1].to_radians().cos().max(0.01)},"cash":self.api.cash(),"requiresStudioClock":self.requires_studio_clock(),"homePoint":home,"waterBox":[sw[0],sw[1],ne[0],ne[1]],"looseEnds":loose_ends,"lastTrackEnd":self.header["androidTrackEnd"],"plannedStations":planned_stations,"routes":routes,"tracks":tracks,"stations":stops,"clock":self.header["clock"],"city":self.header["city"]})
+        json!({"opened":self.header["opened"],"viewed":self.header["androidViewed"],"mercatorPerFrame":if self.api.frame_kind() == 2 { 1. } else {1. / origin[1].to_radians().cos().max(0.01)},"cash":self.api.cash(),"requiresStudioClock":self.requires_studio_clock(),"homePoint":home,"waterBox":[sw[0],sw[1],ne[0],ne[1]],"looseEnds":loose_ends,"lastTrackEnd":self.header["androidTrackEnd"],"plannedStations":planned_stations,"routes":routes,"tracks":tracks,"stations":stops,"clock":self.header["clock"],"city":self.header["city"]})
     }
     fn load_trip_hour(&mut self, time: f64) -> f64 {
         let hour = (time / 3600.).floor() as i64;

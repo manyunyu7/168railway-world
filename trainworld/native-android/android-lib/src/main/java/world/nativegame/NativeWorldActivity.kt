@@ -511,13 +511,16 @@ class NativeWorldActivity : Activity() {
                 val geometry: JSONObject
                 val zones = ViewportZones(this)
                 val layers = mutableMapOf<String,CitySurface.Layer>()
+                val knownCities = linkedSetOf(homeCity)
                 var expandedSave: ByteArray? = null
                 try {
                     geometry=JSONObject(Engine.geometry(loaded))
                     val opened = geometry.optJSONArray("opened")
-                    val ids = linkedSetOf(homeCity)
-                    if (opened != null) for (i in 0 until opened.length()) ids.add(opened.getString(i))
-                    ids.add(city.id)
+                    if (opened != null) for (i in 0 until opened.length()) knownCities.add(opened.getString(i))
+                    knownCities.add(city.id)
+                    val viewedRows = geometry.optJSONArray("viewed")
+                    val viewed = (0 until (viewedRows?.length() ?: 0)).map { viewedRows!!.getString(it) }.toSet()
+                    val ids = (knownCities - viewed) + zones.constructionZones(loaded,geometry,viewed) + city.id
                     val catalog = cityStore.cities().map { it.id }.toSet()
                     for (id in ids.filter { it in catalog }) {
                         val localPack = if (id == city.id) pack ?: continue else cityStore.load(id)
@@ -539,7 +542,7 @@ class NativeWorldActivity : Activity() {
                     handle = loaded; activePack=pack; clock = geometry.getDouble("clock")
                     if (expandedSave != null && !persistBytes(expandedSave)) { finish(); return@runOnUiThread }
                     val layer = layers[city.id]
-                    openedCities = layers.keys + homeCity
+                    openedCities = knownCities
                     surfaces.putAll(layers)
                     if (layers[city.id] != null) detailedSurfaces.add(city.id)
                     map.zones = zones
@@ -1983,7 +1986,7 @@ class NativeWorldActivity : Activity() {
                         if (installed == null) {
                             CitySurface.copy(candidate,handle)
                             val before = if (parked != null || warming != null) Engine.save(handle,clock) else null
-                            CitySurface.visitViewport(handle,homeCity,id)
+                            if (!CitySurface.visitViewport(handle,homeCity,id)) return@onSuccess
                             visitedThisSession.add(id)
                             openedCities = openedCities + id
                             worldChanged = true
