@@ -68,6 +68,7 @@ pub(super) fn labels(api: &TrackApi, id: u32) -> Labels {
         "Stasiun"
     };
     let mut unnamed = 0;
+    let mut taken = vec![];
     let stops: Vec<_> = ids
         .iter()
         .enumerate()
@@ -94,6 +95,13 @@ pub(super) fn labels(api: &TrackApi, id: u32) -> Labels {
                 if let Some((_, p)) = closest.filter(|(_, p)| !p.name.is_empty()) {
                     return p.name.to_owned();
                 }
+            }
+            // Web stopsOf: a bus stop is named for what is near it (T-1464).
+            if let Some(name) = stop
+                .filter(|_| bus)
+                .and_then(|s| bus_draft::stop_name(api, s.x, s.y))
+            {
+                return bus_draft::unique(name, &mut taken);
             }
             unnamed += 1;
             format!("{fallback} {}", i + 1)

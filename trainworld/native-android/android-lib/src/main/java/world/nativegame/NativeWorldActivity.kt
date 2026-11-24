@@ -1530,6 +1530,8 @@ class NativeWorldActivity : Activity() {
         map.curveCircle=null; map.refused=false
         val spec=plan
         map.draftShape=if(spec.tool in setOf(BuildTool.RAIL,BuildTool.LINE)) emptyList() else null
+        if(spec.tool==BuildTool.BUS) return BusDraft.route(this,draftWorker,map,status,dockTitle,spec.specification,RoadTileStore.directory(this),
+            { Engine.forkCandidate(handle,clock,RoadTileStore.directory(this).absolutePath) }) { !closed && drawing && version==draftVersion }
         if(map.draftShape==null || map.draft.size<2) return
         val profile=pointProfile.toDoubleArray()
         val coords=map.draft.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
@@ -2780,6 +2782,7 @@ internal class NetworkView(context: Context):View(context) {
         focusAt((xy[0]+xy[2])/2,(xy[1]+xy[3])/2)
     }
     var cityLayers: List<CitySurface.Layer> = emptyList()
+        set(value) { field=value; BusDraft.places(value) }
     var cityLayer: CitySurface.Layer? = null
     private var cityCenter: PointF? = null
     var workshop = false
