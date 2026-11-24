@@ -923,7 +923,7 @@ class NativeWorldActivity : Activity() {
                     map.cityLayers.forEach { layer -> layer.places.forEach { place ->
                         offer(place.name,3,place.kind) { map.locatePlace(place) }
                     } }
-                    val labels = listOf("Buka kota","Buka jalur","Buka stasiun","Lihat tempat di peta")
+                    val labels = listOf("Buka kota","Buka lini","Buka stasiun","Lihat tempat di peta")
                     hits.sortedWith(compareBy(Hit::score,Hit::kind,Hit::weight,Hit::name)).take(8).forEach { hit ->
                         val icon = if (hit.kind == 1) StudioUi.Icon.ROUTE else StudioUi.Icon.PIN
                         row(hit.name,hit.alias?.let { "$it · Buka kota" } ?: labels[hit.kind],icon,StudioUi.TINT_BLUE,hit.open)
@@ -937,7 +937,7 @@ class NativeWorldActivity : Activity() {
                 setPadding(dp(4), 0, dp(4), dp(8))
             })
             column.addView(android.widget.EditText(this).apply {
-                hint = if (focus) "Cari stasiun, jalur, kota, atau tempat" else "Cari stasiun, jalur, kota, tempat, atau perintah"
+                hint = if (focus) "Cari stasiun, lini, kota, atau tempat" else "Cari stasiun, lini, kota, tempat, atau perintah"
                 if (focus) post {
                     requestFocus()
                     (context.getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
@@ -1129,7 +1129,7 @@ class NativeWorldActivity : Activity() {
             column.addView(StudioUi.section(this,"Tujuan perjalanan di peta"))
             column.addView(purposeChips { dialog.dismiss() })
             group(1,"Penumpang stasiun",StudioUi.TINT_RED,StudioUi.Icon.PIN,listOf("Mati" to "none","Asal" to "origins","Pindah" to "transfers","Total" to "total"))
-            group(2,"Warna jalur",StudioUi.TINT_BLUE,StudioUi.Icon.TRAIN,listOf("Warna layanan" to "line","Lalu lintas" to "traffic","Kecepatan" to "speed","Ketinggian" to "height","Laba" to "profit"))
+            group(2,"Warna lini",StudioUi.TINT_BLUE,StudioUi.Icon.TRAIN,listOf("Warna layanan" to "line","Lalu lintas" to "traffic","Kecepatan" to "speed","Ketinggian" to "height","Laba" to "profit"))
             if (map.overlay.selection[1] != "none" || map.overlay.selection[2] == "traffic") column.addView(LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(4),dp(12),dp(4),0)
@@ -1242,7 +1242,7 @@ class NativeWorldActivity : Activity() {
         map.railTool=if(railMode) plan.kind else null
         render(build, if(railMode) "Konfirmasi" else if (drawing) "Tinjau" else "Bangun", if(railMode) "Konfirmasi segmen rel" else if (drawing) plan.tool.review else "Bangun jalur",
             if (drawing) StudioUi.Icon.ROUTE else StudioUi.Icon.PLUS)
-        render(lines,"Jalur","Jalur",StudioUi.Icon.ROUTE)
+        render(lines,"Lini","Daftar lini",StudioUi.Icon.ROUTE)
         render(finance,"Lensa","Lensa peta",StudioUi.Icon.LAYERS)
         render(cancel,if(railMode) "Stop" else "Batal",if(railMode) "Akhiri rangkaian segmen" else "Batalkan rancangan",StudioUi.Icon.CLOSE)
         render(more,if (drawing) "Alat" else "Menu",if (drawing) "Alat rancangan" else "Cari dan menu",StudioUi.Icon.MENU)
@@ -2424,7 +2424,7 @@ class NativeWorldActivity : Activity() {
         "Stasiun tempat dua lintas bertemu jadi titik transit. Penumpangnya bisa 2–3× stasiun biasa.",
         "Kereta yang terlalu penuh membuat penumpang beralih. Tambah rangkaian di lintas yang padat.",
         "Lensa Laba menunjukkan lintas yang rugi. Coba ubah tarif atau jadwalnya.",
-        "Jalur yang melewati pusat kota biasanya paling ramai di jam sibuk pagi.")
+        "Lini yang melewati pusat kota biasanya paling ramai di jam sibuk pagi.")
 
     private fun warmEstimate() = getSharedPreferences("world-native", 0).getLong("warm-ms-${city.id}", 18_000L).coerceIn(2_000L, 120_000L)
     private fun warmFraction() = if (!computing()) 1f else

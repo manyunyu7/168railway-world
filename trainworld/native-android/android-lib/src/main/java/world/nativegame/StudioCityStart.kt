@@ -134,8 +134,8 @@ internal object StudioCityStart {
                 preview.visibility = if (preview.childCount == 0) View.GONE else View.VISIBLE
                 originHint.text = when {
                     showScenarios -> scenarioDetails.getValue(scenario)
-                    preset.isChecked -> "Jalur dan stasiun sudah tersedia."
-                    else -> "Bangun stasiun dan jalur pertama sendiri."
+                    preset.isChecked -> "Lini dan stasiun sudah tersedia."
+                    else -> "Bangun stasiun dan lini pertama sendiri."
                 }
             }
             network.setOnCheckedChangeListener { _, _ -> updateNetwork() }

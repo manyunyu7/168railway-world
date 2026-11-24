@@ -16,10 +16,10 @@ internal object StudioProgress {
     data class Badge(val id: String, val title: String, val goal: String, val color: Int, val target: Double, val value: (Snapshot) -> Double)
 
     fun badges(currency: StudioCurrency): List<Badge> = listOf(
-        Badge("first-line", "Lini pertama", "Jalankan 1 jalur", 0xff3fb06a.toInt(), 1.0) { it.routes.toDouble() },
-        Badge("ten-lines", "Jaringan kota", "Jalankan 10 jalur", 0xff3e7bfa.toInt(), 10.0) { it.routes.toDouble() },
+        Badge("first-line", "Lini pertama", "Jalankan 1 lini", 0xff3fb06a.toInt(), 1.0) { it.routes.toDouble() },
+        Badge("ten-lines", "Jaringan kota", "Jalankan 10 lini", 0xff3e7bfa.toInt(), 10.0) { it.routes.toDouble() },
         Badge("hundred-stations", "Stasiun ramai", "Punya 100 stasiun", 0xff1fb5c9.toInt(), 100.0) { it.stations.toDouble() },
-        Badge("metropolis", "Megapolitan", "Jalankan 25 jalur", 0xff6c4df6.toInt(), 25.0) { it.routes.toDouble() },
+        Badge("metropolis", "Megapolitan", "Jalankan 25 lini", 0xff6c4df6.toInt(), 25.0) { it.routes.toDouble() },
         Badge("fleet", "Armada besar", "200 kereta di peta", 0xffff7a2f.toInt(), 200.0) { it.trains.toDouble() },
         Badge("platforms", "Ratusan peron", "Punya 300 stasiun", 0xffa35bea.toInt(), 300.0) { it.stations.toDouble() },
         Badge("week", "Seminggu jalan", "Capai hari ke-7", 0xff22204a.toInt(), 7.0) { it.day.toDouble() },

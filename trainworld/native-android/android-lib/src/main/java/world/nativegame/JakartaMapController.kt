@@ -194,9 +194,9 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
                     check(!r.has("error")){r.optString("error")}
                     clock=max(clock,r.getDouble("departure"))
                     clearDraft();viewMap.load(JSONObject(Engine.geometry(handle)),false);refresh()
-                    message="Jalur " + r.getString("name") + " siap dijalankan."
+                    message="Lini " + r.getString("name") + " siap dijalankan."
                 }
-                "play"->{check(viewMap.routeCount>0){"Bangun jalur terlebih dahulu."};if(!running){running=true;lastTick=SystemClock.elapsedRealtime();ui.post(tick)};message="Kereta berjalan."}
+                "play"->{check(viewMap.routeCount>0){"Bangun lini terlebih dahulu."};if(!running){running=true;lastTick=SystemClock.elapsedRealtime();ui.post(tick)};message="Kereta berjalan."}
                 "pause"->{pause();message="Permainan dijeda."}
                 "save"->{
                     saveHandle(handle)

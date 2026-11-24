@@ -41,7 +41,7 @@ internal object StudioNetworkDiagram {
         val diagram=Diagram(host,data,layer)
         StudioUi.sheet(host,"Diagram jaringan",.94f) { col,dialog ->
             if(!diagram.hasNetwork) {
-                col.addView(StudioUi.text(host,"Diagram masih kosong. Stasiun dan jalur yang kamu bangun akan muncul di sini.",16f))
+                col.addView(StudioUi.text(host,"Diagram masih kosong. Stasiun dan lini yang kamu bangun akan muncul di sini.",16f))
                 col.addView(StudioUi.button(host,"Kembali ke peta"){ dialog.dismiss() })
                 return@sheet
             }
@@ -132,7 +132,7 @@ internal object StudioNetworkDiagram {
                     routeRows.addView(StudioUi.text(host,"Belum ada layanan di area ini.",15f,true,StudioUi.MUTED))
                     return
                 }
-                routeRows.addView(StudioUi.section(host,"Jalur"))
+                routeRows.addView(StudioUi.section(host,"Lini"))
                 // Line chips: colour dot + name, tap to highlight on the diagram.
                 val chips=WrapRow(host)
                 routes.forEach { route ->
@@ -146,7 +146,7 @@ internal object StudioNetworkDiagram {
                         background=StudioDepot.touch(host,0xe6ffffff.toInt(),20)
                         setPadding(dp(12),dp(9),dp(14),dp(10))
                         isClickable=true
-                        contentDescription="Jalur ${route.name}"
+                        contentDescription="Lini ${route.name}"
                         setOnClickListener {
                             diagram.selectRoute(route); diagram.requestFocus()
                             (col.parent as? android.widget.ScrollView)?.smoothScrollTo(0,0)
@@ -247,7 +247,7 @@ internal object StudioNetworkDiagram {
         var selectionChanged:(String?,Boolean)->Unit={_,_->}
         init {
             isFocusable=true;isClickable=true
-            contentDescription="Diagram jaringan. Geser untuk menjelajah atau ketuk jalur dan stasiun."
+            contentDescription="Diagram jaringan. Geser untuk menjelajah atau ketuk lini dan stasiun."
             val rows=data.getJSONArray("routes")
             for(i in 0 until rows.length()){
                 val obj=rows.getJSONObject(i)
@@ -264,7 +264,7 @@ internal object StudioNetworkDiagram {
                     previousInside=inside
                     if(j==0)path.moveTo(xy[j],xy[j+1])else path.lineTo(xy[j],xy[j+1])
                 }
-                routes.add(Route(obj.getInt("id"),obj.optString("name").ifBlank{"Jalur ${i+1}"},obj.getInt("color") or Color.BLACK,xy,path))
+                routes.add(Route(obj.getInt("id"),obj.optString("name").ifBlank{"Lini ${i+1}"},obj.getInt("color") or Color.BLACK,xy,path))
             }
             val stations=data.getJSONArray("stations")
             for(i in 0 until stations.length()){
