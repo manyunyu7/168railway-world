@@ -4,8 +4,6 @@ import android.app.Activity
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.view.View
-import android.graphics.Canvas
-import android.graphics.Paint
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -193,58 +191,16 @@ internal object ServicePanel {
             }
             column.addView(stats, lp(12, host))
             if (route.names.isNotEmpty()) {
-                // Vertical strip in the line colour; termini and interchanges stand out.
-                val strip = LinearLayout(host).apply {
-                    orientation = LinearLayout.VERTICAL
-                    background = StudioUi.card(host, 22)
-                    setPadding(dp(12), dp(10), dp(12), dp(10))
-                }
-                fun stop(index: Int): View = LinearLayout(host).apply {
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    minimumHeight = dp(34)
-                    val terminal = index == 0 || index == route.names.lastIndex
-                    addView(object : View(host) {
-                        val pen = Paint(Paint.ANTI_ALIAS_FLAG)
-                        override fun onDraw(canvas: Canvas) {
-                            val cx = width / 2f
-                            pen.style = Paint.Style.FILL
-                            pen.color = color
-                            val top = if (index == 0) height / 2f else 0f
-                            val bottom = if (index == route.names.lastIndex) height / 2f else height.toFloat()
-                            canvas.drawRect(cx - dp(3), top, cx + dp(3), bottom, pen)
-                            val r = dp(if (terminal) 9 else 6).toFloat()
-                            pen.color = StudioUi.WHITE
-                            canvas.drawCircle(cx, height / 2f, r, pen)
-                            pen.style = Paint.Style.STROKE
-                            pen.strokeWidth = dp(if (terminal) 4 else 3).toFloat()
-                            pen.color = StudioUi.INK
-                            canvas.drawCircle(cx, height / 2f, r - pen.strokeWidth / 2, pen)
+                // Vertical strip in the line colour with each stop's riders; stops passed and skipped (LineStops.kt).
+                val strip = LineStops.strip(host, handle, id, route, color, editable) { success, edit ->
+                    dialog.dismiss()
+                    transaction { now ->
+                        if (LineStops.toast(host, edit.run(now), success)) {
+                            editLabel = LineStops.LABEL
+                            changed(service.getString("name"))
                         }
-                    }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, LinearLayout.LayoutParams(dp(24), dp(34)))
-                    addView(StudioUi.text(host, route.numbered(index), if (terminal) 15f else 14f, terminal, StudioUi.INK).apply {
-                        if (terminal) typeface = StudioUi.heavy(host)
-                    }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
-                }
-                val visible = 8
-                route.names.indices.take(visible).forEach { strip.addView(stop(it)) }
-                val rest = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
-                route.names.indices.drop(visible).forEach { rest.addView(stop(it)) }
-                strip.addView(rest)
-                if (route.unnamedCount > 0) strip.addView(StudioUi.text(host,
-                    "Pemberhentian yang belum bernama ditampilkan menurut urutannya di rute.", 12f, true, StudioUi.MUTED))
-                if (route.names.size > visible) {
-                    val show = "+${route.names.size - visible} ${route.stopType} lagi · lihat urutan"
-                    lateinit var toggle: android.widget.TextView
-                    toggle = StudioUi.text(host, show, 13f, true, StudioUi.BLUE).apply {
-                        setPadding(dp(34), dp(6), 0, dp(2))
-                        isClickable = true
-                        setOnClickListener {
-                            val expand = rest.visibility != View.VISIBLE
-                            rest.visibility = if (expand) View.VISIBLE else View.GONE
-                            toggle.text = if (expand) "Tutup urutan ${route.stopType}" else show
-                        }
+                        details(host, handle, id, clock, editable, transaction, changed)
                     }
-                    strip.addView(toggle)
                 }
                 column.addView(strip, lp(12, host))
                 column.addView(StudioUi.section(host, "Keberangkatan dari ${route.names.first()}"))
@@ -269,7 +225,7 @@ internal object ServicePanel {
                 transaction { now ->
                     val error = LineProfileView.setLimit(handle, id, kmh, now)
                     if (error != null) android.widget.Toast.makeText(host, error, android.widget.Toast.LENGTH_LONG).show()
-                    else changed(service.getString("name"))
+                    else { editLabel = "Batas laju lini"; changed(service.getString("name")) }
                     details(host, handle, id, clock, editable, transaction, changed)
                 }
             } else null)?.let { column.addView(it, lp(14, host)) }

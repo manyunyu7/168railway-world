@@ -707,12 +707,22 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openServiceDetails(id: Int) {
-        ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange(ServicePanel.editLabel); lastStatus = -1; troubleKey = ""; refresh() }
+        LineStops.riders = { line, done -> (reference ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
+        ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange(ServicePanel.editLabel); lineStopsChanged(); lastStatus = -1; troubleKey = ""; refresh() }
+    }
+
+    /** A line's stops edited from its panel (LineStops.kt): the map's stops and the balance follow. */
+    private fun lineStopsChanged() {
+        if (ServicePanel.editLabel != LineStops.LABEL) return
+        map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
+        showBalance(NativeFinance.balance(handle, clock))
     }
 
     private fun openServices() {
+        LineStops.riders = { line, done -> (reference ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
         ServicePanel.open(this, handle, clock, true, ::editPanel) { name ->
             recordPanelChange(ServicePanel.editLabel)
+            lineStopsChanged()
             lastService = name
             lastStatus = -1
             refresh()

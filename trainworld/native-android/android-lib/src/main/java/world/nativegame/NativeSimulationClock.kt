@@ -17,6 +17,8 @@ internal interface SimulationClock {
     fun trainRiders(profile: Int, dep: Double, time: Double, seed: Long, done: (String?) -> Unit)
     /** Boardings and purposes at a station complex (train_riders.rs `station`). */
     fun stationRiders(node: Int, time: Double, done: (String?) -> Unit)
+    /** A line's stop rows: boardings, alightings, loads and where riders go (train_riders.rs `line`). */
+    fun lineRiders(line: Int, time: Double, done: (String?) -> Unit)
     fun close()
 }
 
@@ -32,6 +34,7 @@ internal object SimulationEngine {
     external fun snapshot(id: Long, ms: Long): ByteArray?
     external fun trainRiders(id: Long, profile: Int, dep: Double, time: Double, seed: Long): String?
     external fun stationRiders(id: Long, node: Int, time: Double): String?
+    external fun lineRiders(id: Long, line: Int, time: Double): String?
     external fun close(id: Long)
 }
 
@@ -118,6 +121,8 @@ internal class NativeSimulationClock(
         ask({ SimulationEngine.trainRiders(id, profile, dep, time, seed) }, done)
     override fun stationRiders(node: Int, time: Double, done: (String?) -> Unit) =
         ask({ SimulationEngine.stationRiders(id, node, time) }, done)
+    override fun lineRiders(line: Int, time: Double, done: (String?) -> Unit) =
+        ask({ SimulationEngine.lineRiders(id, line, time) }, done)
     override fun close() {
         if (closed) return
         closed=true

@@ -16,6 +16,7 @@ mod demolition;
 mod fare_editor;
 mod fares;
 mod line_fare;
+mod line_stops;
 mod ferry_plan;
 mod finance;
 mod local_time;

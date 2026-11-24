@@ -283,6 +283,30 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_stationRiders(
         .map_or(std::ptr::null_mut(), |s| s.into_raw())
 }
 
+/// Web LineInspector's stop rows (`train_riders::line`) for line `line` at game time `time`;
+/// JSON, `null` before the riders are in.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_lineRiders(
+    env: JNIEnv,
+    _: JClass,
+    id: jlong,
+    line: jni::sys::jint,
+    time: jdouble,
+) -> jni::sys::jstring {
+    let value = SESSIONS.with_borrow_mut(|s| {
+        let clock = s.active.get_mut(&id)?;
+        clock.passengers.as_ref()?;
+        let forecast = clock.forecast.clone()?;
+        (line >= 0 && time.is_finite()).then(|| {
+            let riders = forecast.line_riders(line as u32);
+            crate::train_riders::line(&clock.world, line as u32, time, riders.as_ref())
+        })
+    });
+    let text = value.unwrap_or(serde_json::Value::Null).to_string();
+    env.new_string(text)
+        .map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
+
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_SimulationEngine_close(
     _: JNIEnv,
