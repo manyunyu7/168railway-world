@@ -52,7 +52,8 @@ impl World {
         };
         Some(
             json!({"name":self.api.line_name(id),"color":r[1],"cars":r[8],"count":[r[13],r[14],r[15]],"headway":self.api.line_auto(id),
-          "weekend":weekend.first().copied().unwrap_or(100.),"dwell":r[19],"turn":r[20],"cycle":r[10],"cycles":[r[10],r[11],r[12]],"length":r[9],"limit":self.api.line_limit(id),
+          "weekend":weekend.first().copied().unwrap_or(100.),
+          "weekendManual":weekend.get(1).is_some_and(|&m| m == 1.),"weekendCounts":weekend.get(2..5),"dwell":r[19],"turn":r[20],"cycle":r[10],"cycles":[r[10],r[11],r[12]],"length":r[9],"limit":self.api.line_limit(id),
           "level":level_at(now + self.api.world().svc.lines[id as usize].shift),
           "shift":self.api.world().svc.lines[id as usize].shift,"vehicle":vehicle,"stops":labels.stops,"unnamedStops":labels.unnamed,"directionNames":labels.directions,"upcoming":upcoming,"depart":trips,"running":r[3]==1.}),
         )
@@ -169,6 +170,22 @@ impl World {
             );
         }
         let weekend = number("weekend", 10, 200)?;
+        // web DaySections: weekend trains set by hand at each level (the share then kept for the
+        // panel); absent, the weekends run at the share, counts set by hand dropped
+        let weekend_counts = match v["weekendCounts"].as_array() {
+            Some(c) if c.len() == 3 => {
+                let mut out = [0u32; 3];
+                for (o, n) in out.iter_mut().zip(c) {
+                    *o = n
+                        .as_u64()
+                        .filter(|&n| n <= 128)
+                        .ok_or("Kereta akhir pekan harus 0–128.")? as u32;
+                }
+                Some(out)
+            }
+            Some(_) => return Err("Kereta akhir pekan harus tiga angka.".into()),
+            None => None,
+        };
         let cars = number("cars", 0, 12)?;
         let dwell = number("dwell", 5, 600)?;
         let turn = number("turn", 15, 1800)?;
@@ -189,7 +206,9 @@ impl World {
                 api.clear_auto_headway(id) != 0
                     || api.set_train_counts(id, counts[0], counts[1], counts[2]) != 0
             }
-            || api.set_line_weekend_share(id, weekend) != 0;
+            || api.set_line_weekend_share(id, weekend) != 0
+            || weekend_counts
+                .is_some_and(|c| api.set_line_weekend_counts(id, c[0], c[1], c[2]) != 0);
         if failed {
             return Err(format!("Jadwal ditolak: {}", api.issue_kinds()));
         }
@@ -259,6 +278,25 @@ pub extern "system" fn Java_world_nativegame_ServicePanel_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn weekend_counts_by_hand_and_back_to_the_share() {
+        let mut w = World::workshop();
+        let t = 111600.;
+        w.build_service([0., 0.], [3500., 600.], "Hudson", t)
+            .unwrap();
+        let base = json!({"name":"Hudson","mode":"count","peak":4,"day":2,"night":1,"weekend":60,"cars":4,"dwell":30,"turn":120});
+        let mut by_hand = base.clone();
+        by_hand["weekendCounts"] = json!([3, 2, 1]);
+        let saved = w.schedule(0, t, &by_hand).unwrap();
+        assert_eq!(saved["weekendManual"], true);
+        assert_eq!(saved["weekendCounts"], json!([3., 2., 1.]));
+        assert_eq!(saved["weekend"], 60.);
+        let back = w.schedule(0, t, &base).unwrap();
+        assert_eq!(back["weekendManual"], false);
+        let mut bad = base.clone();
+        bad["weekendCounts"] = json!([3, 2]);
+        assert!(w.schedule(0, t, &bad).is_err());
+    }
     #[test]
     fn timetable_edits_and_headways_survive_reload() {
         let mut w = World::workshop();

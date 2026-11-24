@@ -185,15 +185,59 @@ internal class ScheduleEditor(
                     setPadding(0, 0, 0, 0)
                     textSize = 20f
                 }
-                row.addView(adjust(-1), LinearLayout.LayoutParams(dp(44), dp(44)))
+                // 48 dp steppers: the minimum thumb target
+                row.addView(adjust(-1), LinearLayout.LayoutParams(dp(48), dp(48)))
                 row.addView(edit, LinearLayout.LayoutParams(dp(60), -2).apply { setMargins(dp(2),0,dp(2),0) })
-                row.addView(adjust(1), LinearLayout.LayoutParams(dp(44), dp(44)))
+                row.addView(adjust(1), LinearLayout.LayoutParams(dp(48), dp(48)))
                 body.addView(row, gap(8))
                 watch(edit) {
                     (if (byInterval) headwayDraft else countDraft)[i] = edit.text.toString()
                     refresh()
                 }
             }
+
+            // web DaySections: the weekends' own section, the share of the weekdays' trains or, set by
+            // hand, the trains at each level ("Kereta akhir pekan diatur manual")
+            body.addView(section("Akhir pekan"), gap(16))
+            body.addView(StudioUi.text(host, "Akhir pekan dan hari libur nasional", 12f, true, StudioUi.MUTED).apply { setPadding(dp(4), 0, 0, 0) }, gap(2))
+            val shareStart = service.optInt("weekend", 100).toString()
+            val manual = service.optBoolean("weekendManual")
+            val weekendStart = Array(3) { service.optJSONArray("weekendCounts")?.optInt(it, 0) ?: 0 }
+            val weekend = input("Porsi kereta akhir pekan terhadap kereta hari kerja", shareStart, true)
+            val shareRow = LinearLayout(host).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(6), dp(8), dp(6))
+                background = StudioUi.card(host, 22)
+            }
+            shareRow.addView(StudioUi.text(host, "Porsi dari hari kerja (%)", 15f, true), LinearLayout.LayoutParams(0, -2, 1f))
+            shareRow.addView(weekend, LinearLayout.LayoutParams(dp(84), dp(48)))
+            body.addView(shareRow, gap(6))
+            val manualNote = StudioUi.text(host, "Kereta akhir pekan diatur manual. Mengubah porsi mengembalikannya ke porsi.", 12f, true, 0xff7a5600.toInt()).apply {
+                setPadding(dp(4), 0, 0, 0)
+                visibility = if (manual) View.VISIBLE else View.GONE
+            }
+            body.addView(manualNote, gap(4))
+            val weekendFields = periods.mapIndexed { i, period ->
+                val row = LinearLayout(host).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), dp(6), dp(8), dp(6))
+                    background = StudioUi.card(host, 22)
+                }
+                row.addView(StudioUi.text(host, "$period · ${route.vehicleUnit}", 15f, true), LinearLayout.LayoutParams(0, -2, 1f))
+                val field = input("Kereta akhir pekan, permintaan ${period.lowercase()}", weekendStart[i].toString(), true)
+                fun step(d: Int) = StudioUi.iconButton(host, "${if (d < 0) "Kurangi" else "Tambah"} ${route.vehicleUnit} akhir pekan, permintaan ${period.lowercase()}",
+                    if (d < 0) StudioUi.Icon.MINUS else StudioUi.Icon.PLUS) {
+                    field.setText(((field.text.toString().toIntOrNull() ?: 0) + d).coerceIn(0, 128).toString())
+                }
+                row.addView(step(-1), LinearLayout.LayoutParams(dp(48), dp(48)))
+                row.addView(field, LinearLayout.LayoutParams(dp(60), dp(48)).apply { setMargins(dp(2), 0, dp(2), 0) })
+                row.addView(step(1), LinearLayout.LayoutParams(dp(48), dp(48)))
+                body.addView(row, gap(6))
+                field
+            }
+            weekendFields.forEach { f -> watch(f) {
+                manualNote.visibility = if (manual || weekendFields.indices.any { weekendFields[it].text.toString() != weekendStart[it].toString() }) View.VISIBLE else View.GONE
+            } }
 
             val advanced = group().apply { visibility = View.GONE }
             lateinit var fold: Button
@@ -210,7 +254,6 @@ internal class ScheduleEditor(
             }
             val name = option("Nama layanan", service.getString("name"), false)
             watch(name) { routeTitle.text = name.text.toString().trim().ifEmpty { service.getString("name") } }
-            val weekend = option("Armada akhir pekan (% hari kerja)", service.getInt("weekend").toString())
             val cars = if (route.vehicleUnit == "kereta")
                 option("Gerbong per rangkaian (0 = otomatis)", service.getInt("cars").toString()) else null
             val dwell = option("Berhenti di ${route.stopType} (detik)", service.getInt("dwell").toString())
@@ -256,6 +299,11 @@ internal class ScheduleEditor(
                     values.put(key,n)
                 }
                 values.put("weekend",read(weekend,10,200) ?: return)
+                // counts typed: set by hand; untouched on a line set by hand and the share kept: kept
+                val counts = weekendFields.map { read(it,0,128) ?: return }
+                val countsChanged = counts.indices.any { counts[it] != weekendStart[it] }
+                val shareChanged = weekend.text.toString().trim() != shareStart
+                if (countsChanged || (manual && !shareChanged)) values.put("weekendCounts", org.json.JSONArray(counts))
                 values.put("cars",if (cars == null) service.getInt("cars") else read(cars,0,12) ?: return)
                 values.put("dwell",read(dwell,5,600) ?: return)
                 values.put("turn",read(turn,15,1800) ?: return)
