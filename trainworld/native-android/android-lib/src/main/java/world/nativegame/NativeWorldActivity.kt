@@ -2640,12 +2640,18 @@ internal class NetworkView(context: Context):View(context) {
             }
         }
         paint.pathEffect = null
+        val occupied=mutableListOf<RectF>()
         for((p,label) in junctionMarks) {
-            val x=sx(p.x); val y=sy(p.y)-14*density
+            val x=sx(p.x); var y=sy(p.y)-24*density
             paint.textSize=12*density
             val half=paint.measureText(label)/2+5*density
+            val box=RectF(x-half,y-10*density,x+half,y+8*density)
+            while(occupied.any { RectF.intersects(it,box) }) {
+                y-=20*density; box.offset(0f,-20*density)
+            }
+            occupied.add(box)
             paint.color=when(label) { "Sambung" -> 0xff836000.toInt(); "Wesel" -> 0xffa72c28.toInt(); else -> 0xff623319.toInt() }
-            c.drawRoundRect(x-half,y-10*density,x+half,y+8*density,6*density,6*density,paint)
+            c.drawRoundRect(box,6*density,6*density,paint)
             paint.color=Color.WHITE
             c.drawText(label,x-paint.measureText(label)/2,y+4*density,paint)
         }
