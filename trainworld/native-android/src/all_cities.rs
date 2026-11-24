@@ -1,7 +1,7 @@
 //! The all cities view (web ui/inspector/AllCitiesView.tsx, the sums of ui/Cities.tsx): every zone
 //! with a built station, its stations and lines, its trips on the average day as the web's
-//! `cityDemandViews`, and its profit as `figures()` reads the region ledgers. Points are not kept
-//! on Android, so there are none.
+//! `cityDemandViews`, its profit as `figures()` reads the region ledgers, its points as
+//! `pointsScore` and its star (the game second it was earned, web `stars`).
 use crate::World;
 use jni::{
     objects::{JByteArray, JClass, JString},
@@ -180,6 +180,7 @@ pub(super) fn summary(save: &[u8], manifest: &str) -> Result<Value, String> {
             points_all += p;
         }
         let mut row = json!({"id": id, "stations": n, "lines": lines.get(id).copied().unwrap_or(0), "points": p,
+            "star": world.header["stars"][id],
             "money": f.as_ref().map_or(Value::Null, |(v, y)| { let mut v = v.clone(); v["yesterday"] = (*y).into(); v })});
         if let Some(&[trips, rail, walk, none]) = day {
             seen = true;
