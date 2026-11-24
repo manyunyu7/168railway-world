@@ -509,10 +509,10 @@ class NativeWorldActivity : Activity() {
         }
         map.onLineTap = { id ->
             if (!drawing && !removingTrack && !restoringEdit && !selectingInfrastructure && handle != 0L)
-                withCommittedWorld(pause = false) { openServiceDetails(id) }
+                withCommittedWorld(pause = false) { map.showLineAboveSheet(id); openServiceDetails(id) }
         }
         map.onTrainTap = { profile, dep, fill, engine, time ->
-            if (!drawing && !removingTrack && !restoringEdit && engine != 0L) openTrain(profile, dep, fill, engine, time)
+            if (!drawing && !removingTrack && !restoringEdit && engine != 0L) { map.showTrainAboveSheet(profile, dep); openTrain(profile, dep, fill, engine, time) }
         }
         map.onStationTap = { station ->
             if (!drawing && !removingTrack && !restoringEdit && handle != 0L) {
@@ -3131,6 +3131,24 @@ internal class NetworkView(context: Context):View(context) {
         val radiusPx = min(width*.36f,height*.12f)
         scale = radiusPx / (1000f * kotlin.math.cosh(y / 6371008.8f))
         focusAt(x,y-height*.15f/scale)
+    }
+
+    /** A sheet covers the lower half: keep the tapped train in the upper part, at its current zoom. */
+    fun showTrainAboveSheet(profile: Int, dep: Int) {
+        val at = trainPainter.positionOf(profile, dep) ?: return
+        focusAt(at.first, at.second - height*.2f/scale)
+    }
+    /** Frame a whole line in the space above a half-height sheet. */
+    fun showLineAboveSheet(id: Int) {
+        val xy = routeXY.firstOrNull { it.first == id }?.second ?: return
+        if (xy.size < 4) return
+        var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        for (i in xy.indices step 2) { minX = min(minX, xy[i]); maxX = maxOf(maxX, xy[i]); minY = min(minY, xy[i+1]); maxY = maxOf(maxY, xy[i+1]) }
+        val room = height * .36f
+        val s = min(width*.84f/(maxX-minX).coerceAtLeast(1f), room*.84f/(maxY-minY).coerceAtLeast(1f))
+        if (s.isFinite() && s > 0f) scale = min(s, scale*4f)
+        // centre the line in the band above the sheet: its middle sits a quarter of the screen up
+        focusAt((minX+maxX)/2f, (minY+maxY)/2f - height*.27f/scale)
     }
 
     fun finishStationInspection() {

@@ -167,7 +167,7 @@ internal object ServicePanel {
         val shift = service.optDouble("shift", 0.0)
         val color = color(service)
         lateinit var footer: LinearLayout
-        StudioUi.sheet(host, service.getString("name"), pinnedAction = { footer }) { column, dialog ->
+        StudioUi.sheet(host, service.getString("name"), .6f, pinnedAction = { footer }) { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
             val head = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
             head.addView(StudioUi.badge(host, code(service.getString("name")), color, 52), LinearLayout.LayoutParams(dp(52), dp(52)))
