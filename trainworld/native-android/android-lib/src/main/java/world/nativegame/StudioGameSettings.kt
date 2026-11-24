@@ -15,7 +15,7 @@ internal object StudioGameSettings {
     private fun prefs(c:Context) = c.getSharedPreferences("studio-display", Context.MODE_PRIVATE)
     fun read(c:Context):Display = with(prefs(c)) {
         Display(getBoolean("trains",true),getBoolean("capacity",true),getBoolean("fullMarks",true),
-            getBoolean("stationNames",true),getBoolean("basemapLabels",true),getBoolean("zoomButtons",true),
+            getBoolean("stationNames",false),getBoolean("basemapLabels",true),getBoolean("zoomButtons",true),
             getFloat("lineWidth",1f),getFloat("stationCircleSize",1f),getFloat("basemapContrast",1f),getBoolean("buses",true),
             getFloat("bubbleSize",1f),getFloat("bubbleOpacity",.7f),getString("bubbleScheme","mode") ?: "mode",getInt("bubbleDetail",1))
     }
@@ -34,13 +34,13 @@ internal object StudioGameSettings {
                 }
                 body.addView(group,LinearLayout.LayoutParams(-1,-2))
             }
-            fun toggle(key:String,label:String) {
+            fun toggle(key:String,label:String,default:Boolean=true) {
                 group!!.addView(Switch(host).apply {
                     text = label
                     setTextColor(StudioUi.INK)
                     typeface=StudioUi.face(host,true)
                     textSize=15f
-                    isChecked=prefs.getBoolean(key,true)
+                    isChecked=prefs.getBoolean(key,default)
                     minHeight=dp(52)
                     thumbTintList = android.content.res.ColorStateList.valueOf(StudioUi.WHITE)
                     trackTintList = android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
@@ -88,7 +88,7 @@ internal object StudioGameSettings {
             toggle("buses","Tampilkan kendaraan bus dan feri")
             toggle("capacity","Tampilkan keterisian kendaraan")
             toggle("fullMarks","Tandai kendaraan penuh")
-            toggle("stationNames","Nama stasiun dan halte")
+            toggle("stationNames","Nama stasiun dan halte",false)
             toggle("basemapLabels","Nama jalan dan kawasan")
             toggle("zoomButtons","Tombol perbesar dan perkecil")
             heading("Ukuran dan kontras")

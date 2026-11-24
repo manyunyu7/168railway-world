@@ -270,7 +270,7 @@ class NativeWorldActivity : Activity() {
         cashPill.addView(balance)
         clockPill.addView(cashPill, LinearLayout.LayoutParams(-2, dp(42)))
         header.addView(clockPill, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(6) })
-        save = glassIcon(StudioUi.Icon.SAVE, "Simpan ke Studio", 46) { withCommittedWorld { saveWorld() } }.apply { isEnabled = false }
+        save = glassIcon(StudioUi.Icon.SAVE, "Simpan ke Studio", 48) { withCommittedWorld { saveWorld() } }.apply { isEnabled = false }
 
         val mapTools = LinearLayout(this).apply { gravity = Gravity.TOP }
         hud.addView(mapTools, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
@@ -308,7 +308,7 @@ class NativeWorldActivity : Activity() {
         missionSlot.addView(leftTools, android.widget.FrameLayout.LayoutParams(-2, -2))
         mapTools.addView(missionSlot, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
         val rightTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        rightTools.addView(save, LinearLayout.LayoutParams(dp(46), dp(46)).apply { bottomMargin = dp(8) })
+        rightTools.addView(save, LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(8) })
         zoomTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rightTools.addView(zoomTools)
         listOf(
@@ -316,8 +316,8 @@ class NativeWorldActivity : Activity() {
             Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoomStep(false) }),
             Triple(StudioUi.Icon.CENTER, "Tampilkan jaringan", { map.resetCamera() })
         ).forEach { (icon, description, click) ->
-            zoomTools.addView(glassIcon(icon, description, 46, click),
-                LinearLayout.LayoutParams(dp(46), dp(46)).apply { bottomMargin = dp(8) })
+            zoomTools.addView(glassIcon(icon, description, 48, click),
+                LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(8) })
         }
         zoomTools.visibility = if (StudioGameSettings.read(this).zoomButtons) View.VISIBLE else View.GONE
         mapTools.addView(rightTools)
