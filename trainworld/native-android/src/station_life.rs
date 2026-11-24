@@ -66,6 +66,19 @@ fn riders(
     Some((off, on, mood))
 }
 
+/// Web faces' country (T-1907, faceTones.ts): the ISO code of a zone the map's outlines found
+/// (ViewportZones.place), "" for none.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_FaceLayer_country(
+    mut env: jni::JNIEnv,
+    _: jni::objects::JClass,
+    zone: jni::objects::JString,
+) -> jni::sys::jstring {
+    let zone: String = env.get_string(&zone).map(Into::into).unwrap_or_default();
+    env.new_string(crate::passenger_account::country_of(&zone))
+        .map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

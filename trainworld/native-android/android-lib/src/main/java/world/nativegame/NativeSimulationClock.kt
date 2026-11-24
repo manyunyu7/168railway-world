@@ -25,6 +25,8 @@ internal interface SimulationClock {
     fun lineRiders(line: Int, time: Double, done: (String?) -> Unit)
     /** Every line's riders, money and vehicles as web LinesTab shows them (line_summary.rs). */
     fun lineSummary(time: Double, done: (String?) -> Unit)
+    /** Riders off, on and the faces' mood per arrival (station_life.rs); `done(null)` before they are in. */
+    fun arrivalRiders(time: Double, ask: FloatArray, done: (FloatArray?) -> Unit)
     fun close()
 }
 
@@ -43,6 +45,7 @@ internal object SimulationEngine {
     external fun stationRiders(id: Long, node: Int, time: Double): String?
     external fun lineRiders(id: Long, line: Int, time: Double): String?
     external fun lineSummary(id: Long, time: Double): String?
+    external fun arrivalRiders(id: Long, time: Double, ask: FloatArray): FloatArray?
     external fun close(id: Long)
 }
 
@@ -150,6 +153,13 @@ internal class NativeSimulationClock(
         ask({ SimulationEngine.lineRiders(id, line, time) }, done)
     override fun lineSummary(time: Double, done: (String?) -> Unit) =
         ask({ SimulationEngine.lineSummary(id, time) }, done)
+    override fun arrivalRiders(time: Double, ask: FloatArray, done: (FloatArray?) -> Unit) {
+        if (!isReady || closed) { done(null); return }
+        submit {
+            val got = SimulationEngine.arrivalRiders(id, time, ask)
+            main.post { if (!closed) done(got) }
+        }
+    }
     override fun close() {
         if (closed) return
         closed=true

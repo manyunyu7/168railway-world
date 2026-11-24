@@ -197,6 +197,7 @@ class NativeWorldActivity : Activity() {
             workshop = this@NativeWorldActivity.workshop
             trainEngine = { handle }
             trainClock = { ms -> (reference ?: handover.ghost)?.timeAt(ms) }
+            WorldSound.riders = { t, ask, done -> (reference ?: handover.ghost)?.arrivalRiders(t, ask, done) ?: done(null) }
             overlay.city = city.id
             val overlayCity = city.id
             overlay.manifest = { bytes, viewed ->
@@ -2963,6 +2964,9 @@ internal class NetworkView(context: Context):View(context) {
     private var followMisses = 0
     fun trainTime() = trainPainter.time
     fun trainLoad(profile: Int, dep: Int) = trainPainter.loadOf(profile, dep)
+    /** FaceLayer: centre x, y, px per unit and Mercator per frame unit, without allocating; and a frame that keeps the static layer. */
+    fun faceCamera(out: FloatArray) { out[0]=centerX; out[1]=centerY; out[2]=scale; out[3]=trainPainter.mercatorPerFrame }
+    fun animateFaces() = postOnAnimation(redrawTask)
     var onTrainTap: ((Int, Int, Int?, Long, Double) -> Unit)? = null
     /** Station tool armed: rings 1 and 2 km round the chosen spot, as the web's T-312 `stationRings`. */
     var placingStation = false
@@ -3429,6 +3433,7 @@ internal class NetworkView(context: Context):View(context) {
         drawDynamic(c)
         StationDesign.draw(this, c)
         StopEditMode.draw(this, c)
+        FaceLayer.draw(this, c)
         FrameLog.frame(System.nanoTime() - drawStarted)
     }
 

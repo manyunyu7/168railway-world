@@ -95,6 +95,7 @@ internal object StudioGameSettings {
             toggle("zoomButtons","Tombol perbesar dan perkecil")
             // web settingsTab.upClose: the sound switch, its volume shown only while it is on
             heading("Stasiun dari dekat")
+            toggle("faces","Wajah penumpang")
             var volume: List<android.view.View> = emptyList()
             val sound = toggle("sound","Suara") { on -> volume.forEach { it.visibility = if (on) android.view.View.VISIBLE else android.view.View.GONE } }
             volume = slider("soundVolume","Volume",10,100,.6f)
