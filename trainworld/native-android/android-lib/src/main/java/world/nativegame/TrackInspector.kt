@@ -110,7 +110,7 @@ internal object TrackInspector {
                     render()
                 }
                 fun option(row: WrapRow, label: String, on: Boolean, description: String, click: () -> Unit) {
-                    row.addView(StudioUi.button(activity, label, if (on) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE, click = click).apply {
+                    row.addView(StudioUi.choiceChip(activity, label, on, click).apply {
                         contentDescription = description
                         isSelected = on
                     })
@@ -236,7 +236,7 @@ internal object TrackInspector {
                     })
                     limitRow.addView(StudioUi.iconButton(activity, "Naikkan batas laju", StudioUi.Icon.PLUS) { step(1) }.apply { isEnabled = have < top })
                 }
-                limitRow.addView(StudioUi.button(activity, "Batasi", if (have > 0) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE) {
+                limitRow.addView(StudioUi.choiceChip(activity, "Batasi", have > 0) {
                     send(if (have > 0) 0 else top.toInt())
                 }.apply { isSelected = have > 0; contentDescription = if (have > 0) "Hapus batas laju" else "Batasi laju di rel ini" },
                     LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })

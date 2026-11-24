@@ -155,7 +155,7 @@ internal object StudioCityStart {
                 for (id in StudioZonePicker.featured) {
                     val place = store.city(id)
                     val selected = id == city.id
-                    val chip = StudioUi.button(activity,place.name,if(selected) StudioUi.Tone.BLUE else StudioUi.Tone.SURFACE) {
+                    val chip = StudioUi.choiceChip(activity,place.name,selected) {
                         if (city.id != id) {
                             city = place
                             updateCity()
@@ -164,8 +164,6 @@ internal object StudioCityStart {
                     }.apply {
                         isSelected=selected
                         contentDescription="Pilih "+place.name
-                        setPadding(dp(12),dp(4),dp(12),dp(4))
-                        minHeight=dp(48)
                     }
                     quickCities.addView(chip, LinearLayout.LayoutParams(-2,-2).apply { marginEnd=dp(5) })
                 }
