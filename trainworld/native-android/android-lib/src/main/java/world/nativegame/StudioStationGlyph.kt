@@ -120,6 +120,22 @@ internal class StudioStationGlyph private constructor(
         paint.style = Paint.Style.FILL
     }
 
+    /** Web faces (T-2751): the drawn centre line at [t] (0 to 1 over its points), units from the
+     *  node with y north, and its unit normal, into out[0..3]. */
+    fun along(t:Float, out:FloatArray) {
+        val n = xy.size/2
+        val f = t.coerceIn(0f,1f)*(n-1)
+        val j = min(n-2,f.toInt())
+        val r = f-j
+        out[0] = xy[2*j]+(xy[2*j+2]-xy[2*j])*r
+        out[1] = xy[2*j+1]+(xy[2*j+3]-xy[2*j+1])*r
+        out[2] = normals[2*j]
+        out[3] = normals[2*j+1]
+    }
+
+    /** Half the drawn box's width on screen, px. */
+    fun halfPx(scale:Float,density:Float,mercator:Float) = half(scale,density,mercator)*scale
+
     /** Distance to the visible platform footprint. The touch allowance is applied by the caller. */
     fun distance(x:Float,y:Float,scale:Float,density:Float,mercator:Float):Float {
         val h = half(scale,density,mercator)

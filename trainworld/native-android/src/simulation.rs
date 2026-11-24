@@ -252,6 +252,40 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_snapshot(
         .map_or(std::ptr::null_mut(), |a| a.into_raw())
 }
 
+/// Web stationLife `arrive` (`station_life::arrival_riders`): riders off, on and the faces' mood
+/// for each arrival of `ask` (profile, departure ×100, stop index) at game time `time`; null
+/// before the riders are in.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_arrivalRiders(
+    env: JNIEnv,
+    _: JClass,
+    id: jlong,
+    time: jdouble,
+    ask: jni::sys::jfloatArray,
+) -> jni::sys::jfloatArray {
+    let ask = unsafe { jni::objects::JFloatArray::from_raw(ask) };
+    let Ok(n) = env.get_array_length(&ask) else { return std::ptr::null_mut() };
+    let mut query = vec![0f32; n.max(0) as usize];
+    if env.get_float_array_region(&ask, 0, &mut query).is_err() || !time.is_finite() {
+        return std::ptr::null_mut();
+    }
+    let values = SESSIONS.with_borrow_mut(|s| {
+        let clock = s.active.get_mut(&id)?;
+        clock.passengers.as_ref()?;
+        if !clock.loads.as_ref().is_some_and(|l| l.current(time)) {
+            clock.loads = crate::train_loads::Loads::new(&mut clock.world, time);
+        }
+        Some(crate::station_life::arrival_riders(&clock.world, clock.loads.as_ref()?, time, &query))
+    });
+    values
+        .and_then(|v| {
+            let a = env.new_float_array(i32::try_from(v.len()).ok()?).ok()?;
+            env.set_float_array_region(&a, 0, &v).ok()?;
+            Some(a.into_raw())
+        })
+        .unwrap_or(std::ptr::null_mut())
+}
+
 /// Web TrainInspector OnBoard (`train_riders::train`): who is aboard the trip `profile` leaving
 /// `dep` s into its hour, at game time `time`; JSON, `null` before the riders are in.
 #[no_mangle]

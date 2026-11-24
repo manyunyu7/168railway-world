@@ -208,7 +208,15 @@ internal object WorldSound {
     private var sampledAt = 0L
     private val recent = ArrayDeque<Long>()
 
-    /** Called with each train frame: plays the trains that pulled in at a stop in view since the last call. */
+    /** The running simulation's riders at arrivals (SimulationClock.arrivalRiders), set by the activity. */
+    var riders: ((Double, FloatArray, (FloatArray?) -> Unit) -> Unit)? = null
+    /** train_arrivals.rs STRIDE: x, y, line, note, profile, departure ×100, stop, node, riders' side x, y. */
+    private const val STRIDE = 10
+    /** An answer from the simulation later than this is dropped: the moment has passed. */
+    private const val LATE_MS = 1500L
+
+    /** Called with each train frame: the trains that pulled in at a stop in view since the last
+     *  call ring their station and raise faces from its platform (web stationLife.ts `read`). */
     fun trains(map: NetworkView, rate: Double, playing: Boolean) {
         val wall = SystemClock.elapsedRealtime()
         if (wall - sampledAt < SAMPLE_MS) return
@@ -217,8 +225,10 @@ internal object WorldSound {
         val prev = prevTime
         val zoom = map.zoomLevel()
         val vol = volume()
+        val faces = foreground && FaceLayer.enabled(prefs())
+        if (zoom < STATION_BOX_ZOOM || !faces) FaceLayer.clear()
         val handle = map.trainEngine()
-        if (!playing || vol <= 0f || zoom < STATION_BOX_ZOOM || handle == 0L || !time.isFinite() || map.width == 0) { prevTime = Double.NaN; return }
+        if (!playing || (vol <= 0f && !faces) || zoom < STATION_BOX_ZOOM || handle == 0L || !time.isFinite() || map.width == 0) { prevTime = Double.NaN; return }
         prevTime = time
         if (!prev.isFinite()) return
         val w = map.width; val h = map.height
@@ -226,16 +236,43 @@ internal object WorldSound {
         val corner = map.worldAt(w.toFloat(), 0f)
         val hw = kotlin.math.abs(corner.x - centre.x); val hh = kotlin.math.abs(corner.y - centre.y)
         val rows = arrivals(handle, prev, time, centre.x, centre.y, hw, hh) ?: return
+        if (rows.size < STRIDE) return
         // web speed index: 60 plays everything, 240 a note and a pop or two, 960 nothing
         val speed = if (rate <= 90) 0 else if (rate <= 480) 1 else 2
+        val ask = riders
+        if (ask == null) { land(map, rows, null, centre.x, centre.y, speed); return }
+        val n = rows.size / STRIDE
+        ask(time, FloatArray(n * 3) { rows[it / 3 * STRIDE + 4 + it % 3] }) { got ->
+            if (SystemClock.elapsedRealtime() - wall < LATE_MS) land(map, rows, got, centre.x, centre.y, speed)
+        }
+    }
+
+    /** Web stationLife `arrive` for each arrival of [rows], its riders from [got] (off, on, mood
+     *  per arrival). Without them (no rider account yet) the train's fill stands in for both. */
+    private fun land(map: NetworkView, rows: FloatArray, got: FloatArray?, cx: Float, cy: Float, speed: Int) {
+        val zoom = map.zoomLevel()
+        if (zoom < STATION_BOX_ZOOM) return
+        val vol = volume()
+        val faces = foreground && FaceLayer.enabled(prefs())
+        val w = max(1, map.width)
         var i = 0
-        while (i + 6 <= rows.size) {
-            val screen = map.screenOf(PointF(centre.x + rows[i], centre.y + rows[i + 1]))
-            // no rider board on the phone: the train's fill stands in for the riders getting off and on
-            val fill = map.trainLoad(rows[i + 4].toInt(), rows[i + 5].toInt())
-            val riders = (fill ?: 0) * .4
-            arrive(screen.x / max(1, w) * 2 - 1, zoom, vol, speed, popsFor(riders), popsFor(riders), riders, rows[i + 3].toInt(), (fill ?: 0) >= 200)
-            i += 6
+        var j = 0
+        while (i + STRIDE <= rows.size) {
+            val x = cx + rows[i]; val y = cy + rows[i + 1]
+            var off: Double; var on: Double; var mood: Int
+            if (got != null && j + 3 <= got.size && !got[j].isNaN()) {
+                off = got[j].toDouble(); on = got[j + 1].toDouble(); mood = got[j + 2].toInt()
+            } else {
+                val fill = map.trainLoad(rows[i + 4].toInt(), rows[i + 5].toInt()) ?: 0
+                off = fill * .4; on = off; mood = if (fill >= 200) FaceLayer.SAD else FaceLayer.HAPPY
+            }
+            if (vol > 0f) {
+                val screen = map.screenOf(PointF(x, y))
+                arrive(screen.x / w * 2 - 1, zoom, vol, speed, popsFor(off), popsFor(on), off, rows[i + 3].toInt(), mood != FaceLayer.HAPPY)
+            }
+            if (faces && off >= 1) FaceLayer.arrive(map, rows[i + 7].toInt(), x, y, rows[i + 8], rows[i + 9], off, mood)
+            i += STRIDE
+            j += 3
         }
     }
 
