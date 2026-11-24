@@ -513,6 +513,11 @@ class NativeWorldActivity : Activity() {
             if (!drawing && !removingTrack && !restoringEdit && !selectingInfrastructure && handle != 0L)
                 withCommittedWorld(pause = false) { map.showLineAboveSheet(id); openServiceDetails(id) }
         }
+        map.onJunctionTap = { x, y, r ->
+            val node = if (!drawing && !removingTrack && !restoringEdit && !selectingInfrastructure && handle != 0L) JunctionInspector.at(handle, x, y, r) else -1
+            if (node >= 0) withCommittedWorld(pause = false) { openJunction(node) }
+            node >= 0
+        }
         map.onTrainTap = { profile, dep, fill, engine, time ->
             if (!drawing && !removingTrack && !restoringEdit && engine != 0L) { map.showTrainAboveSheet(profile, dep); openTrain(profile, dep, fill, engine, time) }
         }
@@ -1206,6 +1211,12 @@ class NativeWorldActivity : Activity() {
         })
     }
 
+    private fun openJunction(node: Int) = JunctionInspector.show(this, handle, node, clock, ::editPanel) {
+        recordPanelChange("Flyover")
+        map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
+        showBalance(NativeFinance.balance(handle, clock)); troubleKey = ""; updateControls()
+    }
+
     private fun chooseStation() {
         val stations = map.stops.filter { it.id >= 0 }.sortedBy { it.name }
         StudioDialogBuilder(this).setTitle("Pilih stasiun").setItems(stations.map { it.name }.toTypedArray()) { _, i ->
@@ -1336,7 +1347,9 @@ class NativeWorldActivity : Activity() {
                 val row = StudioUi.row(this, null, 0, title, advice) {
                     sheet.dismiss()
                     if (item.has("x")) map.focusAt(item.optDouble("x").toFloat(), item.optDouble("y").toFloat())
-                    withCommittedWorld(pause = false) { openServiceDetails(item.optInt("line")) }
+                    // web: a junction's row opens the junction nearest it (nearestJunction)
+                    val junction = if (item.optInt("kind") == 4 && item.has("x")) JunctionInspector.at(handle, item.optDouble("x"), item.optDouble("y"), 0.0) else -1
+                    withCommittedWorld(pause = false) { if (junction >= 0) openJunction(junction) else openServiceDetails(item.optInt("line")) }
                 }
                 row.addView(StudioUi.badge(this, item.optString("name").split(' ').lastOrNull()?.take(1)?.uppercase() ?: "?", color, 34), 0,
                     LinearLayout.LayoutParams(dp(34), dp(34)))
@@ -2894,6 +2907,8 @@ internal class NetworkView(context: Context):View(context) {
     /** Each service's polyline in world units, for picking a line by a tap (web: click a line). */
     private val routeXY = mutableListOf<Pair<Int,FloatArray>>()
     var onLineTap: ((Int) -> Unit)? = null
+    /** Web pick.ts: a junction under the tap (world x, y, slop in world units) opens its inspector; true if one did. */
+    var onJunctionTap: ((Double, Double, Double) -> Boolean)? = null
     private fun lineAt(x: Float, y: Float, radius: Float): Int? {
         val wx = centerX + (x-width/2f)/scale; val wy = centerY - (y-height/2f)/scale
         val r = radius/scale
@@ -3613,6 +3628,7 @@ internal class NetworkView(context: Context):View(context) {
             }
             // web: a click on a line selects it and opens its panel
             if (onLineTap != null) lineAt(x,y,14*density)?.let { onLineTap?.invoke(it); return }
+            if (onJunctionTap?.invoke((centerX + (x-width/2f)/scale).toDouble(), (centerY - (y-height/2f)/scale).toDouble(), (14*density/scale).toDouble()) == true) return
         }
         onLocation?.invoke(PointF(centerX + (x-width/2f)/scale, centerY - (y-height/2f)/scale))
     }
