@@ -69,7 +69,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     }
     private val edgeProfit = mutableMapOf<Int,Float>()
     /** `purposes`: the span's riders under each filter purpose after "every purpose" (Rust `purpose_spans`). */
-    private class Span(val path: Path, val riders: Float, val profit: Float, val color: Int, val purposes: FloatArray)
+    private class Span(val path: Path, val riders: Float, val profit: Float, val color: Int, val purposes: FloatArray, val id: Int = -1, val f0: Float = 0f, val f1: Float = 0f)
     private val spans = mutableListOf<Span>()
     private val bySpeed = mutableMapOf<Int,Path>()
     private val byHeight = mutableMapOf<Int,Path>()
@@ -174,7 +174,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                     val path = Path()
                     if (measure.getSegment(s[1]*measure.length,s[2]*measure.length,path,true)) {
                         val purposes = byPurpose.getOrNull(i) ?: FloatArray(PURPOSES.size - 1)
-                        spans.add(Span(path,s[3],s[4],route.first,purposes))
+                        spans.add(Span(path,s[3],s[4],route.first,purposes,s[0].toInt(),s[1],s[2]))
                         busiest[0] = max(busiest[0],s[3])
                         for (p in purposes.indices) busiest[p+1] = max(busiest[p+1],purposes[p])
                     }
@@ -226,7 +226,21 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         "speed" -> ramp(speed.toFloat(),speeds,speedColors)
         else -> edgeProfit[id]?.let { ramp(it,gains,gainColors) } ?: 0xff879194.toInt()
     }
-    fun drawRoutes(c:Canvas, width:Float) {
+    /** The Traffic view's width share of each span (against the busiest, purpose shown), per route id:
+     *  rows of route fraction start, end and share, for `LineBands` to place the bands side by side. */
+    fun trafficShares(): Map<Int, List<FloatArray>> {
+        val shown = purposeIndex(); val top = busiest[shown]
+        return spans.filter { it.id >= 0 }.groupBy { it.id }.mapValues { (_, v) -> v.map { s ->
+            val riders = if (shown == 0) s.riders else s.purposes.getOrElse(shown-1) { 0f }
+            floatArrayOf(s.f0, s.f1, if (top > 0) (riders / top).coerceIn(0f,1f) else 0f)
+        }.sortedBy { it[0] } }
+    }
+    /** what `trafficShares` depends on */
+    fun trafficKey() = "${spans.size}/${purpose}/${generation}/${busiest[purposeIndex()]}"
+    /** Traffic-view width of a span with `share` of the busiest's riders, at line width `width`. */
+    fun trafficWidth(width: Float, share: Float) = width * (.85f / 1.3f) * (.5f + 6.1f * share)
+    /** `banded`: the span's stroke shifted beside the other lines on its track (`LineBands.traffic`). */
+    fun drawRoutes(c:Canvas, width:Float, banded: ((Int, Float, Float) -> Path?)? = null) {
         paint.style=Paint.Style.STROKE
         paint.strokeCap=Paint.Cap.ROUND
         paint.strokeJoin=Paint.Join.ROUND
@@ -245,8 +259,10 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 val riders = if (shown == 0) s.riders else s.purposes.getOrElse(shown-1) { 0f }
                 val top = busiest[shown]
                 val share = if (top > 0) (riders / top).coerceIn(0f,1f) else 0f
-                paint.strokeWidth = width * (.85f / 1.3f) * (.5f + 6.1f * share)
+                paint.strokeWidth = trafficWidth(width, share)
                 paint.color=s.color
+                c.drawPath(banded?.invoke(s.id, s.f0, s.f1) ?: s.path, paint)
+                continue
             } else if(track == "profit" && s.profit >= 0) {
                 paint.strokeWidth=width
                 paint.color=ramp(s.profit,gains,gainColors)

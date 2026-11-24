@@ -735,7 +735,17 @@ class NativeWorldActivity : Activity() {
 
     private fun openProgress() {
         if (handle == 0L) return
-        StudioProgress.show(this, currency, progressSnapshot(referenceTime ?: clock))
+        StudioAchievements.show(this)
+        refreshAchievements()
+    }
+
+    /** The achievement steps met now, worked out off the UI thread and kept in the world (web achievements.ts). */
+    private fun refreshAchievements() {
+        if (handle == 0L) return
+        val bytes = Engine.save(handle, clock)
+        val manifest = map.overlay.manifest
+        StudioAchievements.refresh(this, { handle }, bytes, { manifest?.invoke(it, false) }, { referenceTime ?: clock },
+            { id -> runCatching { cityStore.city(id).name }.getOrNull() }) { kept -> if (kept) { worldChanged = true; writeSave() } }
     }
 
     /** Mission card, new-badge toast and the end-of-day report. Cheap: runs at most twice a second. */
@@ -745,26 +755,19 @@ class NativeWorldActivity : Activity() {
         if (now - progressTick < 500) return
         progressTick = now
         val snap = progressSnapshot(clockNow)
-        val list = StudioProgress.badges(currency)
-        val next = StudioProgress.nextMission(list, snap)
+        // the mission card: the achievement tier nearest to reach (web achievements); new steps toast
+        StudioAchievements.reset(handle)
+        val next = StudioAchievements.mission()
         missionCard.visibility = if (next != null && !drawing && !removingTrack && !selectingInfrastructure) View.VISIBLE else View.GONE
         if (next != null) {
-            missionText.text = next.goal
-            missionBar.fraction = StudioProgress.progress(next, snap).toFloat()
-        }
-        val world = local.baseFile.name
-        val seen = StudioProgress.seen(this, world)
-        val got = StudioProgress.unlocked(list, snap).map { it.id }.toSet()
-        if (seen.isEmpty() && got.isNotEmpty()) StudioProgress.remember(this, world, got)
-        else (got - seen).firstOrNull()?.let { id ->
-            StudioProgress.remember(this, world, seen + got)
-            val badge = list.first { it.id == id }
-            Toast.makeText(this, "Lencana baru: ${badge.title}!", Toast.LENGTH_LONG).show()
+            missionText.text = next.first
+            missionBar.fraction = next.second
         }
         val day = snap.day
         val cash = snap.cashMillions
-        if (reportDay < 0) { reportDay = day; dayStartCash = cash }
+        if (reportDay < 0) { reportDay = day; dayStartCash = cash; refreshAchievements() }
         else if (day > reportDay) {
+            refreshAchievements()
             val finished = reportDay
             val start = dayStartCash
             reportDay = day
@@ -772,7 +775,7 @@ class NativeWorldActivity : Activity() {
             updateSummary(cash)
             if (referenceState == ReferenceState.PLAYING && foreground && hasWindowFocus() && !drawing &&
                 speedChip.multiple <= 24.0 && cash.isFinite() && start.isFinite())
-                StudioProgress.report(this, currency, finished, snap.trains, start, cash, null, next?.goal)
+                StudioProgress.report(this, currency, finished, snap.trains, start, cash, null, next?.first)
         }
     }
 
@@ -814,7 +817,7 @@ class NativeWorldActivity : Activity() {
             options.add("Lensa peta lanjutan" to { passengerLayers() })
             if (workshop) options.add("Bongkar layanan atau stasiun" to { withCommittedWorld { demolition() } })
             options.add("Keuangan" to { openFinance() })
-            options.add("Pencapaian & misi" to { openProgress() })
+            options.add("Pencapaian" to { openProgress() })
             options.add("Tutorial bermain" to { chooseTutorial() })
             options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), cityStore.city(focusId ?: city.id).name, ::openStation, map.cityLayer, ::openServiceDetails) })
             options.add("Cetak biru & konstruksi" to { withCommittedWorld { chooseConstruction() } })
@@ -2159,6 +2162,7 @@ class NativeWorldActivity : Activity() {
     private fun restoreMapPreferences(candidate: Long): Boolean {
         var changed = false
         for (zone in visitedThisSession) if (CitySurface.visitViewport(candidate,homeCity,zone)) changed = true
+        if (StudioAchievements.carry(handle,candidate)) changed = true
         worldHomeSetting?.let {
             CitySurface.worldHome(candidate,if (it) 1 else 0)
             changed = true
@@ -2843,6 +2847,8 @@ internal class NetworkView(context: Context):View(context) {
     val draft = mutableListOf<PointF>()
     val routeNames = mutableMapOf<Int,String>()
     val lines = mutableListOf<Pair<Int,Path>>()
+    /** lines sharing track side by side (web lineBands) */
+    private val bands = LineBands()
     /** Each service's polyline in world units, for picking a line by a tap (web: click a line). */
     private val routeXY = mutableListOf<Pair<Int,FloatArray>>()
     var onLineTap: ((Int) -> Unit)? = null
@@ -3053,6 +3059,7 @@ internal class NetworkView(context: Context):View(context) {
                 if (bounds == null) railBounds = RectF(x,y,x,y) else bounds.union(x,y)
             }
         }
+        bands.load(data)
         val routes=data.getJSONArray("routes")
         for(i in 0 until routes.length()) {
             val row=routes.getJSONObject(i);val points=row.getJSONArray("points")
@@ -3300,14 +3307,7 @@ internal class NetworkView(context: Context):View(context) {
             c.drawPath(path,paint)
         }
         if (overlay.track == "line") {
-            paint.strokeWidth = routeWidth + 1.8f * density / scale
-            paint.color = 0xfffaf6e9.toInt()
-            for ((_, line) in lines) c.drawPath(line, paint)
-            paint.strokeWidth = routeWidth
-            for ((color, line) in lines) {
-                paint.color = color
-                c.drawPath(line, paint)
-            }
+            bands.drawLines(c, paint, routeWidth, 1.8f * density / scale, 1f / scale)
         } else {
             paint.strokeWidth = routeWidth
             if (overlay.track == "height" || overlay.track == "speed") {
@@ -3318,7 +3318,7 @@ internal class NetworkView(context: Context):View(context) {
                 paint.color = overlay.railColor(piece.id,piece.info.low,piece.info.speed)
                 c.drawPath(piece.path,paint)
             }
-            overlay.drawRoutes(c,routeWidth)
+            overlay.drawRoutes(c,routeWidth,if (overlay.track == "traffic") bands.traffic(overlay,routeWidth) else null)
         }
         paint.color=0xff327cd6.toInt()
         paint.strokeWidth=3*density/scale

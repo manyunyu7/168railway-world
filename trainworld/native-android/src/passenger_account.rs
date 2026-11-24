@@ -14,6 +14,10 @@ use trainworld_sim::{
 
 include!(concat!(env!("OUT_DIR"), "/places.rs"));
 pub(super) type Regions = BTreeMap<String, f64>;
+/// A zone's country (ISO code), "" for none.
+pub(super) fn country_of(zone: &str) -> &'static str {
+    PLACES.iter().find(|r| r.0 == zone).map_or("", |r| r.2)
+}
 fn add(map: &mut Regions, id: &str, value: f64) {
     *map.entry(id.to_owned()).or_default() += value;
 }
@@ -448,6 +452,26 @@ impl Forecast {
             alight: std::array::from_fn(|p| days[p].alight.clone()),
             purposes: line.purpose_periods.clone(),
         })
+    }
+    /// Per line, its boardings at each stop on the average day (run 0's stops, then run 1's in its
+    /// order), for the achievements' busiest station and line (web `demandFigures`).
+    pub(super) fn day_boardings(&self) -> BTreeMap<u32, Vec<f64>> {
+        self.lines
+            .iter()
+            .map(|(&id, l)| {
+                let mut board = vec![0.; l.days[days::AVERAGE][0].board.len()];
+                for p in &l.days[days::AVERAGE] {
+                    for (t, &v) in board.iter_mut().zip(&p.board) {
+                        *t += f64::from(v);
+                    }
+                }
+                (id, board)
+            })
+            .collect()
+    }
+    /// Changes between lines a day on the average day.
+    pub(super) fn transfers_a_day(&self) -> f64 {
+        self.transfers.values().sum()
     }
     pub(super) fn transfers(&self) -> Vec<f32> {
         let mut out = Vec::with_capacity(self.transfers.len() * 7);
