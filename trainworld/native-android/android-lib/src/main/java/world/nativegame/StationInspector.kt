@@ -22,7 +22,7 @@ internal object StationInspector {
      * "Hapus stasiun" (StationInspector.tsx `remove`). The button shows only while it is set; the
      * host records the undo step and redraws (`commitDemolition(1, node, label)`).
      */
-    var onRemove: ((node: Int, label: String) -> Unit)? = null
+
     /** Web `levelLabel` (format.ts): "+1", "0", "−2". */
     private fun levelLabel(l: Int) = if (l > 0) "+$l" else if (l < 0) "−${-l}" else "0"
     /** Web `levelName` (format.ts LEVEL_NAMES). */
@@ -244,8 +244,8 @@ internal object StationInspector {
         }, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(5) })
         sheet.add(actions,16)
         // web: "Hapus stasiun" at the foot of a station's own view, asking first with what it takes
-        val remove = onRemove
-        if (remove != null && platforms.any { it.getInt("id") == node }) {
+        val host = activity as? NativeWorldActivity
+        if (host != null && platforms.any { it.getInt("id") == node }) {
             val name = station.getString("name")
             val button = StudioUi.button(activity,"Hapus stasiun") {
                 val preview = JSONObject(DemolitionPanel.remove(handle,1,node,time,false))
@@ -256,7 +256,7 @@ internal object StationInspector {
                 val confirm = StudioDialogBuilder(activity).setTitle("Hapus $name?")
                     .setView(DemolitionPanel.impact(activity,1,preview))
                     .setNegativeButton("Batal",null)
-                    .setPositiveButton("Hapus") { _,_ -> sheet.dismiss(); remove(node,name) }
+                    .setPositiveButton("Hapus") { _,_ -> sheet.dismiss(); host.removeInspectedStation(node,name) }
                     .show()
                 DemolitionPanel.danger(confirm.getButton(android.content.DialogInterface.BUTTON_POSITIVE))
             }

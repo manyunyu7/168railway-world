@@ -938,6 +938,13 @@ class NativeWorldActivity : Activity() {
         DemolitionPanel.show(this,handle,clock,::commitDemolition)
     }
 
+    internal fun removeInspectedStation(node: Int, name: String) {
+        withCommittedWorld {
+            stopClock()
+            commitDemolition(1,node,name)
+        }
+    }
+
     private fun commitDemolition(kind: Int, id: Int, label: String) {
         val before = Engine.save(handle, clock)
         if (!history.canKeep(before) || local.baseFile.lastModified() != saveRevision) {
