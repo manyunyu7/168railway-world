@@ -3005,6 +3005,7 @@ internal class NetworkView(context: Context):View(context) {
     val lines = mutableListOf<Pair<Int,Path>>()
     /** lines sharing track side by side (web lineBands) */
     private val bands = LineBands()
+    private val rails = RailLayer(resources.displayMetrics.density)
     /** Each service's polyline in world units, for picking a line by a tap (web: click a line). */
     private val routeXY = mutableListOf<Pair<Int,FloatArray>>()
     fun routeOf(id: Int) = routeXY.firstOrNull { it.first == id }?.second
@@ -3226,7 +3227,7 @@ internal class NetworkView(context: Context):View(context) {
                 if (bounds == null) railBounds = RectF(x,y,x,y) else bounds.union(x,y)
             }
         }
-        bands.load(data)
+        bands.load(data); rails.load(data)
         val routes=data.getJSONArray("routes")
         for(i in 0 until routes.length()) {
             val row=routes.getJSONObject(i);val points=row.getJSONArray("points")
@@ -3471,22 +3472,10 @@ internal class NetworkView(context: Context):View(context) {
         paint.style = Paint.Style.STROKE
         paint.strokeJoin = Paint.Join.ROUND
         paint.strokeCap = Paint.Cap.ROUND
-        for ((style, path) in infrastructure) {
-            val stroke = (if (style.tracks >= 4) 4.8f else if (style.tracks == 1) 2.6f else 3.5f) * density / scale
-            paint.strokeWidth = stroke
-            paint.color = when {
-                style.level < 0 -> 0xff82768b.toInt()
-                style.level > 0 -> 0xff366d74.toInt()
-                style.kind >= 2 -> 0xffa66c39.toInt()
-                else -> 0xff485c64.toInt()
-            }
-            c.drawPath(path,paint)
-            paint.strokeWidth = stroke * .38f
-            paint.color = if (style.level < 0) 0xffdcd5e2.toInt() else 0xffe0e9df.toInt()
-            c.drawPath(path,paint)
-        }
+        rails.drawTrack(c, paint, scale, centerY, routeWidth)
         if (overlay.track == "line") {
-            bands.drawLines(c, paint, routeWidth, 1.8f * density / scale, 1f / scale)
+            if (!rails.drawLines(c, paint, scale, centerY, routeWidth, 1.8f * density / scale))
+                bands.drawLines(c, paint, routeWidth, 1.8f * density / scale, 1f / scale)
         } else {
             paint.strokeWidth = routeWidth
             if (overlay.track == "height" || overlay.track == "speed") {
@@ -3499,11 +3488,9 @@ internal class NetworkView(context: Context):View(context) {
             }
             overlay.drawRoutes(c,routeWidth,if (overlay.track == "traffic") bands.traffic(overlay,routeWidth) else null)
         }
+        rails.drawBlueprint(c, paint, scale, centerY, routeWidth)
         paint.color=0xff327cd6.toInt()
         paint.strokeWidth=3*density/scale
-        paint.pathEffect=android.graphics.DashPathEffect(floatArrayOf(8*density/scale,5*density/scale),0f)
-        c.drawPath(blueprintPath,paint)
-        paint.pathEffect=null
         for((_,p) in plannedStops) c.drawCircle(p.x,p.y,6*density/scale,paint)
         c.restore()
         // web keeps the demand view up while building: that is where stations are worth placing

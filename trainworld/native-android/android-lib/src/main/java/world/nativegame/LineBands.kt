@@ -30,8 +30,12 @@ internal class LineBands {
     /** per shared edge: its bands left to right in its a to b direction, each the line ids in it */
     private val order = HashMap<Int, List<IntArray>>()
 
+    /** per edge its class for a line's width over it (`RailLayer.lineClass`: single, double or tram track) */
+    private val edgeClass = HashMap<Int, Int>()
+
     fun load(data: JSONObject) {
-        routes.clear(); order.clear(); lineKey = Float.NaN; trafficKey = ""
+        routes.clear(); order.clear(); edgeClass.clear(); lineKey = Float.NaN; trafficKey = ""
+        data.optJSONArray("tracks")?.let { t -> for (i in 0 until t.length()) t.getJSONObject(i).let { edgeClass[it.getInt("id")] = RailLayer.lineClass(it) } }
         val rows = data.optJSONArray("bands")
         for (i in 0 until (rows?.length() ?: 0)) {
             val row = rows!!.getJSONArray(i)
@@ -85,7 +89,8 @@ internal class LineBands {
     }
 
     // ---- the Line view
-    private class Drawn(val color: Int, val whole: Path, val solo: Path, val banded: Path)
+    /** per track class (`RailLayer.LINE_*`): the casing, the line on its own and in a band */
+    private class Drawn(val color: Int, val whole: HashMap<Int, Path>, val solo: HashMap<Int, Path>, val banded: HashMap<Int, Path>)
     private val drawn = mutableListOf<Drawn>()
     private var lineKey = Float.NaN
 
@@ -107,31 +112,32 @@ internal class LineBands {
                 shared[j] = true
             }
             val xy = shifted(r.xy, shift)
-            val solo = Path(); val banded = Path()
-            // a segment is a band's where either end is on a shared edge
+            val whole = HashMap<Int, Path>(); val solo = HashMap<Int, Path>(); val banded = HashMap<Int, Path>()
+            // a segment is a band's where either end is on a shared edge; its width by the track under it (web T-3136)
+            fun cls(j: Int) = if (r.at.isEmpty()) RailLayer.LINE_SINGLE else edgeClass[r.at[j+1] shr 1] ?: RailLayer.LINE_SINGLE
             var j = 0
             while (j < n - 1) {
                 val b = shared[j] || shared[j+1]
+                val c = cls(j)
                 var k = j + 1
-                while (k < n - 1 && (shared[k] || shared[k+1]) == b) k++
-                path(xy, j, k, if (b) banded else solo)
+                while (k < n - 1 && (shared[k] || shared[k+1]) == b && cls(k) == c) k++
+                path(xy, j, k, (if (b) banded else solo).getOrPut(c) { Path() })
+                path(xy, j, k, whole.getOrPut(c) { Path() })
                 j = k
             }
-            drawn.add(Drawn(r.color, path(xy), solo, banded))
+            drawn.add(Drawn(r.color, whole, solo, banded))
         }
     }
 
     /** The Line view's lines, casing first (`NetworkView` line mode). `px`: one screen pixel in world units. */
     fun drawLines(c: Canvas, paint: Paint, width: Float, casing: Float, px: Float) {
         lineGeometry(width)
-        paint.strokeWidth = width + casing
         paint.color = 0xfffaf6e9.toInt()
-        for (d in drawn) c.drawPath(d.whole, paint)
-        val band = max(px, width * BAND_SHARE - BAND_GAP_PX * px)
+        for (d in drawn) for ((k, p) in d.whole) { paint.strokeWidth = width * RailLayer.lineShare(k) + casing; c.drawPath(p, paint) }
         for (d in drawn) {
             paint.color = d.color
-            paint.strokeWidth = width; c.drawPath(d.solo, paint)
-            paint.strokeWidth = band; c.drawPath(d.banded, paint)
+            for ((k, p) in d.solo) { paint.strokeWidth = max(px, width * RailLayer.lineShare(k)); c.drawPath(p, paint) }
+            for ((k, p) in d.banded) { paint.strokeWidth = max(px, width * RailLayer.lineShare(k) * BAND_SHARE - BAND_GAP_PX * px); c.drawPath(p, paint) }
         }
     }
 
