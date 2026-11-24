@@ -94,6 +94,7 @@ internal object WorldDocuments {
     fun delete(context: Context, id: String) {
         val file = path(context,id)
         AtomicFile(file).delete()
+        WorldExtras.delete(file)
         check(!file.exists() && !File(file.path + ".bak").exists()) { "Berkas dunia gagal dihapus." }
         WorldCovers.delete(context,id)
         check(prefs(context).edit().remove(id).commit()) { "Indeks arsip gagal disimpan." }
@@ -122,6 +123,7 @@ internal object WorldDocuments {
         val owner = meta.optString("hostOwner").takeIf { it.isNotBlank() }
         val copy = import(context, bytes, "Salinan ${slot.title}", slot.city, owner)
         WorldCovers.copy(context, slot.id, copy.id)
+        WorldExtras.copy(path(context, slot.id), path(context, copy.id))
         return copy
     }
     fun import(context: Context, bytes: ByteArray, name: String, city: String, owner: String? = null): Slot {

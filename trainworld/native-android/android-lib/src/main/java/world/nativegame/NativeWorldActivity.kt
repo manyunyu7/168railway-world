@@ -579,7 +579,7 @@ class NativeWorldActivity : Activity() {
                 }
                 val restored = snapshot != null
                 val loaded = when {
-                    snapshot != null -> Engine.open(snapshot)
+                    snapshot != null -> Engine.open(snapshot).also { WorldExtras.load(it, local.baseFile) }
                     legacyWorkshop -> Engine.workshop()
                     pack != null && !city.hasNetwork -> CitySurface.empty(city.id,pack.header.readText())
                     pack != null -> Engine.open(pack.network.readBytes())
@@ -2385,7 +2385,7 @@ class NativeWorldActivity : Activity() {
             check(local.baseFile.lastModified() == saveRevision)
             check(bytes.isNotEmpty())
             val stream = local.startWrite()
-            try { stream.write(bytes); local.finishWrite(stream) }
+            try { stream.write(WorldExtras.persist(local.baseFile, bytes)); local.finishWrite(stream) }
             catch (e: Exception) { local.failWrite(stream); throw e }
             saveRevision = local.baseFile.lastModified()
             worldChanged = false

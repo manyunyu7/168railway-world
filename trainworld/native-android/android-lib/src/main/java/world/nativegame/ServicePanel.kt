@@ -392,6 +392,11 @@ internal object ServicePanel {
                 editLabel = "Kelipatan tarif"
                 changed(service.getString("name"))
             }, lp(12, host))
+            // 168Railway's own train adverts (WorldExtras.kt; not in the web)
+            summaryTab.addView(WorldExtras.lineSection(host, handle, id, clock, editable, transaction) {
+                editLabel = "Iklan kereta"
+                changed(service.getString("name"))
+            }, lp(12, host))
             // web LineMoney: the line's last 30 whole days of fares and running cost
             FinanceHistory.lineMoney(host, service.optJSONArray("lineDays"), service.optInt("today"), StudioCurrency.current(host))?.let {
                 summaryTab.addView(it, lp(12, host))

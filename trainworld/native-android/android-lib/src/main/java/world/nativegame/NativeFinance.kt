@@ -147,7 +147,8 @@ object NativeFinance {
     }
 
     /** Web `ledgerNet` (MoneyTab.tsx): fares less running, upkeep, the loan's payment, new trains and construction. */
-    internal fun ledgerNet(d: JSONObject) = d.optDouble("fares",0.0) - d.optDouble("running",0.0) - d.optDouble("upkeep",0.0) -
+    internal fun ledgerNet(d: JSONObject) = d.optDouble("fares",0.0) + d.optDouble("parking",0.0) + d.optDouble("ads",0.0) -
+        d.optDouble("running",0.0) - d.optDouble("upkeep",0.0) - d.optDouble("parkUpkeep",0.0) -
         d.optDouble("loan",0.0) - d.optDouble("trains",0.0) - d.optDouble("build",0.0)
 
     /**
@@ -162,8 +163,13 @@ object NativeFinance {
         val prev = days.lastOrNull { it.optInt("day", Int.MIN_VALUE) == today - 1 }
         val rows = buildList<Pair<String, (JSONObject) -> Double>> {
             add("Tarif" to { d -> d.optDouble("fares",0.0) })
+            // 168Railway's own: parking and adverts (WorldExtras.kt), shown once there is any
+            fun any(k: String) = listOfNotNull(now, prev).any { it.optDouble(k,0.0) != 0.0 }
+            if (any("parking")) add("Parkir" to { d -> d.optDouble("parking",0.0) })
+            if (any("ads")) add("Iklan" to { d -> d.optDouble("ads",0.0) })
             add("Operasi kereta" to { d -> -d.optDouble("running",0.0) })
             add("Perawatan" to { d -> -d.optDouble("upkeep",0.0) })
+            if (any("parkUpkeep")) add("Perawatan parkir" to { d -> -d.optDouble("parkUpkeep",0.0) })
             if (loanOut || (prev?.optDouble("loan",0.0) ?: 0.0) > 0) add("Pinjaman" to { d -> -d.optDouble("loan",0.0) })
             add("Kereta baru" to { d -> -d.optDouble("trains",0.0) })
             add("Pembangunan" to { d -> -d.optDouble("build",0.0) })

@@ -252,6 +252,8 @@ internal object StationInspector {
                 rates?.let { "Perawatan stasiun bawah tanah ${StudioFormat.money(it.getDouble(0),currency)} per hari, yang lain ${StudioFormat.money(it.getDouble(1),currency)}." },
                 value),6)
         }
+        // 168Railway's own paid parking and station adverts (WorldExtras.kt; not in the web)
+        sheet.add(WorldExtras.stationSection(activity,handle,node,time,transaction,changed),4)
         if(lines.isNotEmpty()) sheet.text("Diagram rute",true)
         for(line in lines) for(direction in line.getJSONArray("runs").rows()) {
             sheet.action("${line.getString("name")} → ${direction.getString("to")}",line.getInt("color")) {

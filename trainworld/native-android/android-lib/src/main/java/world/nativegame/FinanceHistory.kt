@@ -27,7 +27,7 @@ internal object FinanceHistory {
     private val ONE_OFF = 0xfff1cdca.toInt()
 
     class Col(val label: String, val fares: Double, val running: Double, val upkeep: Double, val loan: Double,
-              val trains: Double, val build: Double, val rides: Double, val perDay: Boolean) {
+              val trains: Double, val build: Double, val rides: Double, val perDay: Boolean, val extra: Double = 0.0) {
         val costs get() = running + upkeep + loan
         val oneOff get() = trains + build
     }
@@ -44,8 +44,12 @@ internal object FinanceHistory {
         val keep = when (span) { "1d" -> 24; "30d" -> 30; else -> Int.MAX_VALUE }
         val shown = list.filter { it.getInt(key) > newest - keep }
         val shift = state.optDouble("dayShift", 0.0) / 3600
-        fun col(e: JSONObject, label: String, n: Int = 1) = Col(label, e.optDouble("fares", 0.0) / n, e.optDouble("running", 0.0) / n, e.optDouble("upkeep", 0.0) / n,
-            e.optDouble("loan", 0.0) / n, e.optDouble("trains", 0.0) / n, e.optDouble("build", 0.0) / n, e.optDouble("rides", 0.0) / n, n > 1)
+        // 168Railway's parking and adverts (WorldExtras.kt) count as income beside the fares, the car parks' upkeep with the upkeep
+        fun col(e: JSONObject, label: String, n: Int = 1): Col {
+            val extra = (e.optDouble("parking", 0.0) + e.optDouble("ads", 0.0)) / n
+            return Col(label, e.optDouble("fares", 0.0) / n + extra, e.optDouble("running", 0.0) / n, (e.optDouble("upkeep", 0.0) + e.optDouble("parkUpkeep", 0.0)) / n,
+                e.optDouble("loan", 0.0) / n, e.optDouble("trains", 0.0) / n, e.optDouble("build", 0.0) / n, e.optDouble("rides", 0.0) / n, n > 1, extra)
+        }
         if (hours) return shown.map { e ->
             val at = e.getInt("hour") + shift
             val h = Math.floorMod(Math.floor(at).toLong(), 24L)
@@ -62,7 +66,7 @@ internal object FinanceHistory {
             val from = maxOf(first, (weekOf(first) + b * per) * 7 + 1)
             val to = minOf(last + 1, (weekOf(first) + (b + 1) * per) * 7 + 1)
             val sum = JSONObject()
-            for (k in listOf("fares", "running", "upkeep", "loan", "trains", "build", "rides")) {
+            for (k in listOf("fares", "running", "upkeep", "loan", "trains", "build", "rides", "parking", "ads", "parkUpkeep")) {
                 sum.put(k, (from until to).sumOf { byDay[it]?.optDouble(k, 0.0) ?: 0.0 })
             }
             col(sum, "Hari $from–${to - 1}", to - from)
@@ -88,7 +92,8 @@ internal object FinanceHistory {
             val per = if (c.perDay) "/hari" else ""
             return buildList {
                 add(if (last) "${c.label} sejauh ini" else c.label)
-                add("Tarif ${usd(c.fares)}$per")
+                add("Tarif ${usd(c.fares - c.extra)}$per")
+                if (c.extra > 0) add("Parkir & iklan ${usd(c.extra)}$per")
                 add("Biaya berjalan ${usd(-(c.running + c.upkeep))}$per")
                 if (c.loan > 0) add("Pinjaman ${usd(-c.loan)}$per")
                 if (c.oneOff > 0) add("Biaya sekali bayar ${usd(-c.oneOff)}$per")
