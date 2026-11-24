@@ -275,6 +275,12 @@ internal object StationInspector {
                 } else sheet.add(StudioUi.row(activity,null,0,name,chips.ifEmpty { null },walk),6)
             }
         }
+        // web StationLinks and the upgrade row's passage button (PassagePick.kt)
+        val reopen: (Double) -> Unit = { now -> sheet.dismiss(); show(activity,handle,node,now,transaction,changed) }
+        PassagePick.section(activity,handle,station.optJSONArray("passages"),platforms.size,node,transaction,changed,reopen)?.let { sheet.add(it,12) }
+        sheet.action("Lorong",icon=R.drawable.studio_upgrade_passage,subtitle=PassagePick.tip(activity)) {
+            PassagePick.start(activity,handle,node,station.getString("name"),transaction,changed) { now -> show(activity,handle,node,now,transaction,changed) }
+        }
         // Actions: structure (white) and facility upgrades (orange).
         val actions = LinearLayout(activity)
         actions.addView(StudioUi.button(activity,"Gedung stasiun") {
