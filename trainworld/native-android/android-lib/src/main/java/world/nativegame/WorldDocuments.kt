@@ -92,7 +92,9 @@ internal object WorldDocuments {
      * entry, and its link to the account copy, which stays in the account.
      */
     fun delete(context: Context, id: String) {
-        path(context,id).delete()
+        val file = path(context,id)
+        AtomicFile(file).delete()
+        check(!file.exists() && !File(file.path + ".bak").exists()) { "Berkas dunia gagal dihapus." }
         WorldCovers.delete(context,id)
         check(prefs(context).edit().remove(id).commit()) { "Indeks arsip gagal disimpan." }
         StudioPendingSaves.forget(context,id)

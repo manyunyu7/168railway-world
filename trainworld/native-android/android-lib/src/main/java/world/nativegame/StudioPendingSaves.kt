@@ -64,6 +64,7 @@ internal object StudioPendingSaves {
     fun pendingIds(c: Context) = pending(c).all.keys.toList()
 
     /** Drops a deleted local world's account link and sync state; the account copy is left as it is. */
+    @Synchronized
     fun forget(c: Context, slot: String) {
         synchronized(generationLock) { pending(c).edit().remove(slot).commit() }
         links(c).edit().remove(slot).commit()
