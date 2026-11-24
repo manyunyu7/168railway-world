@@ -59,6 +59,7 @@ for staged_dir in "$stage"/*; do
     mv "$staged_dir/libworld_native.so" "build/jniLibs/$abi/libworld_native.so"
 done
 mkdir -p build/assets/world-native/snapshots
+cp ../app/src/game/zone-names.json ../app/src/game/zone-aliases.json build/assets/world-native/
 cp ../app/public/snapshots/*.jpg build/assets/world-native/snapshots/
 cp ../T-007-real-nyc.save build/assets/world-native/nyc.save
 cp ../../LICENSE ../../NOTICE.md build/assets/world-native/

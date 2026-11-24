@@ -804,6 +804,22 @@ class NativeWorldActivity : Activity() {
     }
 
     /** Cari & menu: one box finds commands, settings and stations; replaces the old Kelola list. */
+    private val searchCityNames by lazy {
+        fun read(name: String) = assets.open("world-native/$name.json").bufferedReader().use { JSONObject(it.readText()) }
+        val hand = read("zone-names")
+        val auto = read("zone-aliases")
+        cityStore.cities().associate { city ->
+            val entry = hand.optJSONObject(city.id)
+            val label = entry?.optString("name")?.takeIf { it.isNotBlank() } ?: city.name
+            val aliases = mutableSetOf(city.name)
+            for (items in listOfNotNull(entry?.optJSONArray("aliases"), auto.optJSONArray(city.id))) {
+                for (i in 0 until items.length()) aliases.add(items.getString(i))
+            }
+            aliases.remove(label)
+            city.id to (label to aliases)
+        }
+    }
+
     private fun searchMenu(options: List<Pair<String, () -> Unit>>, focus: Boolean = false) {
         fun iconFor(label: String): Pair<StudioUi.Icon, Int> = when {
             label.startsWith("Urungkan") || label.startsWith("Ulangi") -> StudioUi.Icon.UNDO to 0xffefedf5.toInt()
@@ -871,13 +887,25 @@ class NativeWorldActivity : Activity() {
                 if (commands.isNotEmpty()) section(if (q.isEmpty()) "Menu" else "Perintah")
                 commands.forEach { (label, click) -> val (icon, tint) = iconFor(label); row(label, null, icon, tint, click) }
                 if (q.isNotEmpty()) {
-                    data class Hit(val score: Int, val kind: Int, val weight: Int, val name: String, val open: () -> Unit)
+                    data class Hit(val score: Int, val kind: Int, val weight: Int, val name: String, val alias: String?, val open: () -> Unit)
                     val hits = mutableListOf<Hit>()
                     fun offer(name: String, kind: Int, weight: Int = 0, open: () -> Unit) {
                         val score = rank(name,q)
-                        if (score != Int.MAX_VALUE) hits.add(Hit(score,kind,weight,name,open))
+                        if (score != Int.MAX_VALUE) hits.add(Hit(score,kind,weight,name,null,open))
                     }
-                    cityStore.cities().forEach { city -> offer(city.name,0) { locateCity(city.id) } }
+                    for ((id,names) in searchCityNames) {
+                        val (label,aliases) = names
+                        var best = rank(label,q)
+                        var matched: String? = null
+                        for (alias in aliases) {
+                            val score = rank(alias,q)
+                            if (score < best || (score == best && matched != null && alias.length < matched.length)) {
+                                best = score
+                                matched = alias
+                            }
+                        }
+                        if (best != Int.MAX_VALUE) hits.add(Hit(best,0,0,label,matched) { locateCity(id) })
+                    }
                     map.routeNames.forEach { (id,name) -> offer(name,1) { openServiceDetails(id) } }
                     stations.forEach { st -> offer(st.name,2) { openStation(st.id) } }
                     map.cityLayers.forEach { layer -> layer.places.forEach { place ->
@@ -886,7 +914,7 @@ class NativeWorldActivity : Activity() {
                     val labels = listOf("Buka kota","Buka jalur","Buka stasiun","Lihat tempat di peta")
                     hits.sortedWith(compareBy(Hit::score,Hit::kind,Hit::weight,Hit::name)).take(8).forEach { hit ->
                         val icon = if (hit.kind == 1) StudioUi.Icon.ROUTE else StudioUi.Icon.PIN
-                        row(hit.name,labels[hit.kind],icon,StudioUi.TINT_BLUE,hit.open)
+                        row(hit.name,hit.alias?.let { "$it · Buka kota" } ?: labels[hit.kind],icon,StudioUi.TINT_BLUE,hit.open)
                     }
                 }
                 if (results.childCount == 0 && q.isNotEmpty()) results.addView(StudioUi.text(this, "Tidak ada yang cocok dengan “$query”.", 14f, true, StudioUi.MUTED).apply {
