@@ -815,7 +815,7 @@ class NativeWorldActivity : Activity() {
     private fun manageWorld() {
         val options = mutableListOf<Pair<String, () -> Unit>>()
         if (drawing) {
-            options.add("Pengaturan alat" to { configureTool(plan.tool) })
+            options.add("Pengaturan alat" to { configureTool(plan.tool, settings = true) })
             options.add("Pilih titik di tengah peta" to { selectPoint(map.centerPoint()) })
             if (plan.tool==BuildTool.BUS) options.add(BusRoads.menuLabel(this) to { BusRoads.choose(this) { previewDraft() } })
             if (plan.tool==BuildTool.LINE && stationOrder.size>=2) options.add("Putaran di stasiun tengah peta" to { map.onBend?.invoke(map.centerPoint()); Unit })
@@ -1494,7 +1494,18 @@ class NativeWorldActivity : Activity() {
         return result
     }
 
-    private fun configureTool(tool: BuildTool) {
+    /** Station options carried between placements (platform length, plan or build). */
+    private var stationPlan: ConstructionPlan? = null
+    private fun configureTool(tool: BuildTool, settings: Boolean = false) {
+        // web: the station tool places a station where the track is tapped, no form first
+        if (tool==BuildTool.STATION && !settings) {
+            stopTrainPreview()
+            plan=(stationPlan ?: ConstructionPlan(tool,"")).copy(name="")
+            pointProfile.clear(); map.draft.clear(); map.bends.clear(); stationOrder.clear()
+            drawing=true
+            updateDraft()
+            return
+        }
         if(tool==BuildTool.RAIL) {
             stopTrainPreview()
             drawing=true; plan=railOptions.copy(deferred=true)
@@ -1512,6 +1523,7 @@ class NativeWorldActivity : Activity() {
         ConstructionPanel.options(this,initial) {
             if(!keep) { pointProfile.clear(); map.draft.clear(); map.bends.clear(); stationOrder.clear() }
             plan=it
+            if (tool==BuildTool.STATION) stationPlan=it.copy(name="")
             stopTrainPreview()
             drawing=true
             updateDraft()
@@ -1589,7 +1601,7 @@ class NativeWorldActivity : Activity() {
                 1 -> "Ketuk tujuan untuk melihat pratinjau."
                 else -> "Geser ujung atau konfirmasi segmen."
             }
-            BuildTool.STATION -> if(n==0) "Ketuk rel yang sudah dibangun untuk menempatkan peron." else "Lokasi dipilih. Ketuk rel lain atau tinjau stasiun."
+            BuildTool.STATION -> if(n==0) "Ketuk rel untuk membangun stasiun di situ. Pengaturan peron ada di Alat." else "Membangun stasiun…"
             BuildTool.LINE -> LineDraftLoop.status(stationOrder)
             BuildTool.BUS -> if(n==0) "Ketuk lokasi awal bus di dekat jalan." else "$n titik · Ketuk tujuan berikutnya. Rute akan mengikuti jalan."
             BuildTool.FERRY -> if(n==0) "Ketuk pesisir untuk memilih dermaga awal." else "$n dermaga · Ketuk dermaga berikutnya. Tahan untuk menandai lintasan air."
@@ -1600,13 +1612,13 @@ class NativeWorldActivity : Activity() {
             dockTitle.text="${plan.specification} · ≈ ${java.lang.String.format(java.util.Locale.forLanguageTag("id-ID"),"%.1f",metres/1000)} km"
         }
         if(railMode && n==2) status.text="Geser ujung, ketuk lagi, atau pilih Konfirmasi."
-        if(n>0 && plan.tool==BuildTool.STATION) dockTitle.text="${stationName(map.draft.last())} · peron ${plan.platform} m"
+        if(plan.tool==BuildTool.STATION) dockTitle.text=(if(n>0) stationName(map.draft.last()) else if (plan.deferred) "Rencana stasiun" else "Stasiun") + " · peron ${plan.platform} m"
         previewDraft()
         status.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
         map.contentDescription="Peta konstruksi ${plan.tool.label}. ${status.text}"
         // price a complete plan on its own, so the build button already says what it costs
         map.removeCallbacks(quoteTask)
-        if (plan.tool != BuildTool.RAIL && map.draft.size >= plan.tool.minPoints && mapQuote == null) map.postDelayed(quoteTask, 450)
+        if (plan.tool != BuildTool.RAIL && map.draft.size >= plan.tool.minPoints && mapQuote == null) map.postDelayed(quoteTask, if (plan.tool==BuildTool.STATION) 50L else 450L)
         map.invalidate()
     }
 
@@ -1850,6 +1862,8 @@ class NativeWorldActivity : Activity() {
                     status.text=if(spec.deferred) "Rencana tanpa biaya. Ketuk Simpan rencana, atau ubah rancangannya."
                         else "Biaya ${currency.compact(charge)}. Ketuk Bangun, atau ubah rancangannya dulu."
                     if (!dockTitle.text.contains("Rp")) dockTitle.text = "${dockTitle.text} · ${currency.compact(charge)}"
+                    // web: a tap on the track builds the station; the price shows in the note after
+                    if (spec.tool==BuildTool.STATION) commitQuote(quote)
                     updateControls()
                 }
             }
