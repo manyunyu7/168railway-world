@@ -1102,73 +1102,11 @@ class NativeWorldActivity : Activity() {
         }
     }
 
-    /**
-     * Web TrainInspector: line, direction, next stop, how far along and how full, refreshed while
-     * the sheet is open as the train moves. The simulation keeps running behind it.
-     */
-    private fun openTrain(profile: Int, dep: Int, fill: Int?, engine: Long, time: Double) {
-        val first = Engine.trainInfo(engine, profile, dep / 100.0, time)?.takeIf { it != "null" }?.let(::JSONObject) ?: return
-        val color = first.optInt("color") or 0xff000000.toInt()
-        StudioUi.sheet(this, first.optString("name")) { body, sheet ->
-            val head = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-            head.addView(StudioUi.badge(this, first.optString("name").split(' ').lastOrNull()?.take(1)?.uppercase() ?: "?", color, 36),
-                LinearLayout.LayoutParams(dp(36), dp(36)))
-            val towards = StudioUi.text(this, "", 16f, true, StudioUi.INK)
-            head.addView(towards, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
-            body.addView(head)
-            fun row(label: String): TextView {
-                val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(44) }
-                line.addView(StudioUi.text(this, label, 14f, true, StudioUi.MUTED), LinearLayout.LayoutParams(0, -2, 1f))
-                val value = StudioUi.text(this, "—", 15f, true, StudioUi.INK).apply { gravity = Gravity.END }
-                line.addView(value)
-                body.addView(line)
-                return value
-            }
-            val next = row("Stasiun berikutnya")
-            val along = row("Posisi di lintasan")
-            val riders = row("Penumpang")
-            val bar = StudioProgress.Bar(this, StudioUi.GOOD, 0x1a22204a)
-            body.addView(bar, LinearLayout.LayoutParams(-1, dp(10)).apply { topMargin = dp(2); bottomMargin = dp(6) })
-            val note = StudioUi.text(this, "", 12.5f, false, StudioUi.MUTED)
-            body.addView(note)
-            body.addView(StudioUi.button(this, "Ikuti kereta", StudioUi.Tone.PRIMARY, StudioUi.Icon.CENTER) {
-                sheet.dismiss(); followTrain(profile, dep, first.optString("name"))
-            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-            body.addView(StudioUi.button(this, "Buka lini", StudioUi.Tone.SURFACE, StudioUi.Icon.ROUTE) {
-                sheet.dismiss(); withCommittedWorld(pause = false) { openServiceDetails(first.optInt("line")) }
-            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-            fun show(info: JSONObject, gauge: Int?) {
-                val vehicle = info.optString("vehicle", "Kereta")
-                towards.text = "$vehicle menuju ${info.optString("towards")}"
-                next.text = if (info.isNull("next")) "Tiba di tujuan akhir" else info.optString("next")
-                val km = { m: Double -> "%,.1f km".format(java.util.Locale("id"), m / 1000) }
-                along.text = "${km(info.optDouble("s"))} dari ${km(info.optDouble("len"))}"
-                // gauge 0–50 seats, 50–100 standing to rated load, 100–200 crowded to crush (train_loads.rs)
-                riders.text = when {
-                    gauge == null -> "Dihitung…"
-                    gauge <= 0 -> "Kosong"
-                    gauge <= 50 -> "Duduk semua"
-                    gauge <= 100 -> "Ada yang berdiri"
-                    gauge < 200 -> "Padat"
-                    else -> "Penuh sesak"
-                }
-                bar.color = when { gauge == null -> StudioUi.MUTED; gauge <= 100 -> StudioUi.GOOD; gauge < 200 -> 0xffe8a317.toInt(); else -> StudioUi.RED }
-                bar.fraction = (gauge ?: 0) / 200f
-                note.text = "${info.optInt("cars")} gerbong · bilah penuh = penuh sesak"
-            }
-            show(first, fill)
-            // follow the train while the sheet is up
-            val tick = object : Runnable {
-                override fun run() {
-                    if (!sheet.isShowing) return
-                    val t = map.trainTime()
-                    Engine.trainInfo(engine, profile, dep / 100.0, t)?.takeIf { it != "null" }?.let { show(JSONObject(it), map.trainLoad(profile, dep)) }
-                    body.postDelayed(this, 1000)
-                }
-            }
-            body.postDelayed(tick, 1000)
-        }
-    }
+    /** Web TrainInspector (TrainInspector.kt); riders from the running or paused simulation. */
+    private fun openTrain(profile: Int, dep: Int, fill: Int?, engine: Long, time: Double) =
+        TrainInspector.show(this, engine, profile, dep, fill, time, { map.trainTime() }, { map.trainLoad(profile, dep) },
+            { t, seed, done -> (reference ?: parked)?.trainRiders(profile, dep / 100.0, t, seed, done) ?: done(null) },
+            { name -> followTrain(profile, dep, name) }, { line -> withCommittedWorld(pause = false) { openServiceDetails(line) } })
 
     /** Web toggleFollow: the camera rides with the train; a chip says so and lets go. */
     private fun followTrain(profile: Int, dep: Int, name: String) {
@@ -1188,6 +1126,7 @@ class NativeWorldActivity : Activity() {
     private fun openStation(node: Int) {
         map.showStationAboveSheet(node)
         StationInspector.riders = { id -> map.stops.firstOrNull { it.id == id }?.let { map.overlay.riders(it.x, it.y) } }
+        StationInspector.passengers = { id, done -> (reference ?: parked)?.stationRiders(id, map.trainTime(), done) ?: done(null) }
         StationInspector.show(this,handle,node,clock, ::editPanel, {
             recordPanelChange("Fasilitas stasiun")
             map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)

@@ -44,6 +44,9 @@ struct Line {
     /// `segments` of each map filter purpose (`trip_cells::PURPOSES` order): the Traffic view's
     /// widths under the purpose filter (web `lineLoadsFor`, `purposeDemand`)
     purpose_segments: Vec<Vec<f64>>,
+    /// Per `train_riders::PURPOSE_KEYS` and period on the average day, each route node's
+    /// stretch riders then its boardings (`2n` each): the inspectors' purpose splits
+    purpose_periods: Vec<[Vec<f32>; 5]>,
     incoming: Vec<f64>,
     zones: Vec<&'static str>,
     scales: Vec<[f64; 2]>,
@@ -327,6 +330,25 @@ impl Forecast {
                     }
                     // each filter purpose's riders, its model purposes' parts times their factors
                     // (school counts university, T-192); the longer trips have no filter
+                    // web PurposeSplit and OneRider: per purpose (inter-city trips too) and
+                    // period, the stretches' riders and the boardings
+                    line.purpose_periods
+                        .resize(crate::train_riders::PURPOSE_KEYS.len(), Default::default());
+                    for (slot, (_, members)) in line
+                        .purpose_periods
+                        .iter_mut()
+                        .zip(crate::train_riders::purpose_members())
+                    {
+                        let out = &mut slot[q];
+                        out.resize(2 * (end - offset), 0.);
+                        for &p in &members {
+                            let f = days::load_factor(d, p, q);
+                            for j in offset..end {
+                                out[j - offset] += parts[p][j] * f;
+                                out[end - offset + j - offset] += parts[p][n + j] * f;
+                            }
+                        }
+                    }
                     line.purpose_segments
                         .resize(crate::trip_cells::PURPOSES.len(), vec![]);
                     for (out, (_, kinds)) in line
@@ -414,6 +436,18 @@ impl Forecast {
             }
         }
         (riders, arrivals)
+    }
+    /// One line's riders on the average day for the inspectors (`train_riders::LineRiders`).
+    pub(super) fn line_riders(&self, id: u32) -> Option<crate::train_riders::LineRiders> {
+        let line = self.lines.get(&id)?;
+        let days = &line.days[days::AVERAGE];
+        let n = days[0].board.len() / 2;
+        Some(crate::train_riders::LineRiders {
+            n,
+            board: std::array::from_fn(|p| days[p].board.clone()),
+            alight: std::array::from_fn(|p| days[p].alight.clone()),
+            purposes: line.purpose_periods.clone(),
+        })
     }
     pub(super) fn transfers(&self) -> Vec<f32> {
         let mut out = Vec::with_capacity(self.transfers.len() * 7);

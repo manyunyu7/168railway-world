@@ -13,6 +13,10 @@ internal interface SimulationClock {
     fun open(snapshot: ByteArray, ready: () -> Unit)
     fun play(rate: Double)
     fun snapshot(pause: Boolean, done: (Result<ByteArray>) -> Unit)
+    /** Riders aboard one train (train_riders.rs `train`); `done(null)` before they are in. */
+    fun trainRiders(profile: Int, dep: Double, time: Double, seed: Long, done: (String?) -> Unit)
+    /** Boardings and purposes at a station complex (train_riders.rs `station`). */
+    fun stationRiders(node: Int, time: Double, done: (String?) -> Unit)
     fun close()
 }
 
@@ -26,6 +30,8 @@ internal object SimulationEngine {
     external fun pause(id: Long, ms: Long): Boolean
     external fun state(id: Long, ms: Long): DoubleArray?
     external fun snapshot(id: Long, ms: Long): ByteArray?
+    external fun trainRiders(id: Long, profile: Int, dep: Double, time: Double, seed: Long): String?
+    external fun stationRiders(id: Long, node: Int, time: Double): String?
     external fun close(id: Long)
 }
 
@@ -101,6 +107,17 @@ internal class NativeSimulationClock(
             main.post { if (!closed) done(result) }
         }
     }
+    private fun ask(read: () -> String?, done: (String?) -> Unit) {
+        if (!isReady || closed) { done(null); return }
+        submit {
+            val text = read()?.takeIf { it != "null" }
+            main.post { if (!closed) done(text) }
+        }
+    }
+    override fun trainRiders(profile: Int, dep: Double, time: Double, seed: Long, done: (String?) -> Unit) =
+        ask({ SimulationEngine.trainRiders(id, profile, dep, time, seed) }, done)
+    override fun stationRiders(node: Int, time: Double, done: (String?) -> Unit) =
+        ask({ SimulationEngine.stationRiders(id, node, time) }, done)
     override fun close() {
         if (closed) return
         closed=true

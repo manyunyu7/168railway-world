@@ -12,6 +12,7 @@ struct Session {
     world: World,
     passengers: Option<crate::timed_account::Account>,
     loads: Option<crate::train_loads::Loads>,
+    forecast: Option<std::sync::Arc<crate::passenger_account::Forecast>>,
     anchor: f64,
     wall_ms: i64,
     rate: f64,
@@ -25,6 +26,7 @@ impl Session {
             world,
             passengers: None,
             loads: None,
+            forecast: None,
             anchor,
             wall_ms,
             rate: 0.,
@@ -120,9 +122,10 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_openNetwork(
         let files: crate::demand::DemandFiles =
             serde_json::from_str(&text).map_err(|e| e.to_string())?;
         let mut world = World::open(&archive).ok_or("Simpanan tidak dapat dibaca")?;
-        let account = files.read()?.account(&archive, &mut world)?;
+        let (account, forecast) = files.read()?.account_and_forecast(&archive, &mut world)?;
         let mut session = Session::new(world, ms).ok_or("Jam simpanan tidak valid")?;
         session.passengers = Some(account);
+        session.forecast = Some(forecast);
         Ok(session)
     };
     match open() {
@@ -215,6 +218,69 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_snapshot(
         })
         .and_then(|b| env.byte_array_from_slice(&b).ok())
         .map_or(std::ptr::null_mut(), |a| a.into_raw())
+}
+
+/// Web TrainInspector OnBoard (`train_riders::train`): who is aboard the trip `profile` leaving
+/// `dep` s into its hour, at game time `time`; JSON, `null` before the riders are in.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_trainRiders(
+    env: JNIEnv,
+    _: JClass,
+    id: jlong,
+    profile: jni::sys::jint,
+    dep: jdouble,
+    time: jdouble,
+    seed: jlong,
+) -> jni::sys::jstring {
+    let value = SESSIONS.with_borrow_mut(|s| {
+        let clock = s.active.get_mut(&id)?;
+        clock.passengers.as_ref()?;
+        if profile < 0 || !time.is_finite() {
+            return None;
+        }
+        if !clock.loads.as_ref().is_some_and(|l| l.current(time)) {
+            clock.loads = crate::train_loads::Loads::new(&mut clock.world, time);
+        }
+        let line = profile as u32 / 6;
+        let riders = clock.forecast.as_ref().and_then(|f| f.line_riders(line));
+        crate::train_riders::train(
+            &mut clock.world,
+            clock.loads.as_ref()?,
+            riders.as_ref(),
+            profile as usize,
+            dep,
+            time,
+            seed as u64,
+        )
+    });
+    let text = value.unwrap_or(serde_json::Value::Null).to_string();
+    env.new_string(text)
+        .map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
+
+/// Web StationInspector BoardingsToday and PurposeSplit (`train_riders::station`) for the station
+/// complex of `node`, at game time `time`; JSON, `null` before the riders are in.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_stationRiders(
+    env: JNIEnv,
+    _: JClass,
+    id: jlong,
+    node: jni::sys::jint,
+    time: jdouble,
+) -> jni::sys::jstring {
+    let value = SESSIONS.with_borrow_mut(|s| {
+        let clock = s.active.get_mut(&id)?;
+        clock.passengers.as_ref()?;
+        let forecast = clock.forecast.clone()?;
+        (node >= 0 && time.is_finite()).then(|| {
+            crate::train_riders::station(&clock.world, node as u32, time, &|l| {
+                forecast.line_riders(l)
+            })
+        })
+    });
+    let text = value.unwrap_or(serde_json::Value::Null).to_string();
+    env.new_string(text)
+        .map_or(std::ptr::null_mut(), |s| s.into_raw())
 }
 
 #[no_mangle]
