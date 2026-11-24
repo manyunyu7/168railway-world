@@ -1806,7 +1806,7 @@ class NativeWorldActivity : Activity() {
                         BuildTool.STATION -> NativeConstruction.station(candidate,coords[0],coords[1],snap,spec.name,spec.platform,editTime,true,spec.deferred)
                         BuildTool.LINE -> NativeRailLine.create(candidate,order,spec.name,editTime,spec.vehicle,true)
                         BuildTool.BUS, BuildTool.FERRY -> {
-                            if(spec.tool==BuildTool.BUS) RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,via))
+                            if(spec.tool==BuildTool.BUS) { BusRoads.apply(this); RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,via)) }
                             Engine.build(candidate,coords,spec.name,editTime,if(spec.tool==BuildTool.BUS) 5 else 4,curves)
                         }
                     }
