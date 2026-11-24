@@ -217,6 +217,25 @@ fn station_structure(
         );
     }
     let name = request["name"].as_str().unwrap_or("").to_owned();
+    if action == "rename" {
+        // web NameEdit: a trimmed new name, empty or unchanged left as it is; set_station_props
+        // marks it the player's (T-2683) and keeps the platform
+        let name = name.trim().to_owned();
+        let old = net.station_data(node).ok_or("Stasiun belum tersedia.")?;
+        if name.is_empty() || name == old.name {
+            return Ok(json!({"changed":false,"name":old.name}));
+        }
+        if name.chars().count() > 100 {
+            return Err("Nama stasiun paling panjang 100 karakter.".into());
+        }
+        let clock = w.native_clock(time);
+        w.api.set_now(clock);
+        if w.api.set_station_props(node, old.platform, name) != 0 {
+            return Err("Nama stasiun ditolak.".into());
+        }
+        w.operating = None;
+        return Ok(json!({"changed":true,"name":w.api.node_name(node)}));
+    }
     let mut corners = Vec::new();
     if matches!(action, "quote" | "building") {
         let points = request["points"]
@@ -328,6 +347,20 @@ mod structure_tests {
         let node = (0..net.node_count() as u32)
             .find(|&n| net.is_station(n))
             .unwrap();
+        let renamed = station_structure(
+            &mut w,
+            node,
+            clock,
+            &json!({"action":"rename","name":"  Stasiun Uji  "}),
+        )
+        .unwrap();
+        assert_eq!(renamed["name"], "Stasiun Uji");
+        assert!(w.api.world().net.node_named[node as usize]);
+        assert_eq!(
+            station_structure(&mut w, node, clock, &json!({"action":"rename","name":" "})).unwrap()
+                ["changed"],
+            false
+        );
         let list = station_structure(&mut w, node, clock, &json!({"action":"list"})).unwrap();
         let target = list["platforms"].as_array().unwrap().first().unwrap();
         let id = target["id"].as_u64().unwrap();

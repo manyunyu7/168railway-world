@@ -121,6 +121,22 @@ internal object StationInspector {
             13f,true,StudioUi.MUTED).apply { maxLines = 2 })
         header.addView(names, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(12) })
         sheet.add(header,0)
+        // web NameEdit: "Ganti nama" beside the name (a tap on the name too), the station tapped
+        val rename = {
+            sheet.dismiss()
+            rename(activity,handle,node,station.getString("name"),time,transaction) { renamed ->
+                if (renamed) changed()
+                show(activity,handle,node,time,transaction,changed)
+            }
+        }
+        (names.getChildAt(0) as TextView).apply {
+            isClickable = true
+            contentDescription = station.getString("name") + ". Ketuk untuk ganti nama"
+            setOnClickListener { rename() }
+        }
+        sheet.add(StudioUi.button(activity,"Ganti nama") { rename() }.apply {
+            minHeight = dp(48); minimumHeight = dp(48)
+        }.also { it.layoutParams = LinearLayout.LayoutParams(-2,-2) },6)
         // Platform crowding, only when the engine reports who is waiting.
         val waiting = station.optInt("waiting",-1)
         val daily = if (waiting < 0) riders?.invoke(node) else null
@@ -264,6 +280,42 @@ internal object StationInspector {
             sheet.add(button,10)
         }
         sheet.show()
+    }
+    /**
+     * Web NameEdit on a station (StationInspector.tsx `rename`): the name typed, trimmed, empty or
+     * unchanged left as it is; `done(true)` once the world took the new name.
+     */
+    private fun rename(activity: Activity, handle: Long, node: Int, current: String, time: Double,
+                       transaction: PanelEdit, done: (Boolean) -> Unit) {
+        val field = android.widget.EditText(activity).apply {
+            setText(current)
+            setSingleLine()
+            setSelectAllOnFocus(true)
+            contentDescription = "Nama"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+        val box = LinearLayout(activity).apply { setPadding(StudioUi.dp(activity,20),StudioUi.dp(activity,8),StudioUi.dp(activity,20),0); addView(field,LinearLayout.LayoutParams(-1,-2)) }
+        var answered = false
+        fun commit() {
+            if (answered) return
+            answered = true
+            val name = field.text.toString().trim()
+            if (name.isEmpty() || name == current) { done(false); return }
+            transaction { now ->
+                val result = JSONObject(structure(handle,node,now,JSONObject().put("action","rename").put("name",name).toString()))
+                if (result.has("error")) android.widget.Toast.makeText(activity,result.getString("error"),android.widget.Toast.LENGTH_LONG).show()
+                done(result.optBoolean("changed"))
+            }
+        }
+        val dialog = StudioDialogBuilder(activity).setTitle("Ganti nama").setView(box)
+            .setNegativeButton("Batal") { _,_ -> if (!answered) { answered = true; done(false) } }
+            .setOnCancelListener { if (!answered) { answered = true; done(false) } }
+            .setPositiveButton("Selesai") { _,_ -> commit() }
+            .show()
+        field.setOnEditorActionListener { _, _, _ -> dialog.dismiss(); commit(); true }
+        field.requestFocus()
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
     }
     private fun facilities(activity: Activity,handle: Long,node: Int,time: Double,platforms: List<JSONObject>,
                            transaction: PanelEdit, changed: () -> Unit) {
