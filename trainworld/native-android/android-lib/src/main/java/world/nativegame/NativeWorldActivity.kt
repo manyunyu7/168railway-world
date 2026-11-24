@@ -335,16 +335,21 @@ class NativeWorldActivity : Activity() {
         }
         rightTools.addView(mapSearch, LinearLayout.LayoutParams(dp(48),dp(48)))
         // Web TroubleList: a red alert with a count, hidden while nothing is wrong.
-        troubleButton = StudioUi.button(this, "", StudioUi.Tone.SURFACE, StudioUi.Icon.WARNING) { openTroubles() }.apply {
+        troubleButton = TextView(this).apply {
+            // A compact red pill (web: alert icon + count), 48 dp tall to stay easy to hit.
             background = StudioUi.pill(context, 0xffe5484d.toInt(), 24)
             setTextColor(StudioUi.WHITE)
-            textSize = 13f
-            minHeight = dp(48); minWidth = dp(48)
-            setPadding(dp(8), 0, dp(10), 0)
+            typeface = StudioUi.heavy(context)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            compoundDrawablePadding = dp(4)
+            setPadding(dp(10), 0, dp(12), 0)
             elevation = dp(3).toFloat()
+            isClickable = true
+            setOnClickListener { openTroubles() }
             visibility = View.GONE
         }
-        rightTools.addView(troubleButton, LinearLayout.LayoutParams(-2, dp(48)).apply { topMargin = dp(8); gravity = Gravity.END })
+        rightTools.addView(troubleButton, LinearLayout.LayoutParams(-2, dp(44)).apply { topMargin = dp(8); gravity = Gravity.END })
         listOf(
             Triple(StudioUi.Icon.PLUS, "Perbesar peta", { map.zoomStep(true) }),
             Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoomStep(false) }),
@@ -1295,7 +1300,7 @@ class NativeWorldActivity : Activity() {
         }
     }
 
-    private lateinit var troubleButton: Button
+    private lateinit var troubleButton: TextView
     private var troubles = org.json.JSONArray()
     private var troubleKey = ""
     private var troubleAt = 0L
