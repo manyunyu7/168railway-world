@@ -46,7 +46,7 @@ internal object DemolitionPanel {
                         val id = choices[i].getInt("id")
                         val preview = JSONObject(remove(handle, kind, id, clock, false))
                         if (preview.has("error")) {
-                            Toast.makeText(activity, preview.getString("error"), Toast.LENGTH_LONG).show()
+                            WorldSound.refused(activity, preview.getString("error"))
                         } else {
                             val confirm = StudioDialogBuilder(activity).setTitle("Bongkar ${labels[i]}?")
                                 .setView(impact(activity,kind,preview))

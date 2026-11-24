@@ -84,7 +84,7 @@ internal class WorldSpeedChip(private val host: Activity, initial: Double, priva
         override fun onSingleTapConfirmed(e: MotionEvent) = performClick()
         override fun onDoubleTap(e: MotionEvent): Boolean { slider(); return true }
         // the gesture detector takes every touch, so the view's own long-click listener never fired
-        override fun onLongPress(e: MotionEvent) { performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS); slider() }
+        override fun onLongPress(e: MotionEvent) { slider() }
     })
     init {
         gravity = Gravity.CENTER

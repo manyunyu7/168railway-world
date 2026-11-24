@@ -37,6 +37,7 @@ mod station_map;
 mod passages;
 mod track_inspection;
 mod train_scene;
+mod train_arrivals;
 mod issue_text;
 mod line_bands;
 mod achievements;

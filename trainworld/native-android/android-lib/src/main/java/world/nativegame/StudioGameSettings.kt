@@ -34,8 +34,8 @@ internal object StudioGameSettings {
                 }
                 body.addView(group,LinearLayout.LayoutParams(-1,-2))
             }
-            fun toggle(key:String,label:String,default:Boolean=true) {
-                group!!.addView(Switch(host).apply {
+            fun toggle(key:String,label:String,default:Boolean=true,onToggle:(Boolean)->Unit={}):Switch =
+                Switch(host).apply {
                     text = label
                     setTextColor(StudioUi.INK)
                     typeface=StudioUi.face(host,true)
@@ -50,10 +50,10 @@ internal object StudioGameSettings {
                     setOnCheckedChangeListener { _,checked ->
                         prefs.edit().putBoolean(key,checked).apply()
                         changed()
+                        onToggle(checked)
                     }
-                })
-            }
-            fun slider(key:String,label:String,min:Int,max:Int,default:Float=1f) {
+                }.also { group!!.addView(it) }
+            fun slider(key:String,label:String,min:Int,max:Int,default:Float=1f):List<android.view.View> {
                 val row=StudioUi.text(host,"",14f,true).apply { setPadding(0,dp(6),0,0) }
                 group!!.addView(row)
                 val seek=SeekBar(host).apply {
@@ -82,6 +82,7 @@ internal object StudioGameSettings {
                     override fun onStopTrackingTouch(bar:SeekBar) {}
                 })
                 group!!.addView(seek,LinearLayout.LayoutParams(-1,dp(36)))
+                return listOf(row,seek)
             }
             // the sheet's title already says "Tampilan peta"; the first group is just the map
             heading("Peta")
@@ -92,6 +93,12 @@ internal object StudioGameSettings {
             toggle("stationNames","Nama stasiun dan halte",false)
             toggle("basemapLabels","Nama jalan dan kawasan")
             toggle("zoomButtons","Tombol perbesar dan perkecil")
+            // web settingsTab.upClose: the sound switch, its volume shown only while it is on
+            heading("Stasiun dari dekat")
+            var volume: List<android.view.View> = emptyList()
+            val sound = toggle("sound","Suara") { on -> volume.forEach { it.visibility = if (on) android.view.View.VISIBLE else android.view.View.GONE } }
+            volume = slider("soundVolume","Volume",10,100,.6f)
+            if (!sound.isChecked) volume.forEach { it.visibility = android.view.View.GONE }
             heading("Ukuran dan kontras")
             val schemes = linkedMapOf("mode" to "Campuran moda","ramp" to "Pangsa kereta","colorblind" to "Ramah buta warna")
             // a setting picked from a list: one row, its value on the right (was a two-line button)

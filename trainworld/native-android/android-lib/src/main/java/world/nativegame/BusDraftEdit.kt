@@ -2,7 +2,6 @@
 package world.nativegame
 
 import android.graphics.PointF
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import kotlin.math.hypot
@@ -173,7 +172,6 @@ internal class BusDraftEdit(
         val p = press ?: return
         if (dragging) return
         p.held = true
-        map.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         if (p.i < 0) {
             // held on the route between stops: a bend, as a hold anywhere else
             p.ins?.let { map.onBend?.invoke(it.at) }

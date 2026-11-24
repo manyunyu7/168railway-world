@@ -59,7 +59,6 @@ internal object LineDraftLoop {
         order.clear(); order.addAll(next)
         map.draft.clear(); points.forEach { map.draft.add(PointF(it.x, it.y)) }
         map.bends.clear()
-        map.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
         return true
     }
 }

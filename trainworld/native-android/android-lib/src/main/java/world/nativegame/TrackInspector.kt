@@ -175,7 +175,7 @@ internal object TrackInspector {
                             transaction { now ->
                                 val r = JSONObject(rebuild(handle, edge, asked.level ?: KEEP_LEVEL, asked.kind ?: 0, asked.tracks ?: 0, now))
                                 if (r.has("error")) {
-                                    Toast.makeText(activity, r.getString("error"), Toast.LENGTH_LONG).show()
+                                    WorldSound.refused(activity, r.getString("error"))
                                     return@transaction
                                 }
                                 changed("Bangun ulang rel")
@@ -215,7 +215,7 @@ internal object TrackInspector {
                 fun send(kmh: Int) = transaction { now ->
                     val r = JSONObject(limit(handle, edge, kmh, now))
                     if (r.has("error")) {
-                        Toast.makeText(activity, r.getString("error"), Toast.LENGTH_LONG).show()
+                        WorldSound.refused(activity, r.getString("error"))
                         return@transaction
                     }
                     if (r.optBoolean("changed")) changed(if (kmh == 0) "Hapus batas laju" else "Batas laju rel")

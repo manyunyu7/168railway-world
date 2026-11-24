@@ -88,7 +88,7 @@ internal object StationDesign {
               changed: () -> Unit, reopen: (Double) -> Unit, building: Boolean = false) {
         finish(true)
         val start = JSONObject(state(handle, node, "null"))
-        if (start.has("error")) { Toast.makeText(activity, start.getString("error"), Toast.LENGTH_LONG).show(); return }
+        if (start.has("error")) { WorldSound.refused(activity, start.getString("error")); return }
         val forkNode = map.stops.firstOrNull { it.id == node }?.packedId ?: node
         val s = Session(activity, map, handle, node, forkNode, clock, start, transaction, changed, reopen)
         // the one copy taken on the UI thread (the world is the UI thread's); taps fork it on the worker
@@ -195,7 +195,6 @@ internal object StationDesign {
                 }
                 s.selected = s.drag
                 map.parent?.requestDisallowInterceptTouchEvent(true)
-                map.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                 map.invalidate()
                 render(s)
                 return true
@@ -304,14 +303,14 @@ internal object StationDesign {
         finish(false)
         s.transaction { now ->
             val r = JSONObject(apply(s.handle, s.node, now, command))
-            if (r.has("error")) Toast.makeText(activity, r.getString("error"), Toast.LENGTH_LONG).show()
+            if (r.has("error")) WorldSound.refused(activity, r.getString("error"))
             else {
                 val charge = r.optDouble("charge", 0.0)
                 Toast.makeText(activity, if (charge > 0) "$name diubah seharga ${StudioFormat.money(charge * 1e6, currency)}." else "$name diubah.",
                     Toast.LENGTH_LONG).show()
             }
             // the world's map back, changed or not
-            if (r.optBoolean("changed")) s.changed()
+            if (r.optBoolean("changed")) { WorldSound.cueBuilt(r); s.changed() }
             else if (s.previewed) s.map.load(JSONObject(Engine.geometry(s.handle)), refit = false, keepTrainLoads = true)
             s.reopen(now)
         }

@@ -71,7 +71,7 @@ internal object PassagePick {
                 JSONObject().put("action", "link").put("id", station).toString()))
             if (r.has("error")) {
                 // web: a refused pick says why and keeps picking
-                Toast.makeText(p.activity, r.getString("error"), Toast.LENGTH_LONG).show()
+                WorldSound.refused(p.activity, r.getString("error"))
                 return@transaction
             }
             stop()
@@ -79,7 +79,7 @@ internal object PassagePick {
             val a = r.optString("a"); val b = r.optString("b")
             Toast.makeText(p.activity, if (charge > 0) "Lorong antara $a dan $b dibangun dengan biaya ${StudioFormat.money(charge * 1e6, StudioCurrency.current(p.activity))}."
                 else "Lorong antara $a dan $b ditambahkan. Lorong ini dibangun bersama stasiunnya.", Toast.LENGTH_LONG).show()
-            if (r.optBoolean("changed")) p.changed()
+            if (r.optBoolean("changed")) { WorldSound.cueBuilt(r); p.changed() }
             // web: the station the passage started from stays selected
             p.reopen(now)
         }
@@ -109,10 +109,10 @@ internal object PassagePick {
             val remove = StudioUi.button(activity, "Hapus") {
                 transaction { now ->
                     val res = JSONObject(StationInspector.structure(handle, a, now, JSONObject().put("action", "unlink").put("id", b).toString()))
-                    if (res.has("error")) Toast.makeText(activity, res.getString("error"), Toast.LENGTH_LONG).show()
+                    if (res.has("error")) WorldSound.refused(activity, res.getString("error"))
                     else {
                         Toast.makeText(activity, "Lorong antara $aName dan $bName dihapus.", Toast.LENGTH_LONG).show()
-                        if (res.optBoolean("changed")) changed()
+                        if (res.optBoolean("changed")) { WorldSound.cue(WorldSound.Kind.POP); changed() }
                     }
                     reopen(now)
                 }

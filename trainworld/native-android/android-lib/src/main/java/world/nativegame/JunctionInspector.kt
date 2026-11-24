@@ -61,7 +61,7 @@ internal object JunctionInspector {
                 dialog.dismiss()
                 transaction { now ->
                     val result = JSONObject(flying(handle, node, on, now))
-                    if (result.has("error")) Toast.makeText(activity, result.getString("error"), Toast.LENGTH_LONG).show()
+                    if (result.has("error")) WorldSound.refused(activity, result.getString("error"))
                     else {
                         changed()
                         if (on) {

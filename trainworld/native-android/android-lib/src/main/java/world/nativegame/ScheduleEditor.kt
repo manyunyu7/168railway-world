@@ -343,7 +343,7 @@ internal class ScheduleEditor(
                 values.put("turn",read(turn,15,1800) ?: return)
                 applySchedule(values) { result ->
                     if (result.has("error")) {
-                        error.text = result.getString("error")
+                        error.text = result.getString("error"); WorldSound.knock()
                         error.visibility = View.VISIBLE
                     } else {
                         dialog.dismiss()

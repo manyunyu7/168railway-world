@@ -10,7 +10,6 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.os.SystemClock
 import android.view.Gravity
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -336,7 +335,6 @@ internal object StopEditMode {
                     if (s.press?.node != m.node) return@Runnable
                     s.press = null
                     s.swallow = true
-                    map.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     loopAt(s, m, e.x, e.y)
                     map.invalidate()
                 }
@@ -420,7 +418,7 @@ internal object StopEditMode {
             val r = runCatching { run(handle(), now) }.getOrElse { JSONObject().put("error", "Perhentian itu tidak bisa diubah. Coba lagi.") }
             if (r.has("error")) {
                 // web `say(describeIssues(...), true)`
-                Toast.makeText(s.activity, r.optString("error"), Toast.LENGTH_LONG).show()
+                WorldSound.refused(s.activity, r.optString("error"))
                 say(s, r.optString("error"), bad = true)
             } else {
                 ServicePanel.editLabel = LineStops.LABEL

@@ -238,7 +238,7 @@ internal object ServicePanel {
             transaction { now ->
                 editLabel = "Nama line"
                 val r = JSONObject(rename(handle, id, now, name))
-                if (r.has("error")) android.widget.Toast.makeText(host, r.getString("error"), android.widget.Toast.LENGTH_LONG).show()
+                if (r.has("error")) WorldSound.refused(host, r.getString("error"))
                 else done(name)
             }
         }

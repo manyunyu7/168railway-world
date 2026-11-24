@@ -322,7 +322,7 @@ internal object StationInspector {
             barAction("Hapus", StudioUi.Icon.DELETE, StudioUi.BAD, "Hapus stasiun") {
                 val preview = JSONObject(DemolitionPanel.remove(handle,1,node,time,false))
                 if (preview.has("error")) {
-                    android.widget.Toast.makeText(activity,preview.getString("error"),android.widget.Toast.LENGTH_LONG).show()
+                    WorldSound.refused(activity, preview.getString("error"))
                     return@barAction
                 }
                 val confirm = StudioDialogBuilder(activity).setTitle("Hapus $name?")
@@ -406,7 +406,7 @@ internal object StationInspector {
             if (name.isEmpty() || name == current) { done(false); return }
             transaction { now ->
                 val result = JSONObject(structure(handle,node,now,JSONObject().put("action","rename").put("name",name).toString()))
-                if (result.has("error")) android.widget.Toast.makeText(activity,result.getString("error"),android.widget.Toast.LENGTH_LONG).show()
+                if (result.has("error")) WorldSound.refused(activity, result.getString("error"))
                 done(result.optBoolean("changed"))
             }
         }
@@ -470,8 +470,8 @@ internal object StationInspector {
                         .setPositiveButton(if (installed) "Hapus" else "Bangun") { _,_ ->
                             transaction { now ->
                                 val result = JSONObject(upgrade(handle,platform.getInt("id"),bit,if (installed) 0 else 1,now))
-                                if (result.optBoolean("changed")) changed()
-                                if (result.has("error")) android.widget.Toast.makeText(activity,result.getString("error"),android.widget.Toast.LENGTH_LONG).show()
+                                if (result.optBoolean("changed")) { WorldSound.cueBuilt(result, !installed); changed() }
+                                if (result.has("error")) WorldSound.refused(activity, result.getString("error"))
                                 reopen()
                             }
                         }.show()

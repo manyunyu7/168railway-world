@@ -24,7 +24,7 @@ internal class StationStructurePanel(private val activity: Activity, private val
         JSONObject(StationInspector.structure(handle,node,now,fields.put("action",action).toString()))
     private fun error(result: JSONObject): Boolean {
         if (!result.has("error")) return false
-        Toast.makeText(activity,result.getString("error"),Toast.LENGTH_LONG).show()
+        WorldSound.refused(activity, result.getString("error"))
         return true
     }
     private fun JSONArray.rows() = List(length()) { getJSONObject(it) }

@@ -1107,7 +1107,7 @@ class NativeWorldActivity : Activity() {
     private fun confirmTrackRemoval(edge: Int) {
         val preview = JSONObject(DemolitionPanel.remove(handle,2,edge,clock,false))
         if (preview.has("error")) {
-            Toast.makeText(this,preview.getString("error"),Toast.LENGTH_LONG).show()
+            WorldSound.refused(this, preview.getString("error"))
             return
         }
         StudioDialogBuilder(this).setTitle("Bongkar ruas rel?")
@@ -1149,7 +1149,7 @@ class NativeWorldActivity : Activity() {
         }
         val result = JSONObject(DemolitionPanel.remove(handle, kind, id, clock, true))
         if (result.has("error")) {
-            Toast.makeText(this, result.getString("error"), Toast.LENGTH_LONG).show()
+            WorldSound.refused(this, result.getString("error"))
             return
         }
         history.record("Bongkar $label", before)
@@ -1528,8 +1528,9 @@ class NativeWorldActivity : Activity() {
             return null
         }
         val result = edit()
-        if (result.has("error")) { Toast.makeText(this, result.getString("error"), Toast.LENGTH_LONG).show(); return null }
+        if (result.has("error")) { WorldSound.refused(this, result.getString("error")); return null }
         history.record(label, before)
+        WorldSound.blueprint(label)
         worldChanged = true
         map.load(JSONObject(Engine.geometry(handle)), refit = false)
         updateSummary(); lastStatus = -1; troubleKey = ""; refresh(); updateControls()
@@ -1723,6 +1724,7 @@ class NativeWorldActivity : Activity() {
         }
     }
     private fun placeRailSegment() {
+        if(map.draft.size==2 && map.refused && !placingRail) WorldSound.knock()
         if(map.draft.size!=2 || placingRail || restoringEdit || map.refused) return
         val spec=plan; val time=clock; val source=handle
         val before=Engine.save(source,time)
@@ -1733,6 +1735,7 @@ class NativeWorldActivity : Activity() {
         val profile=pointProfile.toDoubleArray()
         val version=++draftVersion
         placingRail=true; updateControls()
+        WorldSound.play(WorldSound.Kind.SNAP)
         draftWorker.execute {
             val result=runCatching {
                 if(spec.wireKind in setOf(2,10,11)) RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,coords))
@@ -1776,7 +1779,7 @@ class NativeWorldActivity : Activity() {
         }
         if(plan.tool==BuildTool.STATION) {
             val target=JSONObject(NativeConstruction.platformPoint(handle,point.x.toDouble(),point.y.toDouble(),map.pickRadiusMeters(),plan.deferred))
-            if(target.has("error")) { status.text=target.getString("error"); return }
+            if(target.has("error")) { status.text=target.getString("error"); WorldSound.knock(); return }
             map.draft.clear()
             map.draft.add(PointF(target.getDouble("x").toFloat(),target.getDouble("y").toFloat()))
             updateDraft()
@@ -1924,6 +1927,7 @@ class NativeWorldActivity : Activity() {
         mapQuote=null
         Engine.close(old)
         history.record(if(q.spec.deferred) "Simpan rencana" else q.spec.tool.action,q.original)
+        WorldSound.built(q.spec.tool, q.spec.deferred, q.charge)
         map.load(geo,refit=false)
         clock=geo.getDouble("clock")
         val routes=geo.getJSONArray("routes")
@@ -1969,6 +1973,7 @@ class NativeWorldActivity : Activity() {
         updateProgress(displayClock)
         map.trainRate = if (referenceState == ReferenceState.PLAYING) speedChip.rate else 0.0
         val trainCount = map.updateTrains(displayClock, referenceState == ReferenceState.PLAYING)
+        WorldSound.trains(map, if (running) localRate else speedChip.rate, running || referenceState == ReferenceState.PLAYING)
         val second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         if(second!=lastStatus) {
             lastStatus=second
@@ -2023,6 +2028,7 @@ class NativeWorldActivity : Activity() {
 
     private fun recordPanelChange(label: String) {
         beforePanelEdit?.let { history.record(label, it) }
+        WorldSound.panelChange(label)
         worldChanged = true
     }
 
@@ -2488,6 +2494,7 @@ class NativeWorldActivity : Activity() {
     }
     override fun onResume() {
         super.onResume()
+        WorldSound.resume(this)
         foreground = true
         if (hostLibrary && archiveSlot != null && WorldDocuments.list(this).none { it.id == archiveSlot?.id }) {
             finish()
@@ -2744,6 +2751,7 @@ class NativeWorldActivity : Activity() {
             prepStart = 0L
             getSharedPreferences("world-native", 0).edit().putLong("warm-ms-${city.id}", took).apply()
             android.util.Log.i("WorldSimulation", "forecast ready in $took ms")
+            WorldSound.loaded(this, took)
             warming = null
             parked = runtime
             parkedBytes = warmBytes
@@ -2822,6 +2830,7 @@ class NativeWorldActivity : Activity() {
     override fun onPause() {
         writeCover()
         super.onPause()
+        WorldSound.pause()
         foreground = false
         cancelWarm()
         stopGhost()

@@ -307,7 +307,7 @@ internal object LineStops {
     /** The panel's half of an edit: run it in `transaction`, say what changed, and give the label for undo. */
     fun toast(host: Activity, r: JSONObject, success: (JSONObject) -> String): Boolean {
         if (r.has("error")) {
-            Toast.makeText(host, r.optString("error"), Toast.LENGTH_LONG).show()
+            WorldSound.refused(host, r.optString("error"))
             return false
         }
         val charge = r.optDouble("charge", 0.0)

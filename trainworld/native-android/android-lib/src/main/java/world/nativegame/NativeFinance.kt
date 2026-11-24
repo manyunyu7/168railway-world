@@ -126,7 +126,7 @@ object NativeFinance {
                 }
                 fun applyPatch() = transaction { now ->
                     val result = JSONObject(fares(handle,now,patch.toString()))
-                    if (result.has("error")) warning.text = result.getString("error")
+                    if (result.has("error")) { warning.text = result.getString("error"); WorldSound.knock() }
                     else { if (patch.length()>0) persist(); dialog.dismiss() }
                 }
                 if (patch.has("base") || patch.has("perKm")) {
@@ -211,7 +211,7 @@ object NativeFinance {
             fun refresh() {
                 fun act(op: Int) = transaction { now ->
                     val result = JSONObject(query(handle,now,op))
-                    if (result.has("error")) Toast.makeText(activity,result.getString("error"),Toast.LENGTH_LONG).show()
+                    if (result.has("error")) WorldSound.refused(activity, result.getString("error"))
                     else persist()
                     refresh()
                 }

@@ -295,7 +295,7 @@ internal object BlueprintPanel {
 
         fun remove(what: String) {
             val preview = runCatching { JSONObject(edit(handle(), clock(), REMOVE, 0, IntArray(0), IntArray(0), false)) }.getOrElse { JSONObject().put("error", it.localizedMessage) }
-            if (preview.has("error")) { Toast.makeText(a, preview.optString("error"), Toast.LENGTH_LONG).show(); return }
+            if (preview.has("error")) { WorldSound.refused(a, preview.optString("error")); return }
             val lines = preview.optInt("lines")
             val message = "Rencana yang dicentang ($what" + (if (preview.optDouble("length") > 0) ", ${distance(preview.optDouble("length"))}" else "") + ") akan dihapus. Bisa diurungkan." +
                 if (lines > 0) "\n\n$lines line rencana kehilangan pemberhentian atau rutenya terputus." else ""

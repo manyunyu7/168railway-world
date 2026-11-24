@@ -64,7 +64,7 @@ internal object WorldExtras {
         setPadding(0, StudioUi.dp(host, 4), 0, 0)
     }
     private fun answer(host: Activity, r: JSONObject): Boolean {
-        if (r.has("error")) { Toast.makeText(host, r.getString("error"), Toast.LENGTH_LONG).show(); return false }
+        if (r.has("error")) { WorldSound.refused(host, r.getString("error")); return false }
         return true
     }
 

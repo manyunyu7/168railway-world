@@ -63,7 +63,7 @@ internal object LineFare {
             // The world may settle first; the answer, and the undo entry, come inside the edit.
             transaction { now ->
                 val r = JSONObject(set(handle, id, now, v))
-                if (r.has("error")) Toast.makeText(host, r.optString("error"), Toast.LENGTH_LONG).show()
+                if (r.has("error")) WorldSound.refused(host, r.optString("error"))
                 else {
                     val old = mul
                     mul = r.optDouble("fare", mul)
