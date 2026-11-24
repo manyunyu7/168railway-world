@@ -73,6 +73,19 @@ internal class StudioTrainPainter(private val density:Float) {
         val useLoads = loadEpoch == floor(time/3600).toLong()*3600
         return Triple(profile,dep,if (useLoads) loads[tripKey(profile,dep)] else null)
     }
+    /** World position of a trip's middle car from the last scene, null once it left the view or finished. */
+    fun positionOf(profile:Int,dep:Int):Pair<Float,Float>? {
+        val v=last ?: return null
+        var i=1
+        while (i+14<bodies.size) {
+            if (bodies[i+11].toInt()==profile && bodies[i+12].toInt()==dep) {
+                val cars=bodies[i+14].toInt(); val car=bodies[i+13].toInt()
+                if (cars<=1 || car==cars/2) return Pair(v.x+bodies[i+4],v.y+bodies[i+5])
+            }
+            i+=15
+        }
+        return null
+    }
     fun loadOf(profile:Int,dep:Int):Int? = if (loadEpoch == floor(time/3600).toLong()*3600) loads[tripKey(profile,dep)] else null
     fun draw(canvas:Canvas,scale:Float,w:Int,h:Int,display:StudioGameSettings.Display) {
         if (bodies.size < 16) return

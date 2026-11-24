@@ -1114,6 +1114,9 @@ class NativeWorldActivity : Activity() {
             body.addView(bar, LinearLayout.LayoutParams(-1, dp(10)).apply { topMargin = dp(2); bottomMargin = dp(6) })
             val note = StudioUi.text(this, "", 12.5f, false, StudioUi.MUTED)
             body.addView(note)
+            body.addView(StudioUi.button(this, "Ikuti kereta", StudioUi.Tone.PRIMARY, StudioUi.Icon.CENTER) {
+                sheet.dismiss(); followTrain(profile, dep, first.optString("name"))
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
             body.addView(StudioUi.button(this, "Buka lini", StudioUi.Tone.SURFACE, StudioUi.Icon.ROUTE) {
                 sheet.dismiss(); withCommittedWorld(pause = false) { openServiceDetails(first.optInt("line")) }
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
@@ -1149,6 +1152,21 @@ class NativeWorldActivity : Activity() {
             body.postDelayed(tick, 1000)
         }
     }
+
+    /** Web toggleFollow: the camera rides with the train; a chip says so and lets go. */
+    private fun followTrain(profile: Int, dep: Int, name: String) {
+        fun ended() { followChip?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; followChip = null }
+        ended()
+        map.onFollowEnded = { arrived -> runOnUiThread { if (arrived && followChip != null) Toast.makeText(this, "$name tiba di tujuan akhir.", Toast.LENGTH_SHORT).show(); ended() } }
+        map.followed = profile to dep
+        val chip = StudioUi.button(this, "Mengikuti kereta", StudioUi.Tone.BLUE, StudioUi.Icon.CLOSE) {
+            map.followed = null; ended()
+        }.apply { minHeight = dp(48); textSize = 13f; contentDescription = "Berhenti mengikuti $name" }
+        followChip = chip
+        (warmChip.parent as android.view.ViewGroup).addView(chip, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
+        if (!running && referenceState != ReferenceState.PLAYING) Toast.makeText(this, "Tekan Putar agar kereta bergerak.", Toast.LENGTH_SHORT).show()
+    }
+    private var followChip: View? = null
 
     private fun openStation(node: Int) {
         map.showStationAboveSheet(node)
@@ -2749,6 +2767,11 @@ internal class NetworkView(context: Context):View(context) {
     val bends = mutableListOf<Pair<Int,PointF>>()
     var onStationTap: ((Int) -> Boolean)? = null
     /** A train tapped while not drafting: trip profile, departure ×100, load gauge. */
+    /** Web cameraFollow: the trip the camera keeps in view; a pan by hand lets go. */
+    var followed: Pair<Int,Int>? = null
+        set(v) { field = v; followMisses = 0; if (v != null) trainPainter.positionOf(v.first,v.second)?.let { focusAt(it.first,it.second) } }
+    var onFollowEnded: ((Boolean) -> Unit)? = null
+    private var followMisses = 0
     fun trainTime() = trainPainter.time
     fun trainLoad(profile: Int, dep: Int) = trainPainter.loadOf(profile, dep)
     var onTrainTap: ((Int, Int, Int?, Long, Double) -> Unit)? = null
@@ -3324,6 +3347,14 @@ internal class NetworkView(context: Context):View(context) {
         trainPainter.update(centerX,centerY,scale,width,height)
         if (frameTime-trainAt < trainWindow) { removeCallbacks(redrawTask); postDelayed(redrawTask,50) }
         if (displaySettings.trains) trainPainter.draw(c,scale,width,height,displaySettings)
+        followed?.let { (profile,dep) ->
+            val at = trainPainter.positionOf(profile,dep)
+            // The scene is briefly empty while the clock swaps runtimes; let go only after ~3 s without the train.
+            if (at == null) { if (++followMisses > 60) { followed = null; onFollowEnded?.invoke(true) } else { removeCallbacks(redrawTask); postDelayed(redrawTask,50) } }
+            // Recentre when the train has drifted a fifth of the screen away; a static redraw every frame would stutter.
+            else if (run { followMisses = 0; true } && kotlin.math.abs(at.first-centerX)*scale > width*.2f || kotlin.math.abs(at.second-centerY)*scale > height*.2f)
+                post { focusAt(at.first, at.second) }
+        }
         if (!overlay.active && !previewRequested && requiresStudioClock && trainPainter.needsLoads && onTrainPreviewNeeded!=null) {
             previewRequested=true
             post { onTrainPreviewNeeded?.invoke() }
@@ -3528,6 +3559,7 @@ internal class NetworkView(context: Context):View(context) {
             return true
         }
         override fun onScroll(a: MotionEvent?, b: MotionEvent, dx: Float, dy: Float): Boolean {
+            if (followed != null) { followed = null; onFollowEnded?.invoke(false) }
             if (!pinch.isInProgress && b.pointerCount == 1) focusAt(centerX + dx/scale, centerY - dy/scale)
             return true
         }
