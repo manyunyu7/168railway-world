@@ -9,13 +9,13 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 
-internal class WorldSpeedChip(private val host: Activity, initial: Double, private val changed: () -> Unit) : TextView(host) {
+internal class WorldSpeedChip(private val host: Activity, initial: Double, private val changed: (start: Boolean) -> Unit) : TextView(host) {
     private val steps = listOf(1.0, 4.0, 16.0, 32.0, 64.0, 1000.0)
     private val stops = listOf(1.0/60, 4.0/60, .5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 50.0, 64.0, 80.0, 100.0, 200.0, 500.0, 1000.0)
     var multiple = initial.takeIf { it in stops } ?: 1.0
         private set
     var capped = false
-        set(value) { if (field != value) { field = value; render(); changed() } }
+        set(value) { if (field != value) { field = value; render(); changed(false) } }
     val rate get() = 60 * if (capped) minOf(4.0, multiple) else multiple
 
     private fun label(x: Double) = when (x) {
@@ -31,11 +31,11 @@ internal class WorldSpeedChip(private val host: Activity, initial: Double, priva
         setTextColor(if (capped && multiple > 4) StudioUi.BAD else StudioUi.INK)
     }
 
-    private fun select(value: Double) {
+    private fun select(value: Double, start: Boolean = false) {
         if (multiple == value) return
         multiple = value
         render()
-        changed()
+        changed(start)
     }
 
     private fun slider() = StudioUi.sheet(host, "Kecepatan simulasi") { body, _ ->
@@ -47,7 +47,7 @@ internal class WorldSpeedChip(private val host: Activity, initial: Double, priva
             contentDescription = "Atur kecepatan simulasi"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(bar: SeekBar, index: Int, fromUser: Boolean) {
-                    if (fromUser) { select(stops[index]); value.text = label(multiple) }
+                    if (fromUser) { select(stops[index], start = true); value.text = label(multiple) }
                 }
                 override fun onStartTrackingTouch(bar: SeekBar) {}
                 override fun onStopTrackingTouch(bar: SeekBar) {}

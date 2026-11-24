@@ -137,6 +137,7 @@ class NativeWorldActivity : Activity() {
     private var clock = 0.0
     private var running = false
     private var lastTick = 0L
+    private var localRate = 60.0
     private var lastStatus = -1
     private var closed = false
     private enum class ReferenceState { OPENING, PLAYING, SAVING }
@@ -412,7 +413,9 @@ class NativeWorldActivity : Activity() {
                 if (playWhenWarm) { playWhenWarm = false; updateWarmUi(); updateControls() }
                 else if (reference == null) startReference() else withCommittedWorld()
             } else {
+                if (running) advanceLocalClock()
                 running = !running
+                localRate = speedChip.rate
                 lastTick = SystemClock.elapsedRealtime()
                 updateControls()
                 map.removeCallbacks(tick)
@@ -423,8 +426,11 @@ class NativeWorldActivity : Activity() {
         finance = action { openLenses() }
         cancel = action { if(railMode) resetRailRun() else discardDraft() }
         more = action { withCommittedWorld(pause = false) { if(railMode) { cancelDrawing(); chooseConstruction() } else manageWorld() } }
-        speedChip = WorldSpeedChip(this, savedInstanceState?.getDouble("speed",1.0) ?: 1.0) {
+        speedChip = WorldSpeedChip(this, savedInstanceState?.getDouble("speed",1.0) ?: 1.0) { start ->
+            if (running) advanceLocalClock()
+            localRate = speedChip.rate
             if (referenceState == ReferenceState.PLAYING) reference?.play(speedChip.rate)
+            else if (start && !running && !playWhenWarm && play.isEnabled) play.performClick()
         }
         map.overlay.onComputing = { speedChip.capped = it }
         for (item in listOf(cancel, play, lines, build, speedChip, finance, more)) {
@@ -1052,7 +1058,7 @@ class NativeWorldActivity : Activity() {
         finance.isEnabled = ready
         more.isEnabled = ready
         cancel.isEnabled = ready
-        play.isEnabled = ready && (if (drawing) map.draft.isNotEmpty() else map.routeCount > 0 || map.requiresStudioClock)
+        play.isEnabled = ready && (!drawing || map.draft.isNotEmpty())
         save.isEnabled = ready && !drawing
         save.contentDescription = if (hostLibrary) "Simpan ke Studio" else "Simpan di perangkat"
         fun render(button: Button, label: String, description: String, icon: StudioUi.Icon) {
@@ -1563,12 +1569,17 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
+    private fun advanceLocalClock() {
+        val now = SystemClock.elapsedRealtime()
+        if (now > lastTick) worldChanged = true
+        clock += (now - lastTick) * localRate / 1000.0
+        lastTick = now
+    }
+
     private val tick = object : Runnable {
         override fun run() {
             if (!running || handle==0L || map.requiresStudioClock) return
-            val now=SystemClock.elapsedRealtime()
-            if (now > lastTick) worldChanged = true
-            clock+=(now-lastTick)*speedChip.rate/1000.0; lastTick=now
+            advanceLocalClock()
             refresh(); map.postDelayed(this, 65)
         }
     }
