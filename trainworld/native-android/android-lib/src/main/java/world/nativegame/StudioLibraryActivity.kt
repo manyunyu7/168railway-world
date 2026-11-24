@@ -163,9 +163,11 @@ class StudioLibraryActivity : Activity() {
             fun chip(text: String, tint: Int, ink: Int) =
                 chips.addView(StudioUi.chip(this,text,tint,ink),LinearLayout.LayoutParams(-2,-2).apply { marginEnd = dp(6) })
             if (cover != null) {
-                chip("${cover.lines} jalur",StudioUi.TINT_ORANGE,0xff9a3a0b.toInt())
+                chip("${cover.lines} lini",StudioUi.TINT_ORANGE,0xff9a3a0b.toInt())
                 chip("${cover.stations} stasiun",StudioUi.TINT_PURPLE,0xff3f2aa8.toInt())
-                if (cover.cash.isFinite()) chip(StudioCurrency.current(this).compact(cover.cash),StudioUi.TINT_YELLOW,0xff7a5600.toInt())
+                // web savesPanel.cash: the cash when saved, as the money tab writes it
+                if (cover.cash.isFinite()) chip(StudioFormat.cash(cover.cash * 1e6, StudioCurrency.current(this)),StudioUi.TINT_YELLOW,0xff7a5600.toInt())
+                chip(WorldDocuments.savedWhen(slot.at),StudioUi.TINT_BLUE,StudioUi.INK)
             } else cities.firstOrNull { it.id == slot.city }?.name?.let { chip(it,StudioUi.TINT_ORANGE,0xff9a3a0b.toInt()) }
             val sync = syncLabel(slot,link)
             if (sync.startsWith("Tersinkron")) chip(sync,StudioUi.TINT_GREEN,StudioUi.GOOD)
@@ -192,7 +194,8 @@ class StudioLibraryActivity : Activity() {
         val shown = if (allLocal) others else others.take(3)
         val tiles = shown.map { (slot, link) ->
             val cover = covers[slot.id]
-            val detail = cover?.let { "${it.lines} jalur · ${it.dayTime}" } ?: details(slot,link)
+            // web SlotFacts: lines and when it was saved
+            val detail = cover?.let { "${it.lines} lini · " + WorldDocuments.savedWhen(slot.at) } ?: details(slot,link)
             KScene.worldCard(this,slot.title,detail,0xffb5e08f.toInt(),cover?.image) {
                 if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
             } as View
