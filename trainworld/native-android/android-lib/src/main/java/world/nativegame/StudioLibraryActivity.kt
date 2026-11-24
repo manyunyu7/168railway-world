@@ -176,6 +176,9 @@ class StudioLibraryActivity : Activity() {
             card.addView(StudioUi.button(this,"Main lagi",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLAY) {
                 if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
             }.apply { minHeight = dp(56); textSize = 17f },LinearLayout.LayoutParams(-1,-2).apply { marginStart = dp(6); marginEnd = dp(6) })
+            if (active == null) card.addView(StudioUi.button(this,"Hapus dari HP ini",icon = StudioUi.Icon.CLOSE) {
+                if (!locked) WorldDeletion.ask(this,worker,slot) { refresh() }
+            }.also(DemolitionPanel::danger),LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10); marginStart = dp(6); marginEnd = dp(6) })
             if (active != null) {
                 card.addView(StudioUi.button(this,"Simpan perubahan ke Studio",StudioUi.Tone.BLUE,StudioUi.Icon.SAVE) { if (!locked) upload(active.first, false) },
                     LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
@@ -196,8 +199,13 @@ class StudioLibraryActivity : Activity() {
             val cover = covers[slot.id]
             // web SlotFacts: lines and when it was saved
             val detail = cover?.let { "${it.lines} lini · " + WorldDocuments.savedWhen(slot.at) } ?: details(slot,link)
-            KScene.worldCard(this,slot.title,detail,0xffb5e08f.toInt(),cover?.image) {
+            (KScene.worldCard(this,slot.title,detail,0xffb5e08f.toInt(),cover?.image) {
                 if (!locked) confirmPlay(slot.title,slot.city,details(slot,link)) { open(slot) }
+            } as LinearLayout).apply {
+                // web SavesPanel: a bin on every card but the game being played
+                if (slot.id != source) addView(StudioUi.iconButton(this@StudioLibraryActivity,"Hapus ${slot.title} dari HP ini",StudioUi.Icon.CLOSE) {
+                    if (!locked) WorldDeletion.ask(this@StudioLibraryActivity,worker,slot) { refresh() }
+                }, LinearLayout.LayoutParams(dp(44),dp(44)).apply { gravity = Gravity.END })
             } as View
         } + KScene.newIsland(this,"Dunia baru") { if (!locked) createWorld() }
         if (others.isNotEmpty()) append(StudioUi.section(this,"Di perangkat · ${mine.size}"),12)

@@ -126,7 +126,7 @@ class WorldArchiveActivity : Activity() {
                 if (here) "Dimainkan · $facts" else facts) { if (!busy) open(slot) }
             // web: a bin on every card but the game being played
             if (!here) row.addView(StudioUi.iconButton(this,"Hapus ${slot.title}",StudioUi.Icon.CLOSE) {
-                if (!busy) askDelete(slot,cover?.stations)
+                if (!busy) WorldDeletion.ask(this,worker,slot) { render(); feedback.text="${slot.title} dihapus dari HP ini." }
             }, LinearLayout.LayoutParams(dp(48),dp(48)).apply { marginStart=dp(6) })
             menu.addView(row, LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
         }
@@ -179,40 +179,6 @@ class WorldArchiveActivity : Activity() {
                 .setPositiveButton("Buat slot baru") { _,_ ->
                     job({ WorldDocuments.import(this,bytes,name,id) }) { open(it) }
                 }.setNegativeButton("Batal",null).show()
-        }
-    }
-    /**
-     * Web `DeleteAsk` (SavesPanel.tsx): "Hapus … dari HP ini?", and from TYPE_TO_DELETE stations up
-     * the station count typed before Hapus is enabled.
-     */
-    private fun askDelete(slot: WorldDocuments.Slot, stations: Int?) {
-        val body = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(20),dp(8),dp(20),0) }
-        body.addView(StudioUi.text(this,"Hapus “${slot.title}” dari HP ini? Salinan di akun tidak ikut terhapus.",15f,true,StudioUi.INK))
-        val gate = stations != null && stations >= WorldDocuments.TYPE_TO_DELETE
-        val typed = EditText(this).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            hint = stations?.toString()
-            contentDescription = "Jumlah stasiun"
-        }
-        if (gate) {
-            body.addView(StudioUi.text(this,"Game ini punya $stations stasiun. Ketik $stations untuk menghapusnya.",14f,true,StudioUi.MUTED),
-                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
-            body.addView(typed)
-        }
-        val dialog = StudioDialogBuilder(this).setTitle("Hapus dunia?").setView(body)
-            .setNegativeButton("Batal",null)
-            .setPositiveButton("Hapus") { _,_ ->
-                job({ WorldDocuments.delete(this,slot.id) }) { feedback.text="${slot.title} dihapus dari HP ini." }
-            }.show()
-        val yes = dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
-        DemolitionPanel.danger(yes)
-        if (gate) {
-            yes.isEnabled = false
-            typed.addTextChangedListener(object : android.text.TextWatcher {
-                override fun beforeTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
-                override fun onTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) { yes.isEnabled = t.toString().trim() == stations.toString() }
-                override fun afterTextChanged(e: android.text.Editable?) {}
-            })
         }
     }
     private fun open(slot: WorldDocuments.Slot) {
