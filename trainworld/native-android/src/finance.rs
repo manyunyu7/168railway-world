@@ -385,7 +385,7 @@ pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String>
         .collect();
     Ok(
         json!({"cash":cash,"ledger":h.get("ledger"),"upkeep":w.api.upkeep()[0],"operating":[w.api.running_cost(0),w.api.running_cost(1),w.api.running_cost(2)],"dailyPayment":pay,"remainingDays":days,"outstanding":pay*(1.-(1.+RATE).powf(-days))/RATE,"sandbox":h["mode"]=="sandbox",
-            "today":day,"loan":amount,"offers":offers,"startCash":START_CASH,"term":TERM,"rate":RATE}),
+            "today":day,"loan":amount,"offers":offers,"startCash":START_CASH,"hours":h.get("hours"),"dayShift":super::local_time::day_shift(h),"term":TERM,"rate":RATE}),
     )
 }
 #[no_mangle]

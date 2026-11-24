@@ -254,54 +254,15 @@ object NativeFinance {
                 body.addView(StudioUi.button(activity,"Mata uang · "+StudioCurrency.current(activity).code) {
                     StudioCurrency.picker(activity) { onCurrencyChanged(); refresh() }
                 },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(10) })
-                if (ledger != null && ledger.length() > 0) {
-                    val entries = (ledger.length()-1 downTo 0).mapNotNull { ledger.optJSONObject(it) }
-                    if (entries.isNotEmpty()) {
-                        heading("Riwayat kas operasi")
-                        val history = entries.take(7).asReversed()
-                        val amounts = history.map { entry ->
-                            listOf(entry.optDouble("fares",0.0),
-                                entry.optDouble("upkeep",0.0)+entry.optDouble("running",0.0))
-                        }
-                        val maxAmount = amounts.flatten().maxOrNull()?.coerceAtLeast(.001) ?: 1.0
-                        val chart = LinearLayout(activity).apply {
-                            orientation = LinearLayout.VERTICAL
-                            background = StudioUi.card(activity, 22)
-                            setPadding(dp(12),dp(10),dp(12),dp(8))
-                        }
-                        body.addView(chart, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
-                        chart.addView(object : android.view.View(activity) {
-                            val pen = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                            val box = android.graphics.RectF()
-                            init { contentDescription = "Pendapatan tiket dan biaya operasi selama ${history.size} hari" }
-                            override fun onDraw(canvas: android.graphics.Canvas) {
-                                val slot = width.toFloat()/history.size
-                                val bottom = height-dp(22).toFloat()
-                                val bar = minOf(slot*.28f,dp(22).toFloat())
-                                amounts.forEachIndexed { i, values ->
-                                    val mid = slot*(i+.5f)
-                                    values.forEachIndexed { j, amount ->
-                                        pen.color = if (j==0) StudioUi.LEAF else StudioUi.GREEN
-                                        val w = if (j==0) bar else bar*.55f
-                                        val x = if (j==0) mid-bar*.7f else mid+bar*.4f
-                                        val top = bottom-(bottom-dp(8))*(amount/maxAmount).toFloat()
-                                        box.set(x,minOf(top,bottom-w),x+w,bottom)
-                                        canvas.drawRoundRect(box,w/2,w/2,pen)
-                                    }
-                                    pen.color = StudioUi.MUTED
-                                    pen.textSize = dp(11).toFloat()
-                                    pen.textAlign = android.graphics.Paint.Align.CENTER
-                                    canvas.drawText("H"+history[i].optInt("day"),mid,height-dp(4).toFloat(),pen)
-                                }
-                            }
-                        },LinearLayout.LayoutParams(-1,dp(104)))
-                        chart.addView(StudioUi.text(activity,"● Hijau · tiket     ● Oranye · operasi dan perawatan",12f,true,StudioUi.MUTED))
-                    }
-                }
                 ledgerTable(activity, body, ledger, state.optInt("today", latest?.optInt("day") ?: 0), state.optDouble("loan", 0.0) > 0, currency)
                 body.addView(StudioUi.button(activity,"Atur tarif penumpang",StudioUi.Tone.PRIMARY,StudioUi.Icon.WALLET) {
                     editFares(activity,handle,clock,transaction,persist)
                 },LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(14) })
+                // web MoneyHistory, after the fares as the money tab lays it out
+                if ((ledger?.length() ?: 0) > 0) {
+                    heading("Riwayat")
+                    body.addView(FinanceHistory.view(activity, state, currency), LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
+                }
                 heading("Biaya operasional per jam")
                 val hours = LinearLayout(activity)
                 listOf("Jam sibuk","Jam sedang","Jam sepi").forEachIndexed { i, label ->
