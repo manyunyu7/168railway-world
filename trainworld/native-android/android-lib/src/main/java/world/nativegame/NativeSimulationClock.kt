@@ -12,6 +12,10 @@ internal interface SimulationClock {
     var onTrainLoads: ((Long, JSONArray) -> Unit)?
     fun open(snapshot: ByteArray, ready: () -> Unit)
     fun play(rate: Double)
+    /** Game time at wall `ms` (elapsedRealtime) as last reported, or null before the first tick. */
+    fun timeAt(ms: Long): Double?
+    /** Hot swap: move this (paused, just opened) runtime on to game `time` at wall `ms`, settling the gap once. */
+    fun catchUp(time: Double, ms: Long)
     fun snapshot(pause: Boolean, done: (Result<ByteArray>) -> Unit)
     /** Riders aboard one train (train_riders.rs `train`); `done(null)` before they are in. */
     fun trainRiders(profile: Int, dep: Double, time: Double, seed: Long, done: (String?) -> Unit)
@@ -32,6 +36,7 @@ internal object SimulationEngine {
     external fun loads(id: Long, time: Double): IntArray?
     external fun play(id: Long, ms: Long, rate: Double): Boolean
     external fun pause(id: Long, ms: Long): Boolean
+    external fun catchUp(id: Long, ms: Long, time: Double): Boolean
     external fun state(id: Long, ms: Long): DoubleArray?
     external fun snapshot(id: Long, ms: Long): ByteArray?
     external fun trainRiders(id: Long, profile: Int, dep: Double, time: Double, seed: Long): String?
@@ -57,6 +62,13 @@ internal class NativeSimulationClock(
         private set
     override var onCash: ((Double) -> Unit)? = null
     override var onTrainLoads: ((Long, JSONArray) -> Unit)? = null
+    // Main thread: the game time at a wall instant and the rate since, as Rust settles it.
+    private var anchorTime = Double.NaN
+    private var anchorMs = 0L
+    private var rate = 0.0
+    override fun timeAt(ms: Long): Double? =
+        anchorTime.takeIf { it.isFinite() }?.let { it + (ms - anchorMs).coerceAtLeast(0L) * rate / 1000.0 }
+    private fun anchor(time: Double, ms: Long) { if (ms >= anchorMs) { anchorTime = time; anchorMs = ms } }
     private fun submit(action: () -> Unit) {
         if (closed) return
         worker.execute {
@@ -69,10 +81,12 @@ internal class NativeSimulationClock(
         override fun run() {
             if (!playing || closed) return
             submit {
-                val s = checkNotNull(SimulationEngine.state(id,SystemClock.elapsedRealtime()))
+                val at = SystemClock.elapsedRealtime()
+                val s = checkNotNull(SimulationEngine.state(id,at))
                 val rows = SimulationEngine.loads(id,s[0])
                 main.post {
                     if (playing && !closed) {
+                        anchor(s[0], at)
                         onCash?.invoke(s[1])
                         if (rows != null) onTrainLoads?.invoke(kotlin.math.floor(s[0]/3600).toLong()*3600,JSONArray(rows))
                         onClock(s[0])
@@ -96,15 +110,23 @@ internal class NativeSimulationClock(
         val alreadyPlaying = playing
         playing=true
         val now=SystemClock.elapsedRealtime()
+        timeAt(now)?.let { anchor(it, now) }
+        this.rate = rate
         submit { check(SimulationEngine.play(id,now,rate)) { "Laju simulasi tidak valid." } }
         if (!alreadyPlaying) tick.run()
     }
+    override fun catchUp(time: Double, ms: Long) {
+        anchor(time, ms)
+        submit { check(SimulationEngine.catchUp(id,ms,time)) { "Simulasi tidak dapat dilanjutkan." } }
+    }
     override fun snapshot(pause: Boolean, done: (Result<ByteArray>) -> Unit) {
+        val now=SystemClock.elapsedRealtime()
         if (pause) {
+            timeAt(now)?.let { anchor(it, now) }
+            rate=0.0
             playing=false
             main.removeCallbacks(tick)
         }
-        val now=SystemClock.elapsedRealtime()
         submit {
             val result=runCatching {
                 if (pause) check(SimulationEngine.pause(id,now))

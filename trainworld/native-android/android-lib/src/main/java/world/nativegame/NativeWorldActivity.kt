@@ -164,6 +164,8 @@ class NativeWorldActivity : Activity() {
     private var reference: SimulationClock? = null
     private var referenceState: ReferenceState? = null
     private var referenceTime: Double? = null
+    /** The old runtime playing on while an edit's riders warm (RuntimeHandover.kt). */
+    private val handover = RuntimeHandover()
     private var trainPreview: java.util.concurrent.Future<*>? = null
     private var previewGeneration = 0L
     private var resumeOnPanelClose = false
@@ -479,7 +481,7 @@ class NativeWorldActivity : Activity() {
         }
         play = action {
             if(railMode) railBack() else if (drawing) undoDraft() else if (map.requiresStudioClock) {
-                if (playWhenWarm) { playWhenWarm = false; updateWarmUi(); updateControls() }
+                if (playWhenWarm) { stopGhost(); playWhenWarm = false; updateWarmUi(); updateControls() }
                 else if (reference == null) startReference() else withCommittedWorld()
             } else {
                 if (running) advanceLocalClock()
@@ -498,10 +500,10 @@ class NativeWorldActivity : Activity() {
         speedChip = WorldSpeedChip(this, savedInstanceState?.getDouble("speed") ?: intent.getDoubleExtra("speed",1.0)) { start ->
             if (running) advanceLocalClock()
             localRate = speedChip.rate
-            if (referenceState == ReferenceState.PLAYING) reference?.play(speedChip.rate)
+            if (referenceState == ReferenceState.PLAYING) (reference ?: handover.ghost)?.play(speedChip.rate)
             else if (start && !running && !playWhenWarm && play.isEnabled) play.performClick()
         }
-        map.overlay.onComputing = { speedChip.capped = it }
+        map.overlay.onComputing = { handover.overlayComputing = it; speedChip.capped = handover.capped }
         for (item in listOf(cancel, play, lines, build, speedChip, finance, more)) {
             bar.addView(item, LinearLayout.LayoutParams(0,-2,if (item == build) 1.6f else 1f).apply {
                 marginStart = dp(3); marginEnd = dp(3)
@@ -726,7 +728,7 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openServiceDetails(id: Int) {
-        LineStops.riders = { line, done -> (reference ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
+        LineStops.riders = { line, done -> (reference ?: handover.ghost ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
         ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange(ServicePanel.editLabel); lineStopsChanged(); lastStatus = -1; troubleKey = ""; refresh() }
     }
 
@@ -738,8 +740,8 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openServices() {
-        LineStops.riders = { line, done -> (reference ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
-        ServicePanel.summary = { done -> (reference ?: parked)?.lineSummary(map.trainTime(), done) ?: done(null) }
+        LineStops.riders = { line, done -> (reference ?: handover.ghost ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
+        ServicePanel.summary = { done -> (reference ?: handover.ghost ?: parked)?.lineSummary(map.trainTime(), done) ?: done(null) }
         ServicePanel.open(this, handle, clock, true, ::editPanel) { name ->
             recordPanelChange(ServicePanel.editLabel)
             lineStopsChanged()
@@ -1168,7 +1170,7 @@ class NativeWorldActivity : Activity() {
     /** Web TrainInspector (TrainInspector.kt); riders from the running or paused simulation. */
     private fun openTrain(profile: Int, dep: Int, fill: Int?, engine: Long, time: Double) =
         TrainInspector.show(this, engine, profile, dep, fill, time, { map.trainTime() }, { map.trainLoad(profile, dep) },
-            { t, seed, done -> (reference ?: parked)?.trainRiders(profile, dep / 100.0, t, seed, done) ?: done(null) },
+            { t, seed, done -> (reference ?: handover.ghost ?: parked)?.trainRiders(profile, dep / 100.0, t, seed, done) ?: done(null) },
             { name -> followTrain(profile, dep, name) }, { line -> withCommittedWorld(pause = false) { openServiceDetails(line) } })
 
     /** Web toggleFollow: the camera rides with the train; a chip says so and lets go. */
@@ -1189,7 +1191,7 @@ class NativeWorldActivity : Activity() {
     private fun openStation(node: Int) {
         map.showStationAboveSheet(node)
         StationInspector.riders = { id -> map.stops.firstOrNull { it.id == id }?.let { map.overlay.riders(it.x, it.y) } }
-        StationInspector.passengers = { id, done -> (reference ?: parked)?.stationRiders(id, map.trainTime(), done) ?: done(null) }
+        StationInspector.passengers = { id, done -> (reference ?: handover.ghost ?: parked)?.stationRiders(id, map.trainTime(), done) ?: done(null) }
         StationInspector.simulating = { reference != null || parked != null || warming != null }
         StationInspector.map = map
         StationInspector.show(this,handle,node,clock, ::editPanel, {
@@ -1951,6 +1953,8 @@ class NativeWorldActivity : Activity() {
         }
     }
     private fun refresh() {
+        // A ghost lives only while the edit's riders warm to take over from it.
+        if (handover.ghost != null && (warming == null || !playWhenWarm)) { stopGhost(); return }
         if (reference == null && warming == null && !running) scheduleWarm()
         val displayClock = referenceTime ?: clock
         if (::sunArc.isInitialized) sunArc.second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
@@ -1973,8 +1977,15 @@ class NativeWorldActivity : Activity() {
     private var beforePanelEdit: ByteArray? = null
 
     private fun editPanel(apply: (Double) -> Unit) {
-        val resume = reference != null || playWhenWarm
-        withCommittedWorld {
+        // Playing: the runtime goes on as a ghost while the edit's riders warm (RuntimeHandover.kt).
+        val live = foreground && !drawing && referenceState == ReferenceState.PLAYING && (reference != null || handover.ghost != null)
+        val resume = live || reference != null || playWhenWarm
+        withCommittedWorld(pause = !live) {
+            reference?.takeIf { live }?.let { runtime ->
+                reference = null
+                NativeFinance.balance(handle, clock).let { cash -> handover.adopt(runtime, cash, cash) }
+                speedChip.capped = handover.capped
+            }
             cancelWarm()
             beforePanelEdit = Engine.save(handle, clock)
             try {
@@ -1982,9 +1993,24 @@ class NativeWorldActivity : Activity() {
                 if (worldChanged) writeSave()
             } finally {
                 beforePanelEdit = null
+                handover.edited(NativeFinance.balance(handle, clock))
                 if (resume && foreground && !drawing) startReference()
             }
         }
+    }
+
+    /** Stops a ghost where it is; the next runtime catches up to its time (RuntimeHandover.kt). */
+    private fun stopGhost() {
+        if (handover.ghost == null) return
+        val reached = handover.stop()
+        referenceState = null
+        referenceTime = reached
+        speedChip.capped = handover.capped
+        if (closed || handle == 0L) return
+        lastStatus = -1
+        updateWarmUi()
+        updateControls()
+        refresh()
     }
 
     private fun recordPanelChange(label: String) {
@@ -2022,6 +2048,10 @@ class NativeWorldActivity : Activity() {
                         candidate = 0L
                         Engine.close(previous)
                         history.moved(backwards, current)
+                        // the clock goes back with the world: no ghost or old runtime carries it forward
+                        handover.forget()
+                        dropParked()
+                        referenceTime = null
                         clock = geometry.getDouble("clock")
                         map.load(geometry, refit = false)
                         val routes = geometry.getJSONArray("routes")
@@ -2097,11 +2127,20 @@ class NativeWorldActivity : Activity() {
             if (same) {
                 reference = idle
                 referenceState = ReferenceState.PLAYING
+                handover.handOver(idle)
+                speedChip.capped = handover.capped
                 updateControls()
                 idle.play(speedChip.rate)
                 return
             }
-            idle.close()
+            // The world changed while paused (built, demolished, edited): the old runtime plays on
+            // at its clock as a ghost until the new riders are in (RuntimeHandover.kt).
+            if (idle.isReady && foreground && handover.ghost == null && handover.catchUp == null) {
+                handover.adopt(idle, Double.NaN, NativeFinance.balance(handle, clock))
+                referenceState = ReferenceState.PLAYING
+                speedChip.capped = handover.capped
+                idle.play(speedChip.rate)
+            } else idle.close()
         }
         playWhenWarm = true
         if (warming == null) beginWarm(bytes)
@@ -2112,7 +2151,7 @@ class NativeWorldActivity : Activity() {
     private fun withCommittedWorld(pause: Boolean = true, action: (() -> Unit)? = null) {
         val runtime = reference
         if (runtime == null) {
-            if (pause && foreground) { resumeOnPanelClose = false; cancelWarm() }
+            if (pause && foreground) { resumeOnPanelClose = false; cancelWarm(); stopGhost() }
             action?.invoke()
             return
         }
@@ -2655,7 +2694,7 @@ class NativeWorldActivity : Activity() {
     private fun beginWarm(bytes: ByteArray) {
         lateinit var runtime: SimulationClock
         val onClock: (Double) -> Unit = { time ->
-            if (reference === runtime && referenceState == ReferenceState.PLAYING && !closed) {
+            if ((reference === runtime || handover.ghost === runtime) && referenceState == ReferenceState.PLAYING && !closed) {
                 referenceTime = time
                 refresh()
             }
@@ -2664,6 +2703,7 @@ class NativeWorldActivity : Activity() {
             when {
                 warming === runtime -> { val wanted = playWhenWarm; cancelWarm(); updateControls(); if (wanted) referenceUnavailable(reason) }
                 parked === runtime -> dropParked()
+                handover.ghost === runtime -> stopGhost()
                 reference === runtime && !checkpointInFlight -> { finishReference(runtime); referenceUnavailable(reason) }
             }
         }
@@ -2674,8 +2714,11 @@ class NativeWorldActivity : Activity() {
             NativeRidership.inputs(this,archive,local.header,local.cells,true).toString()
         }
         runtime = NativeSimulationClock(inputs,onClock,onFailure)
-        runtime.onTrainLoads = { epoch, rows -> if (reference === runtime && !closed) map.trainLoads(epoch,rows) }
-        runtime.onCash = { cash -> if (reference === runtime && !closed) showBalance(cash) }
+        runtime.onTrainLoads = { epoch, rows -> if ((reference === runtime || handover.ghost === runtime) && !closed) map.trainLoads(epoch,rows) }
+        runtime.onCash = { cash ->
+            if (reference === runtime && !closed) showBalance(cash)
+            else if (handover.ghost === runtime && !closed) showBalance(handover.shown(cash))
+        }
         warming = runtime
         warmBytes = bytes
         warmStart = SystemClock.elapsedRealtime()
@@ -2723,8 +2766,9 @@ class NativeWorldActivity : Activity() {
         val fraction = warmFraction()
         val left = ((1f - fraction / .95f) * warmEstimate() / 1000f).toInt().coerceAtLeast(1)
         val computing = computing()
-        warmCard.visibility = if (computing && playWhenWarm) View.VISIBLE else View.GONE
-        if (computing && playWhenWarm) {
+        val ghost = handover.ghost != null
+        warmCard.visibility = if (computing && playWhenWarm && !ghost) View.VISIBLE else View.GONE
+        if (computing && playWhenWarm && !ghost) {
             warmBar.fraction = fraction
             warmPercent.text = "${(fraction * 100).toInt()}% · ±$left dtk"
             if (warmTip.text.isEmpty()) warmTip.text = "💡  " + tips.random()
@@ -2732,12 +2776,12 @@ class NativeWorldActivity : Activity() {
         } else warmTip.text = ""
         // While paused with riders worked out, the chip stays as the call to play (it used to vanish after 4 s, often unseen).
         val ready = !computing && parked != null && reference == null && !running && referenceState != ReferenceState.PLAYING && !drawing
-        warmChip.visibility = if ((computing && !playWhenWarm) || ready) View.VISIBLE else View.GONE
+        warmChip.visibility = if ((computing && (!playWhenWarm || ghost)) || ready) View.VISIBLE else View.GONE
         if (computing) {
             warmChip.background = StudioUi.glass(this, 18)
             warmChipRing.fraction = fraction; warmChipRing.done = false
             warmChipText.setTextColor(StudioUi.INK)
-            warmChipText.text = "Menyiapkan penumpang · ${(fraction * 100).toInt()}%"
+            warmChipText.text = (if (ghost) "Menghitung perjalanan setelah perubahanmu" else "Menyiapkan penumpang") + " · ${(fraction * 100).toInt()}%"
         } else if (ready) {
             warmChip.background = StudioUi.pill(this, StudioUi.INK, 18)
             warmChipRing.done = true
@@ -2767,6 +2811,7 @@ class NativeWorldActivity : Activity() {
         super.onPause()
         foreground = false
         cancelWarm()
+        stopGhost()
         if (::map.isInitialized) map.overlay.stop()
         stopTrainPreview()
         dropParked()
@@ -2782,6 +2827,7 @@ class NativeWorldActivity : Activity() {
         draftVersion++
         draftWorker.shutdown()
         cancelWarm()
+        handover.forget()
         if (::map.isInitialized) map.overlay.stop()
         reviewDialog?.dismiss()
         dropQuote()
