@@ -650,6 +650,10 @@ class NativeWorldActivity : Activity() {
         ellipsize = TextUtils.TruncateAt.END
     }
 
+    private fun openServiceDetails(id: Int) {
+        ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange("Jadwal layanan"); lastStatus = -1; refresh() }
+    }
+
     private fun openServices() {
         ServicePanel.open(this, handle, clock, true, ::editPanel) { name ->
             recordPanelChange("Jadwal layanan")
@@ -756,9 +760,7 @@ class NativeWorldActivity : Activity() {
             options.add("Keuangan" to { openFinance() })
             options.add("Pencapaian & misi" to { openProgress() })
             options.add("Tutorial bermain" to { chooseTutorial() })
-            options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), cityStore.city(focusId ?: city.id).name, ::openStation, map.cityLayer) { id ->
-                ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange("Jadwal layanan"); lastStatus = -1; refresh() }
-            } })
+            options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), cityStore.city(focusId ?: city.id).name, ::openStation, map.cityLayer, ::openServiceDetails) })
             options.add("Cetak biru & konstruksi" to { withCommittedWorld { chooseConstruction() } })
             options.add("Pengaturan permainan" to { StudioGameSettings.show(this) {
                 map.displaySettings = StudioGameSettings.read(this)
@@ -804,6 +806,24 @@ class NativeWorldActivity : Activity() {
             label.startsWith("Keuangan") -> StudioUi.Icon.WALLET to 0xfffff3c4.toInt()
             else -> StudioUi.Icon.FOLDER to 0xfffff3c4.toInt()
         }
+        val combining = Regex("\\p{M}+")
+        val punctuation = Regex("[^\\p{L}\\p{N}]+")
+        val forms = mutableMapOf<String,String>()
+        fun plain(name: String) = forms.getOrPut(name) {
+            java.text.Normalizer.normalize(name,java.text.Normalizer.Form.NFD).lowercase(java.util.Locale.ROOT)
+                .replace(combining,"").replace("&"," and ").replace(punctuation," ").trim()
+        }
+        fun rank(name: String, q: String): Int {
+            val base = plain(name)
+            return when {
+                base == q -> 0
+                base.startsWith(q) -> 1
+                (" " + base).contains(" " + q) -> 2
+                base.contains(q) -> 3
+                base.replace(" ","").contains(q.replace(" ","")) -> 4
+                else -> Int.MAX_VALUE
+            }
+        }
         val stations = map.stops.filter { it.id >= 0 }.distinctBy { it.name }.sortedBy { it.name }
         StudioUi.sheet(this, "Cari & menu") { column, dialog ->
             val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -831,20 +851,23 @@ class NativeWorldActivity : Activity() {
             })
             fun render(query: String) {
                 results.removeAllViews()
-                val q = query.trim().lowercase()
+                val q = plain(query)
                 val commands = options.filter { q.isEmpty() || it.first.lowercase().contains(q) }
                 if (commands.isNotEmpty()) section(if (q.isEmpty()) "Menu" else "Perintah")
                 commands.forEach { (label, click) -> val (icon, tint) = iconFor(label); row(label, null, icon, tint, click) }
-                if (q.length >= 2) {
-                    val cities = cityStore.cities().filter { it.name.contains(q,ignoreCase=true) }
-                        .sortedBy { !it.name.startsWith(q,ignoreCase=true) }.take(8)
+                if (q.isNotEmpty()) {
+                    val cities = cityStore.cities().filter { rank(it.name,q) < Int.MAX_VALUE }
+                        .sortedBy { rank(it.name,q) }.take(8)
                     if (cities.isNotEmpty()) section("Kota")
                     cities.forEach { city -> row(city.name,"Buka kota",StudioUi.Icon.PIN,StudioUi.TINT_BLUE) { locateCity(city.id) } }
-                    val found = stations.filter { it.name.lowercase().contains(q) }.take(8)
+                    val routes = map.routeNames.entries.filter { rank(it.value,q) < Int.MAX_VALUE }.sortedBy { rank(it.value,q) }.take(8)
+                    if (routes.isNotEmpty()) section("Jalur")
+                    routes.forEach { (id,name) -> row(name,"Buka jalur",StudioUi.Icon.ROUTE,StudioUi.TINT_BLUE) { openServiceDetails(id) } }
+                    val found = stations.filter { rank(it.name,q) < Int.MAX_VALUE }.sortedBy { rank(it.name,q) }.take(8)
                     if (found.isNotEmpty()) section("Stasiun")
                     found.forEach { st -> row(st.name, "Buka stasiun", StudioUi.Icon.PIN, 0xffe3edf9.toInt()) { openStation(st.id) } }
-                    val places = map.cityLayers.asSequence().flatMap { it.places.asSequence() }.filter { it.name.contains(q,ignoreCase=true) }
-                        .sortedWith(compareBy({ !it.name.startsWith(q,ignoreCase=true) },{ it.kind })).take(8).toList()
+                    val places = map.cityLayers.asSequence().flatMap { it.places.asSequence() }.filter { rank(it.name,q) < Int.MAX_VALUE }
+                        .sortedWith(compareBy({ rank(it.name,q) },{ it.kind })).take(8).toList()
                     if (places.isNotEmpty()) section("Tempat")
                     places.forEach { place -> row(place.name,"Lihat di peta",StudioUi.Icon.PIN,StudioUi.TINT_BLUE) { map.locatePlace(place) } }
 
@@ -857,7 +880,7 @@ class NativeWorldActivity : Activity() {
                 setPadding(dp(4), 0, dp(4), dp(8))
             })
             column.addView(android.widget.EditText(this).apply {
-                hint = "Cari stasiun, kota, tempat, atau perintah"
+                hint = "Cari stasiun, jalur, kota, tempat, atau perintah"
                 typeface = StudioUi.face(context, true)
                 textSize = 16f
                 setTextColor(StudioUi.INK)
@@ -2602,6 +2625,7 @@ internal class NetworkView(context: Context):View(context) {
     var junctionMarks:List<Pair<PointF,String>> = emptyList()
     var draftShape:List<PointF>?=null
     val draft = mutableListOf<PointF>()
+    val routeNames = mutableMapOf<Int,String>()
     val lines = mutableListOf<Pair<Int,Path>>()
     private data class RailStyle(val level: Int, val kind: Int, val tracks: Int)
     data class RailInfo(val low:Int,val high:Int,val kind:Int,val tracks:Int,val length:Double,val speed:Double)
@@ -2745,6 +2769,7 @@ internal class NetworkView(context: Context):View(context) {
         trainPainter.mercatorPerFrame = data.optDouble("mercatorPerFrame",1.0).toFloat()
         balance = data.optDouble("cash")
         requiresStudioClock = data.optBoolean("requiresStudioClock", true)
+        routeNames.clear()
         lines.clear()
         stops.clear()
         cityCenter = data.optJSONArray("homePoint")?.takeIf { it.length() == 2 }?.let {
@@ -2798,6 +2823,7 @@ internal class NetworkView(context: Context):View(context) {
                 if(j==0) path.moveTo(x,y) else path.lineTo(x,y)
             }
             val color = row.getInt("color") or Color.BLACK
+            routeNames[row.getInt("id")] = row.optString("name")
             lines.add(color to path)
             if (overlay.snapshot != null) overlay.route(row.getInt("id"),color,path)
         }
