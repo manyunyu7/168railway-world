@@ -54,7 +54,7 @@ internal object JunctionInspector {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         fun lp(top: Int) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
         StudioUi.sheet(activity, "Persimpangan", heightFraction = .78f) { column, dialog ->
-            column.addView(StudioUi.text(activity, "Level ${levelLabel(j.optInt("level"))}, ${j.optInt("ports")} rel bertemu" +
+            column.addView(StudioUi.text(activity, "Tingkat ${levelLabel(j.optInt("level"))}, ${j.optInt("ports")} rel bertemu" +
                 if (flyingNow) ", dengan flyover" else "", 14f, true, StudioUi.MUTED))
             if (!built) column.addView(StudioUi.chip(activity, "Rencana", StudioUi.TINT_BLUE, StudioUi.INK), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })
             fun setFlying(on: Boolean) {

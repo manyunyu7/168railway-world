@@ -40,19 +40,21 @@ internal object StudioMapPreview {
         LinearLayout(context).apply {
             fun dp(n: Int) = StudioUi.dp(context, n)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8),dp(8),dp(12),dp(8))
+            setPadding(dp(6),dp(6),dp(10),dp(6))
             background = KScene.choiceBackground(context, selected)
             val thumb = image(context, path, "", true) ?: StudioDepot.symbol(context,StudioUi.Icon.PIN,24f,StudioUi.INK).apply {
                 background = StudioUi.panel(context, StudioUi.TINT_PURPLE, 14, StudioUi.TINT_PURPLE)
             }
             thumb.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            addView(thumb,LinearLayout.LayoutParams(dp(72),dp(54)))
+            addView(thumb,LinearLayout.LayoutParams(dp(56),dp(42)))
             val copy = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(StudioUi.text(context,title,16f,color=StudioUi.INK).apply { typeface = StudioUi.heavy(context) })
-                addView(StudioUi.text(context,detail,13f,true,StudioUi.MUTED))
+                addView(StudioUi.text(context,title,14f,color=StudioUi.INK).apply {
+                    typeface = StudioUi.heavy(context); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+                addView(StudioUi.text(context,detail,12f,true,StudioUi.MUTED).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
             }
-            addView(copy,LinearLayout.LayoutParams(0,-2,1f).apply { marginStart=dp(12); marginEnd=dp(4) })
+            addView(copy,LinearLayout.LayoutParams(0,-2,1f).apply { marginStart=dp(10); marginEnd=dp(4) })
             addView(KScene.check(context, selected))
             contentDescription = listOf(title,detail,if(selected) "Terpilih" else "").filter { it.isNotBlank() }.joinToString(". ")
             isFocusable = true

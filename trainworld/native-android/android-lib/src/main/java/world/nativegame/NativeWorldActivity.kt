@@ -848,14 +848,14 @@ class NativeWorldActivity : Activity() {
                 }
             }
             if (map.stops.any { it.id >= 0 }) options.add("Pilih stasiun" to { chooseStation() })
-            options.add("Lensa peta lanjutan" to { passengerLayers() })
+            options.add("Lapisan peta" to { passengerLayers() })
             if (workshop) options.add("Bongkar line atau stasiun" to { withCommittedWorld { demolition() } })
-            options.add("Keuangan" to { openFinance() })
+            options.add("Celengan kota" to { openFinance() })
             options.add("Pencapaian" to { openProgress() })
             options.add("Tutorial bermain" to { chooseTutorial() })
             options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), cityStore.city(focusId ?: city.id).name, ::openStation, map.cityLayer, ::openServiceDetails) })
             options.add("Cetak biru & konstruksi" to { withCommittedWorld { chooseConstruction() } })
-            options.add("Pengaturan permainan" to { StudioGameSettings.show(this) {
+            options.add("Tampilan peta" to { StudioGameSettings.show(this) {
                 map.displaySettings = StudioGameSettings.read(this)
                 updateLensLegend()
                 zoomTools.visibility = if (map.displaySettings.zoomButtons) View.VISIBLE else View.GONE
@@ -866,7 +866,7 @@ class NativeWorldActivity : Activity() {
                 }
             } })
             options.add("Arsip dan akun" to { withCommittedWorld { if (writeSave()) openLibrary() } })
-            options.add("Kota di dunia ini" to {
+            options.add("Jelajahi dunia" to {
                 StudioZonePicker.show(this,cityStore,focusId ?: city.id,opened = openedCities,
                     allCities = ::allCities, select = ::locateCity)
             })
@@ -906,16 +906,21 @@ class NativeWorldActivity : Activity() {
         fun iconFor(label: String): Pair<StudioUi.Icon, Int> = when {
             label.startsWith("Urungkan") || label.startsWith("Ulangi") -> StudioUi.Icon.UNDO to 0xffefedf5.toInt()
             label.startsWith("Pilih stasiun") -> StudioUi.Icon.PIN to 0xffe3edf9.toInt()
-            label.startsWith("Lensa") -> StudioUi.Icon.LAYERS to 0xffffe4e4.toInt()
-            label.startsWith("Bongkar") -> StudioUi.Icon.CLOSE to 0xffffe4e4.toInt()
+            label.startsWith("Lapisan") -> StudioUi.Icon.LAYERS to 0xffffe4e4.toInt()
+            label.startsWith("Bongkar") -> StudioUi.Icon.DELETE to 0xffffe4e4.toInt()
             label.startsWith("Tutorial") -> StudioUi.Icon.HELP to 0xffe8e2ff.toInt()
             label.startsWith("Diagram") -> StudioUi.Icon.ROUTE to 0xffe1f1f6.toInt()
-            label.startsWith("Cetak") -> StudioUi.Icon.PLUS to 0xffddf4d3.toInt()
-            label.startsWith("Pengaturan") -> StudioUi.Icon.MENU to 0xffefedf5.toInt()
+            label.startsWith("Cetak") -> StudioUi.Icon.BUILD to 0xffddf4d3.toInt()
+            label.startsWith("Tampilan") -> StudioUi.Icon.EYE to 0xffefedf5.toInt()
             label.startsWith("Arsip") -> StudioUi.Icon.CLOUD to 0xffe3edf9.toInt()
-            label.startsWith("Keuangan") -> StudioUi.Icon.WALLET to 0xfffff3c4.toInt()
-            else -> StudioUi.Icon.FOLDER to 0xfffff3c4.toInt()
+            label.startsWith("Celengan") -> StudioUi.Icon.WALLET to 0xfffff3c4.toInt()
+            label.startsWith("Pencapaian") -> StudioUi.Icon.TROPHY to 0xfffff3c4.toInt()
+            label.startsWith("Jelajahi") -> StudioUi.Icon.CENTER to 0xffe3edf9.toInt()
+            label.startsWith("Pilih kota") -> StudioUi.Icon.FLAG to 0xffe3edf9.toInt()
+            else -> StudioUi.Icon.MORE to 0xffefedf5.toInt()
         }
+        // the menu in a few short groups instead of one flat list (MenuGroups.kt)
+        fun groupOf(label: String) = MenuGroups.of(label)
         val combining = Regex("\\p{M}+")
         val punctuation = Regex("[^\\p{L}\\p{N}]+")
         val forms = mutableMapOf<String,String>()
@@ -942,32 +947,37 @@ class NativeWorldActivity : Activity() {
                 if (firstAction == null) firstAction = { dialog.dismiss(); click() }
                 results.addView(LinearLayout(this).apply {
                     gravity = Gravity.CENTER_VERTICAL
-                    background = StudioDepot.touch(context, 0xd9ffffff.toInt(), 18)
-                    setPadding(dp(10), dp(8), dp(12), dp(8))
-                    minimumHeight = dp(56)
+                    background = StudioDepot.touch(context, 0xd9ffffff.toInt(), 14)
+                    setPadding(dp(8), dp(4), dp(10), dp(4))
+                    minimumHeight = dp(48)
                     isClickable = true
                     contentDescription = label
-                    addView(StudioDepot.symbol(context, icon, 19f, StudioUi.INK).apply {
-                        background = StudioUi.panel(context, tint, 12, tint)
-                    }, LinearLayout.LayoutParams(dp(38), dp(38)))
+                    addView(StudioDepot.symbol(context, icon, 17f, StudioUi.INK).apply {
+                        background = StudioUi.panel(context, tint, 10, tint)
+                    }, LinearLayout.LayoutParams(dp(32), dp(32)))
                     val texts = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-                    texts.addView(StudioUi.text(context, label, 15f, true))
-                    if (sub != null) texts.addView(StudioUi.text(context, sub, 12f, true, StudioUi.MUTED))
-                    addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+                    texts.addView(StudioUi.text(context, label, 14f, true))
+                    if (sub != null) texts.addView(StudioUi.text(context, sub, 12f, false, StudioUi.MUTED))
+                    addView(texts, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
                     setOnClickListener { dialog.dismiss(); click() }
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
             }
             fun section(name: String) = results.addView(StudioUi.text(this, name.uppercase(), 12f, true, StudioUi.MUTED).apply {
                 letterSpacing = .06f
-                setPadding(dp(4), dp(12), 0, dp(2))
+                setPadding(dp(2), dp(10), 0, dp(0))
             })
             fun render(query: String) {
                 results.removeAllViews()
                 firstAction = null
                 val q = plain(query)
                 val commands = options.filter { q.isEmpty() || it.first.lowercase().contains(q) }
-                if (commands.isNotEmpty()) section(if (q.isEmpty()) "Menu" else "Perintah")
-                commands.forEach { (label, click) -> val (icon, tint) = iconFor(label); row(label, null, icon, tint, click) }
+                if (q.isEmpty()) commands.groupBy { groupOf(it.first) }.toSortedMap().forEach { (group, items) ->
+                    section(MenuGroups.NAMES[group])
+                    items.forEach { (label, click) -> val (icon, tint) = iconFor(label); row(label, null, icon, tint, click) }
+                } else {
+                    if (commands.isNotEmpty()) section("Perintah")
+                    commands.forEach { (label, click) -> val (icon, tint) = iconFor(label); row(label, null, icon, tint, click) }
+                }
                 if (q.isNotEmpty()) {
                     data class Hit(val score: Int, val kind: Int, val weight: Int, val name: String, val alias: String?, val open: () -> Unit)
                     val hits = mutableListOf<Hit>()
@@ -1007,20 +1017,17 @@ class NativeWorldActivity : Activity() {
                 setPadding(dp(4), 0, dp(4), dp(8))
             })
             column.addView(android.widget.EditText(this).apply {
-                hint = if (focus) "Cari stasiun, line, kota, atau tempat" else "Cari stasiun, line, kota, tempat, atau perintah"
+                hint = "Cari…"
+                contentDescription = if (focus) "Cari stasiun, line, kota, atau tempat" else "Cari stasiun, line, kota, tempat, atau perintah"
                 if (focus) post {
                     requestFocus()
                     (context.getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
                         .showSoftInput(this,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
                 }
-                typeface = StudioUi.face(context, true)
-                textSize = 16f
-                setTextColor(StudioUi.INK)
-                setHintTextColor(StudioUi.MUTED)
+                StudioUi.field(this)
                 isSingleLine = true
-                background = StudioUi.pill(context, -1, 28)
-                setPadding(dp(18), 0, dp(18), 0)
-                minHeight = dp(54)
+                setCompoundDrawablesRelative(StudioUi.glyph(context, StudioUi.Icon.SEARCH, StudioUi.MUTED), null, null, null)
+                compoundDrawablePadding = dp(8)
                 imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
                 val update = Runnable { render(text.toString()) }
                 setOnEditorActionListener { _, action, event ->
@@ -1040,7 +1047,7 @@ class NativeWorldActivity : Activity() {
                         postDelayed(update,150)
                     }
                 })
-            }, LinearLayout.LayoutParams(-1, dp(54)))
+            }, LinearLayout.LayoutParams(-1, dp(48)))
             column.addView(results)
             render("")
         }
@@ -1408,7 +1415,7 @@ class NativeWorldActivity : Activity() {
         render(lines,"Line","Daftar line",StudioUi.Icon.ROUTE)
         render(finance,"Uang","Keuangan",StudioUi.Icon.WALLET)
         mapLens.visibility = mapSearch.visibility
-        render(cancel,if(railMode) "Stop" else "Batal",if(railMode) "Akhiri rangkaian segmen" else "Batalkan rancangan",StudioUi.Icon.CLOSE)
+        render(cancel,if(railMode) "Selesai" else "Batal",if(railMode) "Akhiri rangkaian segmen" else "Batalkan rancangan",StudioUi.Icon.CLOSE)
         render(more,if (drawing) "Alat" else "Menu",if (drawing) "Alat rancangan" else "Cari dan menu",StudioUi.Icon.MENU)
         when {
             drawing -> render(play,if(railMode) "Kembali" else "Urung",if(railMode) "Kembali satu segmen" else "Urungkan titik terakhir",StudioUi.Icon.UNDO)
@@ -2556,7 +2563,7 @@ class NativeWorldActivity : Activity() {
                 addView(View(context).apply { background = swatch(colours, 5) }, LinearLayout.LayoutParams(dp(64), dp(9)).apply { marginEnd = dp(8) })
                 addView(StudioUi.text(context, legend, 12f, true, StudioUi.MUTED).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
             })
-        } else text.addView(StudioUi.text(this, "Diatur sendiri lewat Lensa peta lanjutan", 11.5f, true, StudioUi.MUTED))
+        } else text.addView(StudioUi.text(this, "Diatur sendiri lewat Lapisan peta", 11.5f, true, StudioUi.MUTED))
         lensLegend.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
         lensLegend.addView(StudioDepot.symbol(this, StudioUi.Icon.CLOSE, 18f, StudioUi.INK).apply {
             gravity = Gravity.CENTER

@@ -95,7 +95,7 @@ internal object TrackInspector {
                 crossover -> "crossover"; piece.getInt("kind") == 2 -> "rel trem di jalan"; tram -> "rel trem"
                 hsr -> "rel kecepatan tinggi"; tracks == 2 -> "rel ganda"; else -> "rel tunggal"
             }
-            val lv = if (lo == hi) "Level ${levelLabel(lo)}" else "Level ${levelLabel(lo)} sampai ${levelLabel(hi)}"
+            val lv = if (lo == hi) "Tingkat ${levelLabel(lo)}" else "Tingkat ${levelLabel(lo)} sampai ${levelLabel(hi)}"
             content.addView(StudioUi.text(activity, listOf(distance(piece.getDouble("length")), kindWord, lv).joinToString(" · "), 14f, true, StudioUi.MUTED).apply {
                 setPadding(dp(4), 0, dp(4), dp(6))
             })

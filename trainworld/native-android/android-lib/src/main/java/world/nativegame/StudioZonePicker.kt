@@ -20,25 +20,25 @@ internal object StudioZonePicker {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         val cities = catalog.cities().sortedBy { it.name }
         StudioUi.sheet(activity, title) { column, dialog ->
-            if (allCities != null) column.addView(StudioUi.button(activity,"Semua kota") { dialog.dismiss(); allCities() })
+            // search and "Semua kota" on one row
+            val top = LinearLayout(activity).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
             val query = EditText(activity).apply {
                 setSingleLine()
                 hint = "Cari kota"
-                minHeight = dp(54)
-                textSize = 16f
-                typeface = StudioUi.face(context, true)
-                setTextColor(StudioUi.INK)
-                setHintTextColor(StudioUi.MUTED)
-                setPadding(dp(18), 0, dp(18), 0)
-                background = StudioUi.pill(context, StudioUi.WHITE, 27)
+                StudioUi.field(this)
+                setCompoundDrawablesRelative(StudioUi.glyph(context, StudioUi.Icon.SEARCH, StudioUi.MUTED), null, null, null)
+                compoundDrawablePadding = dp(8)
             }
-            column.addView(query, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            top.addView(query, LinearLayout.LayoutParams(0, dp(48), 1f))
+            if (allCities != null) top.addView(StudioUi.button(activity,"Semua kota") { dialog.dismiss(); allCities() },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(6) })
+            column.addView(top, LinearLayout.LayoutParams(-1, -2))
             val local = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-            column.addView(local,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
+            column.addView(local,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
 
             fun cityCard(city: CityPackStore.City): View {
                 val cache = if (catalog.cached(city.id)) "Tersedia offline" else
-                    "Unduh %.1f MB".format(Locale.forLanguageTag("id-ID"),city.bytes / 1_000_000.0)
+                    "Unduh %.1f\u00a0MB".format(Locale.forLanguageTag("id-ID"),city.bytes / 1_000_000.0)
                 val network = when {
                     opened != null -> if (city.id in opened) "Dalam dunia ini" else "Jelajahi kota"
                     city.hasNetwork || city.id == "jak" -> "Jaringan contoh"
@@ -53,19 +53,19 @@ internal object StudioZonePicker {
             if (!opened.isNullOrEmpty()) {
                 local.addView(StudioUi.section(activity,"Kota di dunia ini"))
                 for (zone in cities.filter { it.id in opened }) local.addView(cityCard(zone),
-                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(5) })
+                    LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
             }
             local.addView(StudioUi.section(activity,"Kota Indonesia"))
             val shortList = LinearLayout(activity)
             local.addView(HorizontalScrollView(activity).apply {
                 isHorizontalScrollBarEnabled = false
                 addView(shortList)
-            },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
+            },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(4) })
             for (id in featured.filterNot { opened?.contains(it) == true }) {
-                shortList.addView(cityCard(catalog.city(id)),LinearLayout.LayoutParams(dp(235),-2).apply { marginEnd=dp(6) })
+                shortList.addView(cityCard(catalog.city(id)),LinearLayout.LayoutParams(dp(250),-2).apply { marginEnd=dp(6) })
             }
             local.addView(StudioUi.section(activity,"Kota lainnya"),
-                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
+                LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(4) })
             val missing = StudioUi.text(activity, "Kota tidak ditemukan.", 15f, true, StudioUi.MUTED)
             missing.visibility = View.GONE
             column.addView(missing, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
@@ -82,7 +82,7 @@ internal object StudioZonePicker {
                 missing.visibility = if (results.isEmpty()) View.VISIBLE else View.GONE
                 results.drop(page * pageSize).take(pageSize).forEach { city ->
                     val row = cityCard(city)
-                    matches.addView(row,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(5) })
+                    matches.addView(row,LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
                 }
                 val pages = (results.size + pageSize - 1) / pageSize
                 if (pages > 1) {
