@@ -522,7 +522,8 @@ class NativeWorldActivity : Activity() {
             if (!drawing && !removingTrack && !restoringEdit && engine != 0L) { map.showTrainAboveSheet(profile, dep); openTrain(profile, dep, fill, engine, time) }
         }
         map.onStationTap = { station ->
-            if (!drawing && !removingTrack && !restoringEdit && handle != 0L) {
+            if (PassagePick.tapped(station)) true
+            else if (!drawing && !removingTrack && !restoringEdit && handle != 0L) {
                 selectingInfrastructure=false
                 updateControls()
                 if (checkpointInFlight) afterCheckpoint = { openStation(station) }
@@ -2729,6 +2730,7 @@ internal class NetworkView(context: Context):View(context) {
     var displaySettings = StudioGameSettings.read(context)
         set(value) { field=value; invalidate() }
     val overlay = StudioPassengerOverlay(context as? Activity){ invalidate() }
+    val passages = PassageLayer()
     private var baseLayer: StudioBaseLayer? = null
     override fun onAttachedToWindow() { super.onAttachedToWindow(); if(baseLayer==null)baseLayer=StudioBaseLayer(context){invalidate()} }
     override fun onDetachedFromWindow() { cameraRevision++; removeCallbacks(settled); boundaryWorker.queue.clear(); overlay.stop(); baseLayer?.close();baseLayer=null;super.onDetachedFromWindow() }
@@ -3112,6 +3114,7 @@ internal class NetworkView(context: Context):View(context) {
             val s=stations.getJSONArray(i)
             stops.add(Station(s.getDouble(0).toFloat(),s.getDouble(1).toFloat(),s.getString(2),s.getInt(3),StudioStationGlyph.read(s.optJSONObject(4)),s.optInt(5,s.getInt(3))))
         }
+        passages.load(data)
         if(refit)fit(); overlay.startNeeded(); invalidate()
     }
     private var inspectingStation: Station? = null
@@ -3369,6 +3372,8 @@ internal class NetworkView(context: Context):View(context) {
         val labelCells=mutableSetOf<Long>()
         val stationCells = if (overview) mutableSetOf<Long>() else null
         val stationZoom = stationZoom()
+        val dotRing = (if (overview) 2f else 3.6f) * density * displaySettings.circleSize
+        passages.under(c,centerX,centerY,scale,vw,vh,density,trainPainter.mercatorPerFrame,stationZoom,dotRing)
         for(s in stops){
             if (stationZoom < 9f) break
             val originX=sx(s.x); val originY=sy(s.y)
@@ -3404,6 +3409,7 @@ internal class NetworkView(context: Context):View(context) {
                 labelX=x;labelY=y
             }
         }
+        passages.over(c,centerX,centerY,scale,vw,vh,density,trainPainter.mercatorPerFrame,stationZoom,dotRing)
     }
 
     /** Screen radius of [metres] of ground at plane y: local frames are in metres, the Mercator frame

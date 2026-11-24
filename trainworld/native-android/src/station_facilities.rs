@@ -165,7 +165,7 @@ mod tests {
 
 /// Coordinates crossing the Android UI boundary are ground metres relative to the
 /// selected platform. The world retains its original coordinate frame in TWG1.
-fn station_structure(
+pub(crate) fn station_structure(
     w: &mut World,
     node: u32,
     time: f64,
@@ -270,6 +270,10 @@ fn station_structure(
     let (code, charge) = match action {
         "link" => {
             let other = id.ok_or("Pilih peron tujuan.")?;
+            // web linkRefusal: the same station, one complex already, or past a passage's reach
+            if let Some(why) = super::passages::refusal(&w.api, node, other) {
+                return Err(why);
+            }
             let code = w.api.link_stations(node, other);
             (code, w.api.link_charge())
         }
@@ -296,7 +300,8 @@ fn station_structure(
     super::finance::book_charge(&mut w.header, clock, charge, 0.);
     w.hour = i64::MIN;
     w.operating = None;
-    Ok(json!({"changed":true,"cash":w.api.cash(),"charge":charge}))
+    let other = id.filter(|_| matches!(action, "link" | "unlink")).map(|o| w.api.node_name(o));
+    Ok(json!({"changed":true,"cash":w.api.cash(),"charge":charge,"a":w.api.node_name(node),"b":other}))
 }
 fn building_issue(s: &str) -> String {
     match s.split(':').next().unwrap_or(s) {

@@ -144,7 +144,7 @@ impl Network {
     /// Whether two stations are one complex by distance, as game/complexes.ts `nearEnough` has it:
     /// centres within 100 m, or platforms (drawn centre lines, or the straight segment of the
     /// platform's length along the heading) within 50 m. Levels are ignored.
-    fn near_enough(&self, a: u32, b: u32) -> bool {
+    pub fn near_enough(&self, a: u32, b: u32) -> bool {
         let (i, j) = (a as usize, b as usize);
         let k = (self.k_at(self.node_y[i]) + self.k_at(self.node_y[j])) / 2.0;
         let d = (self.node_x[i] - self.node_x[j]).hypot(self.node_y[i] - self.node_y[j]);

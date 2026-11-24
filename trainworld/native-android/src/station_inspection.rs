@@ -146,7 +146,7 @@ fn station(w: &World, node: u32, now: f64) -> Value {
         "facilities":super::station_facilities::offered(w,id),"id":id, "name":w.api.node_name(id), "meters":net.node_platform[id as usize], "level":net.node_level[id as usize],
         "upkeep":upkeep(net,id)
     })).collect();
-    json!({"id":node,"name":w.api.node_name(node),"platforms":platforms,"lines":lines,"closest":closest(w,node,&complex),"upkeepRates":upkeep_rates(),
+    json!({"id":node,"name":w.api.node_name(node),"platforms":platforms,"lines":lines,"closest":closest(w,node,&complex),"passages":super::passages::listed(&w.api,&complex),"upkeepRates":upkeep_rates(),
         "departures":departures.into_iter().map(|(_,d)|d).collect::<Vec<_>>()})
 }
 
