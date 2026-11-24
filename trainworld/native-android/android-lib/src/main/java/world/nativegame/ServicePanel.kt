@@ -35,10 +35,10 @@ internal object ServicePanel {
 
     fun open(host: Activity, handle: Long, clock: Double, editable: Boolean, transaction: PanelEdit, changed: (String) -> Unit) {
         val all = JSONArray(services(handle))
-        StudioUi.sheet(host, "Koleksi jalur") { column, dialog ->
+        StudioUi.sheet(host, "Lini") { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
             if (all.length() == 0) {
-                column.addView(StudioUi.text(host, "Bangun jalur pertama untuk mengatur layanannya.", 16f))
+                column.addView(StudioUi.text(host, "Bangun lini pertama untuk mengatur layanannya.", 16f))
                 column.addView(StudioUi.button(host, "Kembali ke peta") { dialog.dismiss() })
             }
             val items = List(all.length()) { all.getJSONObject(it) }
@@ -120,7 +120,7 @@ internal object ServicePanel {
                 rows.removeAllViews()
                 val found = items.filter { it.getString("name").contains(query.trim(), ignoreCase = true) && (mode == "Semua" || vehicle(it) == mode) }
                 if (found.isEmpty() && items.isNotEmpty()) {
-                    rows.addView(StudioUi.text(host,"Jalur tidak ditemukan.",15f,true,StudioUi.MUTED).apply { setPadding(dp(4),dp(12),0,dp(6)) })
+                    rows.addView(StudioUi.text(host,"Lini tidak ditemukan.",15f,true,StudioUi.MUTED).apply { setPadding(dp(4),dp(12),0,dp(6)) })
                     rows.addView(StudioUi.button(host,"Hapus pencarian") { search?.setText(""); mode = "Semua"; render("") })
                 }
                 // Services sharing a name (both directions, variants) form one collectible card.
@@ -136,7 +136,7 @@ internal object ServicePanel {
             }
             if (items.size > 6) {
                 search = EditText(host).apply {
-                    hint = "Cari nama jalur"
+                    hint = "Cari nama lini"
                     setSingleLine()
                     typeface = StudioUi.face(host, true)
                     textSize = 16f
@@ -283,6 +283,10 @@ internal object ServicePanel {
                 } else entries.forEach { (time, destination) -> column.addView(StudioTimetable.departure(host,time,destination), lp(6, host)) }
             } else {
                 column.addView(StudioUi.text(host,"Belum ada pemberhentian pada rute ini.",15f,true,StudioUi.MUTED), lp(12, host))
+            }
+            // web LineMoney: the line's last 30 whole days of fares and running cost
+            FinanceHistory.lineMoney(host, service.optJSONArray("lineDays"), service.optInt("today"), StudioCurrency.current(host))?.let {
+                column.addView(it, lp(14, host))
             }
             footer = LinearLayout(host)
             if (route.names.isNotEmpty()) footer.addView(StudioUi.button(host, if (editable) "Grafik" else "Grafik perjalanan & keberangkatan", icon = StudioUi.Icon.ROUTE) {

@@ -133,12 +133,72 @@ internal object FinanceHistory {
         return box
     }
 
+    /**
+     * Web LineMoney (inspector/LineMoney.tsx): a line's last 30 whole days, fares (blue) and running
+     * cost (red) side by side, a young line's few days at the right, a day it did not run empty; a
+     * tap says the day's figures. `days`: the line's `lineDays`, [day, fares, running] triples, US$M.
+     * Null with no whole day yet.
+     */
+    fun lineMoney(activity: Activity, days: JSONArray?, today: Int, currency: StudioCurrency): View? {
+        if (days == null) return null
+        val first = today - 30
+        val byDay = HashMap<Int, Pair<Double, Double>>()
+        var i = 0
+        while (i + 2 < days.length()) {
+            val d = days.optInt(i)
+            if (d in first until today) byDay[d] = days.optDouble(i + 1) to days.optDouble(i + 2)
+            i += 3
+        }
+        if (byDay.isEmpty()) return null
+        val from = byDay.keys.min()
+        val cols = (from until today).map { d ->
+            val (fares, running) = byDay[d] ?: (0.0 to 0.0)
+            Col("Hari $d", fares, running, 0.0, 0.0, 0.0, 0.0, 0.0, false)
+        }
+        fun dp(n: Int) = StudioUi.dp(activity, n)
+        val usd = { v: Double -> StudioFormat.money(v * 1e6, currency) }
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = StudioUi.card(activity, 22)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        val top = cols.maxOf { maxOf(it.fares, it.running) }
+        val head = LinearLayout(activity)
+        head.addView(StudioUi.text(activity, "Pendapatan dan pengeluaran", 13f, true, StudioUi.MUTED).apply {
+            text = android.text.SpannableString(text).apply {
+                setSpan(android.text.style.ForegroundColorSpan(REVENUE), 0, 10, 0)
+                setSpan(android.text.style.ForegroundColorSpan(EXPENSE), 15, length, 0)
+            }
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        head.addView(StudioUi.text(activity, usd(top), 12f, true, StudioUi.MUTED))
+        val detail = StudioUi.text(activity, "Ketuk batang untuk rinciannya.", 13f, true, StudioUi.MUTED).apply {
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        val chart = Chart(activity, rides = false, pick = { c, k ->
+            val col = c[k]
+            detail.text = "${col.label}\nTarif ${usd(col.fares)}\nBiaya operasi kereta ${usd(-col.running)}\nBersih ${usd(col.fares - col.running)}"
+            detail.setTextColor(StudioUi.INK)
+        }, fixedSlots = 30).apply {
+            this.cols = cols
+            val sum = cols.sumOf { it.fares - it.running }
+            contentDescription = "Pendapatan dan pengeluaran lini, ${cols.size} hari terakhir, bersih ${usd(sum)}"
+        }
+        box.addView(head)
+        box.addView(chart, LinearLayout.LayoutParams(-1, dp(72)).apply { topMargin = dp(4) })
+        val axis = LinearLayout(activity)
+        axis.addView(StudioUi.text(activity, "Hari $first", 11f, true, StudioUi.MUTED), LinearLayout.LayoutParams(0, -2, 1f))
+        axis.addView(StudioUi.text(activity, "Hari ${today - 1}", 11f, true, StudioUi.MUTED))
+        box.addView(axis)
+        box.addView(detail, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+        return box
+    }
+
     /** Bars right-aligned in at least 7 (days) or 12 (hours) slots, as `FareCostBars`; the last column, the one now, paler. */
-    private class Chart(activity: Activity, val rides: Boolean, val pick: (List<Col>, Int) -> Unit) : View(activity) {
+    private class Chart(activity: Activity, val rides: Boolean, val pick: (List<Col>, Int) -> Unit, val fixedSlots: Int = 0) : View(activity) {
         var cols: List<Col> = emptyList()
         private val pen = Paint(Paint.ANTI_ALIAS_FLAG)
         private val box = RectF()
-        private fun slots() = maxOf(cols.size, if (span == "1d") 12 else 7)
+        private fun slots() = maxOf(cols.size, if (fixedSlots > 0) fixedSlots else if (span == "1d") 12 else 7)
         override fun onDraw(canvas: Canvas) {
             if (cols.isEmpty()) return
             val d = resources.displayMetrics.density

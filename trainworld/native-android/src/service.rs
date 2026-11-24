@@ -92,7 +92,8 @@ impl World {
         Some(
             json!({"name":self.api.line_name(id),"color":r[1],"cars":r[8],"count":[r[13],r[14],r[15]],"headway":self.api.line_auto(id),
           "weekend":weekend.first().copied().unwrap_or(100.),
-          "limits":self.limits(id),"weekendManual":weekend.get(1).is_some_and(|&m| m == 1.),"weekendCounts":weekend.get(2..5),"dwell":r[19],"turn":r[20],"cycle":r[10],"cycles":[r[10],r[11],r[12]],"length":r[9],"limit":self.api.line_limit(id),
+          "limits":self.limits(id),"lineDays":self.header["lineDays"][id.to_string()],
+          "today":((now + super::local_time::day_shift(&self.header)) / 86400.).floor(),"weekendManual":weekend.get(1).is_some_and(|&m| m == 1.),"weekendCounts":weekend.get(2..5),"dwell":r[19],"turn":r[20],"cycle":r[10],"cycles":[r[10],r[11],r[12]],"length":r[9],"limit":self.api.line_limit(id),
           "level":level_at(now + self.api.world().svc.lines[id as usize].shift),
           "shift":self.api.world().svc.lines[id as usize].shift,"vehicle":vehicle,"stops":labels.stops,"unnamedStops":labels.unnamed,"directionNames":labels.directions,"upcoming":upcoming,"depart":trips,"running":r[3]==1.}),
         )
