@@ -3095,6 +3095,8 @@ internal class NetworkView(context: Context):View(context) {
     fun trainLoads(epoch:Long,rows:org.json.JSONArray) { trainPainter.setLoads(epoch,rows); redraw() }
     /** Content changed: the cached static layer is stale. Trains and the camera redraw through [redraw]. */
     private var contentVersion = 0
+    // postInvalidateOnAnimation() lands here too: only content changes may bump the static version,
+    // so per-frame train redraws go through [redraw] (postOnAnimation(redrawTask)), never this.
     override fun invalidate() { contentVersion++; super.invalidate() }
     private fun redraw() = super.invalidate()
     private val redrawTask = Runnable { redraw() }
@@ -3599,7 +3601,7 @@ internal class NetworkView(context: Context):View(context) {
         trainPainter.time = trainTime(frameTime)
         trainPainter.update(centerX,centerY,scale,width,height)
         // every display frame while the clock plays (was a 50 ms timer, 20 fps)
-        if (trainWindow > 0L) postInvalidateOnAnimation()
+        if (trainWindow > 0L) { removeCallbacks(redrawTask); postOnAnimation(redrawTask) }
         if (displaySettings.trains) trainPainter.draw(c,scale,width,height,displaySettings)
         followed?.let { (profile,dep) ->
             val at = trainPainter.positionOf(profile,dep)

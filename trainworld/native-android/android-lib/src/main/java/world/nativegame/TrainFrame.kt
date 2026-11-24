@@ -61,7 +61,7 @@ internal object FrameLog {
         val now = SystemClock.elapsedRealtime()
         if (since == 0L) since = now
         if (now - since < 5000) return
-        Log.d("WorldFrame", "frames=$frames draw avg=%.2f max=%.1f ms · scene avg=%.2f max=%.1f ms · static renders=%d max=%.0f ms".format(
+        Log.w("WorldFrame", "frames=$frames draw avg=%.2f max=%.1f ms · scene avg=%.2f max=%.1f ms · static renders=%d max=%.0f ms".format(
             java.util.Locale.ROOT, drawNs / 1e6 / frames, drawMax / 1e6, sceneNs / 1e6 / frames, sceneMax / 1e6, staticCount, staticMax / 1e6))
         since = now; frames = 0; drawNs = 0; drawMax = 0; sceneNs = 0; sceneMax = 0; staticCount = 0; staticMax = 0
     }
