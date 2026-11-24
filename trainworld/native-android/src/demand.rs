@@ -83,6 +83,9 @@ fn advance(
         a && b && regional
     })
 }
+/// The trip rows' zone meaning every local zone of the solve (the opened cities of a world, each
+/// zone's rows in turn, all in the one world frame once packed).
+pub(super) const ALL_ZONES: &str = "*";
 fn solve(
     save: &[u8],
     packs: &[LocalPack],
@@ -90,7 +93,8 @@ fn solve(
     market_input: Option<MarketInput>,
     mut account: Option<&mut super::passenger_account::Forecast>,
     geo: Option<&crate::demand_zones::Geography>,
-    cells: Option<(&str, &mut Vec<f64>)>,
+    // the zone whose trip rows to write, and whether with each filter purpose's (`trip_cells`)
+    cells: Option<(&str, bool, &mut Vec<f64>)>,
 ) -> Result<Vec<Value>, String> {
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
     let first = packs.first().ok_or("Paket kota tidak tersedia")?;
@@ -503,7 +507,10 @@ fn solve(
             )?;
         }
         for (i, (work, other)) in cities.iter_mut().enumerate() {
-            if cells.as_ref().is_some_and(|(id, _)| *id == frames[i].0) {
+            if cells
+                .as_ref()
+                .is_some_and(|(id, _, _)| *id == ALL_ZONES || *id == frames[i].0)
+            {
                 continue;
             }
             work.forget_period(period);
@@ -515,13 +522,30 @@ fn solve(
             }
         }
     }
-    if let Some((id, out)) = cells {
-        let i = frames
-            .iter()
-            .position(|r| r.0 == id)
-            .ok_or("Zona perjalanan tidak tersedia")?;
-        *out =
-            crate::trip_cells::rows(id, frames[i].1, &cities[i].0, &cities[i].1, market.as_ref())?;
+    if let Some((id, by_purpose, out)) = cells {
+        let rows = if by_purpose {
+            crate::trip_cells::purpose_rows
+        } else {
+            crate::trip_cells::rows
+        };
+        out.clear();
+        let mut found = false;
+        for (i, (zone, frame)) in frames.iter().enumerate() {
+            if id != ALL_ZONES && zone != id {
+                continue;
+            }
+            found = true;
+            out.extend(rows(
+                zone,
+                *frame,
+                &cities[i].0,
+                &cities[i].1,
+                market.as_ref(),
+            )?);
+        }
+        if !found {
+            return Err("Zona perjalanan tidak tersedia".into());
+        }
     }
     Ok(results)
 }
@@ -711,6 +735,100 @@ pub extern "system" fn Java_world_nativegame_NativeRidership_estimate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// The purpose filter's rows (`trip_cells::purpose_rows`) against every purpose's: the same
+    /// cells and totals in the first eight counts, and the seven purposes never above them (the
+    /// longer trips make the rest). WORLD_CITY_DATA holds `<city>.json/.bin/.market.json` and
+    /// `market-drives.bin`; WORLD_MARKET_INDEX the regional index; WORLD_SAVE a network save.
+    #[test]
+    #[ignore = "requires the pinned city pack and an original network save"]
+    fn purpose_cells() {
+        let dir = std::path::PathBuf::from(std::env::var("WORLD_CITY_DATA").unwrap());
+        let id = std::env::var("WORLD_CITY").unwrap();
+        let read = |p: std::path::PathBuf| std::fs::read(p).unwrap();
+        let save = read(std::env::var("WORLD_SAVE").unwrap().into());
+        // WORLD_LOCAL_PACKS: the zones of the solve (default WORLD_CITY); WORLD_CITY `*` asks for all
+        let locals = std::env::var("WORLD_LOCAL_PACKS").unwrap_or_else(|_| id.clone());
+        let headers: Vec<_> = locals
+            .split(',')
+            .map(|z| std::fs::read_to_string(dir.join(format!("{z}.market.json"))).unwrap())
+            .collect();
+        let packs: Vec<_> = locals
+            .split(',')
+            .zip(&headers)
+            .map(|(z, zone)| LocalPack {
+                header: std::fs::read_to_string(dir.join(format!("{z}.json"))).unwrap(),
+                cells: read(dir.join(format!("{z}.bin"))),
+                country: serde_json::from_str::<Value>(zone).unwrap()["country"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_owned(),
+            })
+            .collect();
+        let index = read(std::env::var("WORLD_MARKET_INDEX").unwrap().into());
+        let drives = read(dir.join("market-drives.bin"));
+        let zones: Vec<_> = headers.iter().map(String::as_str).collect();
+        let market = Some((index.as_slice(), drives.as_slice(), &zones[..]));
+        let run = |by_purpose| {
+            let mut cells = Vec::new();
+            solve(
+                &save,
+                &packs,
+                &[0, 1, 2, 3, 4],
+                market,
+                None,
+                None,
+                Some((&id, by_purpose, &mut cells)),
+            )
+            .unwrap();
+            cells
+        };
+        let (all, parts) = (run(false), run(true));
+        let stride = crate::trip_cells::PURPOSE_STRIDE;
+        assert_eq!(all.len() % 10, 0);
+        assert_eq!(parts.len() % stride, 0);
+        assert_eq!(all.len() / 10, parts.len() / stride, "cells");
+        let names = crate::trip_cells::PURPOSES.map(|p| p.0);
+        let mut sums = vec![0f64; 1 + names.len()];
+        for (a, p) in all.chunks_exact(10).zip(parts.chunks_exact(stride)) {
+            for k in 0..10 {
+                assert!(
+                    (a[k] - p[k]).abs() <= 1e-6 * a[k].abs().max(1.),
+                    "column {k}: {} vs {}",
+                    a[k],
+                    p[k]
+                );
+            }
+            for k in 0..8 {
+                let filtered: f64 = (0..names.len()).map(|j| p[10 + 8 * j + k]).sum();
+                assert!(
+                    filtered <= a[2 + k] * 1.0001 + 0.01,
+                    "purposes {filtered} above every purpose's {}",
+                    a[2 + k]
+                );
+            }
+            for (j, s) in sums.iter_mut().enumerate() {
+                *s += p[2 + 8 * j..10 + 8 * j].iter().sum::<f64>();
+            }
+        }
+        let shares: Vec<_> = names
+            .iter()
+            .zip(&sums[1..])
+            .map(|(n, s)| format!("{n} {:.1}%", 100. * s / sums[0]))
+            .collect();
+        eprintln!(
+            "cells {}, legs {:.0}: {}",
+            all.len() / 10,
+            sums[0],
+            shares.join(", ")
+        );
+        assert!(
+            names
+                .iter()
+                .zip(&sums[1..])
+                .all(|(n, s)| *s > 0. || *n == "airport"),
+            "a purpose with no trips"
+        );
+    }
     #[test]
     #[ignore = "requires the pinned city pack and an original network save"]
     fn city_commute() {
@@ -767,6 +885,8 @@ mod tests {
             .unwrap();
             let mut cells = Vec::new();
             let output = std::env::var("WORLD_TRIP_EXPORT").ok();
+            // with each filter purpose's counts after every purpose's (`trip_cells::purpose_rows`)
+            let by_purpose = std::env::var("WORLD_TRIP_PURPOSES").is_ok();
             solve(
                 &save,
                 &packs,
@@ -774,7 +894,9 @@ mod tests {
                 market,
                 Some(&mut forecast),
                 Some(&geo),
-                output.as_ref().map(|_| (id.as_str(), &mut cells)),
+                output
+                    .as_ref()
+                    .map(|_| (id.as_str(), by_purpose, &mut cells)),
             )
             .unwrap();
             if let Some(path) = output {
@@ -898,11 +1020,11 @@ pub extern "system" fn Java_world_nativegame_NativeRidership_tripCells(
             market,
             None,
             None,
-            Some((&city, &mut cells)),
+            Some((&city, true, &mut cells)),
         )?;
         let world = World::open(&save).ok_or("Simpanan tidak dapat dibaca")?;
         let mut packed = Vec::with_capacity(cells.len());
-        for row in cells.chunks_exact(10) {
+        for row in cells.chunks_exact(crate::trip_cells::PURPOSE_STRIDE) {
             packed.extend(
                 world
                     .api

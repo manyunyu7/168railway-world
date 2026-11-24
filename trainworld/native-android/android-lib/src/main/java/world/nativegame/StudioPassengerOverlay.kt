@@ -20,7 +20,34 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     private val main = Handler(Looper.getMainLooper())
     var manifest: ((ByteArray) -> String)? = null
     private var nativeTask: java.util.concurrent.Future<*>? = null
-    private companion object { val executor = java.util.concurrent.Executors.newSingleThreadExecutor() }
+    companion object {
+        private val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        /** The map's purpose filter as the web's (`FILTER_PURPOSES`, app/src/game/purposes.ts): key,
+         * name and colour, after "every purpose". Rust's `trip_cells::PURPOSES` keeps this order. */
+        val PURPOSES = listOf(
+            Triple("all","Semua tujuan",0xff8a817b.toInt()),
+            Triple("work","Kerja",0xff3978c6.toInt()),
+            Triple("school","Sekolah",0xff168b91.toInt()),
+            Triple("shopping","Belanja",0xffd94a53.toInt()),
+            Triple("social","Rekreasi",0xff9460b4.toInt()),
+            Triple("medical","Berobat",0xffe98abd.toInt()),
+            Triple("airport","Bandara",0xffa8a032.toInt()),
+            Triple("attractions","Tempat wisata",0xffd9822b.toInt()))
+        /** Numbers per trip row: position, then eight counts per purpose (`trip_cells::PURPOSE_STRIDE`). */
+        private val STRIDE = 2 + 8 * PURPOSES.size
+        /** Every opened zone of the world in the one solve (`demand::ALL_ZONES`). */
+        private const val ALL_ZONES = "*"
+    }
+    /** The trip purpose the bubbles count, a `PURPOSES` key; switching needs no new solve. */
+    var purpose = "all"
+        private set
+    fun choosePurpose(key: String) {
+        if (PURPOSES.none { it.first == key } || key == purpose) return
+        purpose = key
+        gridKey = ""
+        redraw()
+    }
+    fun purposeName() = PURPOSES.first { it.first == purpose }.second
     private var generation = 0
     private var error: String? = null
     var onComputing: ((Boolean) -> Unit)? = null
@@ -90,13 +117,14 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             redraw()
         }
         if (kind == "trips") {
-            val zone = city
+            // every opened zone's cells at once, so a pan to another city needs no new solve
+            val zone = ALL_ZONES
             val inputs = requireNotNull(manifest)
             nativeTask = executor.submit {
                 val result = runCatching {
                     val packed = NativeRidership.tripCells(bytes,inputs(bytes),zone)
-                    require(packed.size % 10 == 0)
-                    List(packed.size / 10) { i -> packed.copyOfRange(i*10,i*10+10) }
+                    require(packed.size % STRIDE == 0)
+                    List(packed.size / STRIDE) { i -> packed.copyOfRange(i*STRIDE,i*STRIDE+STRIDE) }
                 }
                 main.post {
                     if (generation == id) result.fold({ rows ->
@@ -217,15 +245,17 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         val end = selection[0]
         if (end != "none" && cells.isNotEmpty()) {
             val bin = 2.0.pow(round(log2((40*density/scale).coerceAtLeast(1f).toDouble())))
-            val key="$end/$bin"
+            val key="$end/$bin/$purpose"
             if (key != gridKey) {
                 groups.clear()
+                // the purpose's eight counts: home end rail, walk, road, no route, then the destination's
+                val base = 2 + 8 * PURPOSES.indexOfFirst { it.first == purpose }.coerceAtLeast(0)
                 for (r in cells) {
                     val gx=floor(r[0]/bin).toLong(); val gy=floor(r[1]/bin).toLong()
                     val g=groups.getOrPut((gx shl 32) or (gy and 0xffffffffL)){ DoubleArray(7) }
                     var n=0.0
                     for(i in 0..3) {
-                        val v=(if(end!="work") r[2+i] else 0f)+(if(end!="home") r[6+i] else 0f)
+                        val v=(if(end!="work") r[base+i] else 0f)+(if(end!="home") r[base+4+i] else 0f)
                         g[3+i]+=v.toDouble(); n+=v
                     }
                     g[0]+=r[0]*n; g[1]+=r[1]*n; g[2]+=n
@@ -273,8 +303,8 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             hypot(it.x-hit.posX,it.y-hit.posY)
         }
         val title=if(hit.station) "Penumpang stasiun" else when(selection[0]) {
-            "home"->"Asal perjalanan"; "work"->"Tujuan perjalanan"; else->"Asal dan tujuan"
-        }
+            "home"->"Rumah"; "work"->"Destinasi"; else->"Rumah dan destinasi"
+        } + if(!hit.station && purpose!="all") " · "+purposeName() else ""
         StudioUi.sheet(host,title) { sheet,dialog ->
             val values=if(hit.station) hit.counts else hit.counts.copyOfRange(3,7)
             val total=values.sum()
@@ -302,8 +332,9 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         if(loading.isNotEmpty()) return if(loading=="network" && selection[1]=="none" && (track=="speed" || track=="height"))
             "Memuat profil jalur…" else "Menghitung perjalanan…"
         val parts=mutableListOf<String>()
-        if(selection[0]!="none") parts.add(if(cells.isEmpty()) "Belum ada perjalanan" else when(selection[0]){"work"->"Tujuan";"home"->"Asal";else->"Asal + tujuan"})
-        if(selection[1]!="none") parts.add(if(stations.none { if(selection[1]=="transfers") it[3]>0 else if(selection[1]=="origins") it[2]>it[3] else it[2]>0 }) "Belum ada penumpang" else when(selection[1]){"transfers"->"Transit";"origins"->"Asal penumpang";else->"Total penumpang"})
+        if(selection[0]!="none") parts.add(if(cells.isEmpty()) "Belum ada perjalanan" else when(selection[0]){"work"->"Destinasi";"home"->"Rumah";else->"Rumah + destinasi"} +
+            if(purpose!="all") " · "+purposeName() else "")
+        if(selection[1]!="none") parts.add(if(stations.none { if(selection[1]=="transfers") it[3]>0 else if(selection[1]=="origins") it[2]>it[3] else it[2]>0 }) "Belum ada penumpang" else when(selection[1]){"transfers"->"Penumpang pindah";"origins"->"Asal penumpang";else->"Total penumpang"})
         if(track!="line") parts.add(when(track){"height"->"Ketinggian";"speed"->"Kecepatan";"profit"->"Laba";else->"Lalu lintas"})
         return parts.joinToString(" · ")
     }

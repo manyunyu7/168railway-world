@@ -994,8 +994,11 @@ class NativeWorldActivity : Activity() {
                 }
                 column.addView(chips)
             }
-            group(0,"Lingkaran perjalanan",StudioUi.TINT_PURPLE,StudioUi.Icon.ROUTE,listOf("Sembunyikan" to "none","Tujuan" to "work","Asal" to "home","Asal & tujuan" to "both"))
-            group(1,"Penumpang stasiun",StudioUi.TINT_RED,StudioUi.Icon.PIN,listOf("Sembunyikan" to "none","Mulai perjalanan" to "origins","Berganti layanan" to "transfers","Total" to "total"))
+            // the web's demand selector (DemandSelector.tsx) in its words: bubbles, purpose, stations
+            group(0,"Gelembung perjalanan",StudioUi.TINT_PURPLE,StudioUi.Icon.ROUTE,listOf("Mati" to "none","Rumah" to "home","Destinasi" to "work","Total" to "both"))
+            column.addView(StudioUi.section(this,"Tujuan perjalanan di peta"))
+            column.addView(purposeChips { dialog.dismiss() })
+            group(1,"Penumpang stasiun",StudioUi.TINT_RED,StudioUi.Icon.PIN,listOf("Mati" to "none","Asal" to "origins","Pindah" to "transfers","Total" to "total"))
             group(2,"Warna jalur",StudioUi.TINT_BLUE,StudioUi.Icon.TRAIN,listOf("Warna layanan" to "line","Lalu lintas" to "traffic","Kecepatan" to "speed","Ketinggian" to "height","Laba" to "profit"))
             if (map.overlay.selection[1] != "none" || map.overlay.selection[2] == "traffic") column.addView(LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
@@ -1973,9 +1976,12 @@ class NativeWorldActivity : Activity() {
     // ---- Lensa peta: one-tap presets over the three overlay groups ----
     private enum class Lens(val label: String, val trips: String, val stations: String, val track: String, val swatch: IntArray, val legend: String) {
         NORMAL("Normal","none","none","line", intArrayOf(0xffe5484d.toInt(),0xff3e7bfa.toInt(),0xff2fb36d.toInt()), ""),
+        HOMES("Rumah","home","none","line", intArrayOf(0xff317bb8.toInt(),0xff67ab55.toInt(),0xffd99154.toInt()), "Rumah warga yang bepergian · warna = cara mereka bepergian"),
+        DESTINATIONS("Destinasi","work","none","line", intArrayOf(0xff317bb8.toInt(),0xff67ab55.toInt(),0xffd99154.toInt()), "Tempat yang dituju warga · warna = cara mereka bepergian"),
+        TRIPS("Total perjalanan","both","none","line", intArrayOf(0xffd8cffd.toInt(),0xffff7a2f.toInt()), "Rumah dan destinasi perjalanan warga"),
         PASSENGERS("Penumpang","none","total","line", intArrayOf(0xfffde3e3.toInt(),0xffe5484d.toInt()), "Lingkaran makin besar = makin banyak penumpang per hari"),
-        TRANSFERS("Transit","none","transfers","line", intArrayOf(0xffebe5ff.toInt(),0xff6c4df6.toInt()), "Stasiun tempat penumpang berganti layanan"),
-        TRIPS("Asal–Tujuan","both","none","line", intArrayOf(0xffd8cffd.toInt(),0xffff7a2f.toInt()), "Asal dan tujuan perjalanan warga di kota"),
+        ORIGINS("Asal penumpang","none","origins","line", intArrayOf(0xffdbe6ff.toInt(),0xff2456e0.toInt()), "Penumpang yang memulai perjalanan di tiap stasiun"),
+        TRANSFERS("Transit","none","transfers","line", intArrayOf(0xffebe5ff.toInt(),0xff6c4df6.toInt()), "Penumpang yang pindah layanan di tiap stasiun"),
         TRAFFIC("Lalu lintas","none","none","traffic", intArrayOf(0xffe5484d.toInt(),0xff3e7bfa.toInt(),0xff2fb36d.toInt()), "Warna = layanan, garis makin tebal = makin ramai"),
         PROFIT("Laba","none","none","profit", intArrayOf(0xffb2182b.toInt(),0xffe9853b.toInt(),0xfff1d54a.toInt(),0xff96d58f.toInt(),0xff2166ac.toInt()), "Rugi → impas → untung"),
         SPEED("Kecepatan","none","none","speed", intArrayOf(0xff8a2232.toInt(),0xffe2922e.toInt(),0xffa3c23c.toInt(),0xff397bc1.toInt(),0xffa03fc2.toInt()), "Lambat → cepat"),
@@ -2006,7 +2012,8 @@ class NativeWorldActivity : Activity() {
         if (lens == Lens.NORMAL || drawing) { lensLegend.visibility = View.GONE; return }
         lensLegend.visibility = View.VISIBLE
         val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        text.addView(StudioUi.text(this, lens?.label ?: "Lensa campuran", 15f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) })
+        val purpose = if (map.overlay.selection[0] != "none" && map.overlay.purpose != "all") " · " + map.overlay.purposeName() else ""
+        text.addView(StudioUi.text(this, (lens?.label ?: "Lensa campuran") + purpose, 15f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) })
         if (lens != null) {
             text.addView(LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
@@ -2025,6 +2032,29 @@ class NativeWorldActivity : Activity() {
         }, LinearLayout.LayoutParams(dp(36), dp(36)))
     }
 
+    /** The web's purpose filter (`PurposeSelect`): every purpose or one, for the trip bubbles. A pick
+     * with no bubbles shown turns on Total perjalanan, so it is never a choice without effect. */
+    private fun purposeChips(done: () -> Unit) = WrapRow(this).apply {
+        StudioPassengerOverlay.PURPOSES.forEach { (key, label, colour) ->
+            val selected = map.overlay.purpose == key
+            addView(LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                background = StudioDepot.touch(context, if (selected) StudioUi.INK else 0xf2ffffff.toInt(), 16)
+                setPadding(dp(10), dp(7), dp(12), dp(8))
+                isClickable = true
+                contentDescription = "Tujuan perjalanan · $label"
+                if (key != "all") addView(View(context).apply { background = swatch(intArrayOf(colour), 5) }, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(6) })
+                addView(StudioUi.text(context, label, 13f, true, if (selected) StudioUi.WHITE else StudioUi.INK))
+                setOnClickListener {
+                    done()
+                    map.overlay.choosePurpose(key)
+                    if (map.overlay.selection[0] == "none") applyLens(Lens.TRIPS) else updateLensLegend()
+                    map.announceForAccessibility("Tujuan perjalanan · $label")
+                }
+            })
+        }
+    }
+
     private fun openLenses() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2032,7 +2062,9 @@ class NativeWorldActivity : Activity() {
             elevation = dp(8).toFloat()
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        val popup = android.widget.PopupWindow(content, finance.rootView.width - 2 * dp(10), -2, true).apply {
+        // scrolls when the tiles and the purpose row are taller than the space above the dock (landscape)
+        val scroller = android.widget.ScrollView(this).apply { isVerticalScrollBarEnabled = false; addView(content) }
+        val popup = android.widget.PopupWindow(scroller, finance.rootView.width - 2 * dp(10), -2, true).apply {
             isOutsideTouchable = true
             elevation = dp(8).toFloat()
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
@@ -2066,8 +2098,13 @@ class NativeWorldActivity : Activity() {
             }
             content.addView(line, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) })
         }
+        content.addView(StudioUi.text(this, "Tujuan perjalanan di peta", 12.5f, true, StudioUi.MUTED).apply { setPadding(dp(4), dp(4), dp(4), dp(6)) })
+        content.addView(purposeChips { popup.dismiss() })
         val bar = finance.parent as View
         val location = IntArray(2).also { bar.getLocationInWindow(it) }
+        val room = location[1] - dp(40)
+        content.measure(View.MeasureSpec.makeMeasureSpec(popup.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        if (room > dp(120) && content.measuredHeight > room) popup.height = room
         popup.showAtLocation(bar, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, bar.rootView.height - location[1] + dp(8))
     }
 
