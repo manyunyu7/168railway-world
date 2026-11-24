@@ -500,6 +500,8 @@ class NativeWorldActivity : Activity() {
                 removingTrack -> selectTrackForRemoval(point)
                 selectingInfrastructure -> inspectRail(point)
                 drawing -> selectPoint(point)
+                // web map/pick.ts: track no line was hit on opens its panel
+                !restoringEdit && handle != 0L -> map.nearestRail(point)?.let { edge -> withCommittedWorld(pause = false) { openTrack(edge) } }
             }
         }
         map.onLineTap = { id ->
@@ -1002,27 +1004,26 @@ class NativeWorldActivity : Activity() {
 
     private fun inspectRail(point: PointF) {
         val id=map.nearestRail(point)
-        val rail=id?.let { map.railInfo(it) }
-        if(rail==null) { status.text="Ketuk lebih dekat ke rel atau stasiun."; return }
+        if(id==null || map.railInfo(id)==null) { status.text="Ketuk lebih dekat ke rel atau stasiun."; return }
         selectingInfrastructure=false
         updateControls()
         map.contentDescription="Peta jaringan kereta"
         lastStatus=-1; troubleKey=""; refresh()
-        fun level(n:Int)=when { n>0 -> "Viaduk +$n"; n<0 -> "Terowongan $n"; else -> "Permukaan" }
-        val type=when(rail.kind) { 1 -> "Rel cepat"; 2 -> "Trem jalan"; 3 -> "Trem"; else -> "Rel konvensional" }
-        StudioUi.sheet(this,type) { body,dialog ->
-            body.addView(StudioDecision(this,"Ruas rel").apply {
-                fact("Panjang",java.lang.String.format(java.util.Locale.forLanguageTag("id-ID"),"%.2f km",rail.length/1000))
-                fact("Elevasi",if(rail.low==rail.high) level(rail.low) else "${level(rail.low)} → ${level(rail.high)}")
-                fact("Jumlah sepur",rail.tracks.toString())
-                if(rail.speed.isFinite()) fact("Batas kecepatan","${rail.speed.toInt()} km/jam")
-            })
-            body.addView(StudioUi.button(this,"Tempatkan stasiun",StudioUi.Tone.PRIMARY) {
+        openTrack(id) { dialog ->
+            StudioUi.button(this,"Tempatkan stasiun",StudioUi.Tone.PRIMARY) {
                 dialog.dismiss()
                 configureTool(BuildTool.STATION)
-            })
-            body.addView(StudioUi.button(this,"Kembali ke peta") { dialog.dismiss() })
+            }
         }
+    }
+
+    private fun openTrack(edge: Int, extra: ((android.app.Dialog) -> View)? = null) {
+        TrackInspector.show(this, handle, edge, ::editPanel, { label ->
+            recordPanelChange(label)
+            map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
+            showBalance(NativeFinance.balance(handle,clock))
+            updateControls()
+        }, { id -> withCommittedWorld(pause = false) { openServiceDetails(id) } }, { e -> stopClock(); confirmTrackRemoval(e) }, extra)
     }
 
     private fun startTrackRemoval() {
@@ -1044,6 +1045,10 @@ class NativeWorldActivity : Activity() {
         updateControls()
         map.contentDescription = "Peta jaringan kereta"
         refresh()
+        confirmTrackRemoval(edge)
+    }
+
+    private fun confirmTrackRemoval(edge: Int) {
         val preview = JSONObject(DemolitionPanel.remove(handle,2,edge,clock,false))
         if (preview.has("error")) {
             Toast.makeText(this,preview.getString("error"),Toast.LENGTH_LONG).show()

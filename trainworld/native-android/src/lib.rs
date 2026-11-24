@@ -23,6 +23,7 @@ mod simulation;
 mod station_facilities;
 mod station_inspection;
 mod station_map;
+mod track_inspection;
 mod train_scene;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
