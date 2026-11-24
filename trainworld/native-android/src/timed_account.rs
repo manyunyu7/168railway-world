@@ -115,7 +115,26 @@ fn hour_shares(board: &[f32]) -> Vec<f32> {
     c.push(1.);
     c
 }
+/// Web clock.worker `pastDays` (T-2475): fares a whole local day takes, every hour of the day
+/// that holds local time `local` on its own kind of day, as `fare_hour` pays each.
+pub(crate) fn whole_day_fares(table: &[[f64; 5]; 6], local: f64, lag: f64, country: &str) -> f64 {
+    let midnight = (local / 86400.).floor() * 86400.;
+    (0..24)
+        .map(|h| fare_hour(table, midnight + h as f64 * 3600., lag, country))
+        .sum()
+}
+
 impl Account {
+    /// A line's fares for its whole local day at game time `now` (web `LineToday.dayFares`), US$M;
+    /// None for a line the riders' income has no entry for.
+    pub(crate) fn day_fares(&self, id: u32, now: f64) -> Option<f64> {
+        let (shift, money) = self.lines.get(&id)?;
+        Some(whole_day_fares(&money.fares, now + shift, self.lag, money.country))
+    }
+    /// The country a line's days are reckoned in ("" without an income entry).
+    pub(crate) fn country(&self, id: u32) -> &'static str {
+        self.lines.get(&id).map_or("", |(_, m)| m.country)
+    }
     pub(super) fn new(
         forecast: &Forecast,
         api: &mut TrackApi,

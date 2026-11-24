@@ -546,12 +546,12 @@ pub(crate) fn line(world: &World, id: u32, time: f64, riders: Option<&LineRiders
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Riders put on the line by hand, as demand would: per period `per` boarding at each stop
     /// of each direction and getting off at its last.
-    fn figures(n: usize, per: f32) -> LineRiders {
+    pub(crate) fn figures(n: usize, per: f32) -> LineRiders {
         let mut board = vec![0f32; 2 * n];
         let mut alight = vec![0f32; 2 * n];
         for run in 0..2 {
@@ -583,7 +583,7 @@ mod tests {
     }
 
     /// `Forecast::riders`' packing for `TrackApi::set_riders`.
-    fn packed(line: u32, lr: &LineRiders) -> Vec<f32> {
+    pub(crate) fn packed(line: u32, lr: &LineRiders) -> Vec<f32> {
         let mut out = trainworld_sim::track::params::PEAK_HOUR_FACTOR.to_vec();
         out.extend([line as f32, lr.n as f32]);
         for p in 0..PERIODS {

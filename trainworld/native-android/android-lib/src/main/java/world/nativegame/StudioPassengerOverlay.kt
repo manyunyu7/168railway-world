@@ -406,7 +406,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         if(!active) return null
         if(error!=null) return "Gagal memuat lapisan · pilih lagi untuk mencoba"
         if(loading.isNotEmpty()) return if(loading=="network" && selection[1]=="none" && (track=="speed" || track=="height"))
-            "Memuat profil lini…" else "Menghitung perjalanan…"
+            "Memuat profil line…" else "Menghitung perjalanan…"
         val parts=mutableListOf<String>()
         if(selection[0]!="none") parts.add(if(cells.isEmpty()) "Belum ada perjalanan" else when(selection[0]){"work"->"Destinasi";"home"->"Rumah";else->"Rumah + destinasi"} +
             if(purpose!="all") " · "+purposeName() else "")

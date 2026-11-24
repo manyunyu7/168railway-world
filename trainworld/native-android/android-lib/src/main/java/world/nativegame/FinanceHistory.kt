@@ -181,7 +181,7 @@ internal object FinanceHistory {
         }, fixedSlots = 30).apply {
             this.cols = cols
             val sum = cols.sumOf { it.fares - it.running }
-            contentDescription = "Pendapatan dan pengeluaran lini, ${cols.size} hari terakhir, bersih ${usd(sum)}"
+            contentDescription = "Pendapatan dan pengeluaran line, ${cols.size} hari terakhir, bersih ${usd(sum)}"
         }
         box.addView(head)
         box.addView(chart, LinearLayout.LayoutParams(-1, dp(72)).apply { topMargin = dp(4) })

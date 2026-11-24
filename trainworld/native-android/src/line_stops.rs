@@ -84,7 +84,7 @@ impl World {
             }
             "open" => {
                 if !closed {
-                    return Err("Lini ini bukan putaran.".into());
+                    return Err("Line ini bukan putaran.".into());
                 }
                 let cyc = &stops[..n - 1];
                 let distinct = cyc.iter().collect::<std::collections::HashSet<_>>().len() == n - 1;
@@ -117,7 +117,7 @@ impl World {
             return Err("Jam permainan tidak valid.".into());
         }
         if !self.api.world().net.line_ok(id) {
-            return Err("Lini sudah tidak tersedia.".into());
+            return Err("Line sudah tidak tersedia.".into());
         }
         let stops = self.loop_stops(id, action, station)?;
         let name = self.api.node_name(station);
@@ -129,7 +129,7 @@ impl World {
             (_, None) => self.api.open_loop(id),
         };
         if r != 0 {
-            return Err(self.refusal("Rel tidak membentuk putaran yang bisa dilalui lini ini."));
+            return Err(self.refusal("Rel tidak membentuk putaran yang bisa dilalui line ini."));
         }
         Ok(self.booked(clock, name, id))
     }
@@ -170,19 +170,19 @@ impl World {
             return Err("Jam permainan tidak valid.".into());
         }
         if !self.api.world().net.line_ok(id) {
-            return Err("Lini sudah tidak tersedia.".into());
+            return Err("Line sudah tidak tersedia.".into());
         }
         let name = match (stop, station) {
             (Some(i), _) => {
                 if !self.can_skip(id, i) {
-                    return Err("Lini harus tetap punya perhentian ini.".into());
+                    return Err("Line harus tetap punya perhentian ini.".into());
                 }
                 self.api.node_name(self.api.line_stops(id)[i])
             }
             (None, Some(node)) => {
                 let passed = self.api.passed_stations(id);
                 if !passed.chunks_exact(2).any(|p| p[1] as u32 == node) {
-                    return Err("Stasiun ini tidak dilewati lini.".into());
+                    return Err("Stasiun ini tidak dilewati line.".into());
                 }
                 self.api.node_name(node)
             }
@@ -197,7 +197,7 @@ impl World {
         };
         if r != 0 {
             return Err(self.refusal(if stop.is_some() {
-                "Lini harus tetap punya perhentian ini."
+                "Line harus tetap punya perhentian ini."
             } else {
                 "Tidak ada rel yang menghubungkan stasiun-stasiun ini kalau perhentian itu disisipkan. Cek sambungan relnya."
             }));

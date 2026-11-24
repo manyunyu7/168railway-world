@@ -39,7 +39,7 @@ internal object LineStops {
     private val count = NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID"))
     private fun n(v: Double) = count.format(Math.round(v))
     /** The undo entry's label for a stop edit. */
-    const val LABEL = "Perhentian lini"
+    const val LABEL = "Perhentian line"
     private const val VISIBLE = 8
     private const val TRIES = 20
     private const val RETRY_MS = 2000L
@@ -134,8 +134,8 @@ internal object LineStops {
             val firstVisit = nodes != null && (0 until index).none { nodes.optInt(it) == node }
             if (editable && firstVisit && node in turnAt) {
                 val name = route.names[index]
-                addView(action("Buat putaran", "Buat putaran di $name: ujung lini berputar di rel putaran lalu kembali") {
-                    loopEdit("turn", node, "Lini kini berputar di rel putaran setelah $name.")
+                addView(action("Buat putaran", "Buat putaran di $name: ujung line berputar di rel putaran lalu kembali") {
+                    loopEdit("turn", node, "Line kini berputar di rel putaran setelah $name.")
                 }, LinearLayout.LayoutParams(-2, -2))
             } else if (editable && firstVisit && node == unturnAt) {
                 val name = route.names[index]
@@ -145,8 +145,8 @@ internal object LineStops {
             }
             if (editable && skippable?.optBoolean(index) == true) {
                 val name = route.names[index]
-                addView(action("Lewati", "Lewati $name: lini tidak lagi berhenti di sini") {
-                    apply({ r -> "Lini tidak lagi berhenti di ${r.optString("name", name)}." }) { now -> JSONObject(skip(handle, id, index, now)) }
+                addView(action("Lewati", "Lewati $name: line tidak lagi berhenti di sini") {
+                    apply({ r -> "Line tidak lagi berhenti di ${r.optString("name", name)}." }) { now -> JSONObject(skip(handle, id, index, now)) }
                 }, LinearLayout.LayoutParams(-2, -2))
             }
         }
@@ -157,7 +157,7 @@ internal object LineStops {
                 setPadding(0, dp(8), 0, dp(8))
             }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
             if (editable) addView(action("+ Berhenti di sini", "Berhenti di $name") {
-                apply({ r -> "Lini kini berhenti di ${r.optString("name", name)}." }) { now -> JSONObject(stop(handle, id, node, now)) }
+                apply({ r -> "Line kini berhenti di ${r.optString("name", name)}." }) { now -> JSONObject(stop(handle, id, node, now)) }
             }, LinearLayout.LayoutParams(-2, -2))
         }
         fun group(index: Int): List<View> {
@@ -170,15 +170,15 @@ internal object LineStops {
         }
         if (looped || (editable && loopInfo?.optBoolean("close") == true && nodes != null)) {
             val bar = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-            bar.addView(StudioUi.text(host, if (looped) "Putaran tertutup · kereta kembali ke ${route.names.firstOrNull().orEmpty()}" else "Lini terbuka",
+            bar.addView(StudioUi.text(host, if (looped) "Putaran tertutup · kereta kembali ke ${route.names.firstOrNull().orEmpty()}" else "Line terbuka",
                 12.5f, true, if (looped) StudioUi.INK else StudioUi.MUTED), LinearLayout.LayoutParams(0, -2, 1f))
             val first = nodes?.optInt(0, -1) ?: -1
             if (editable && first >= 0) {
-                if (looped) bar.addView(action("Buka putaran", "Buka putaran: lini berakhir lagi di ujungnya") {
+                if (looped) bar.addView(action("Buka putaran", "Buka putaran: line berakhir lagi di ujungnya") {
                     loopEdit("open", first, "Putaran dibuka.")
                 }, LinearLayout.LayoutParams(-2, -2))
-                else bar.addView(action("Tutup putaran", "Tutup putaran: dari perhentian terakhir lini kembali ke ${route.names.firstOrNull().orEmpty()}") {
-                    loopEdit("close", first, "Putaran ditutup: lini kembali ke ${route.names.firstOrNull().orEmpty()}.")
+                else bar.addView(action("Tutup putaran", "Tutup putaran: dari perhentian terakhir line kembali ke ${route.names.firstOrNull().orEmpty()}") {
+                    loopEdit("close", first, "Putaran ditutup: line kembali ke ${route.names.firstOrNull().orEmpty()}.")
                 }, LinearLayout.LayoutParams(-2, -2))
             }
             strip.addView(bar)

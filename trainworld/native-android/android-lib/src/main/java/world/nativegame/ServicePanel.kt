@@ -33,12 +33,15 @@ internal object ServicePanel {
 
     private fun lp(top: Int = 0, host: Activity) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = StudioUi.dp(host, top) }
 
+    /** The running simulation's figures for every line (SimulationClock.lineSummary); null without one. */
+    var summary: (((String?) -> Unit) -> Unit)? = null
+
     fun open(host: Activity, handle: Long, clock: Double, editable: Boolean, transaction: PanelEdit, changed: (String) -> Unit) {
         val all = JSONArray(services(handle))
-        StudioUi.sheet(host, "Lini") { column, dialog ->
+        StudioUi.sheet(host, "Line") { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
             if (all.length() == 0) {
-                column.addView(StudioUi.text(host, "Bangun lini pertama untuk mengatur layanannya.", 16f))
+                column.addView(StudioUi.text(host, "Bangun line pertama untuk mengatur layanannya.", 16f))
                 column.addView(StudioUi.button(host, "Kembali ke peta") { dialog.dismiss() })
             }
             val items = List(all.length()) { all.getJSONObject(it) }
@@ -46,10 +49,14 @@ internal object ServicePanel {
             val looks = items.associate { it.getInt("id") to runCatching { JSONObject(inspect(handle, it.getInt("id"), clock)) }.getOrNull() }
             fun vehicle(item: JSONObject) = looks[item.getInt("id")]?.optString("vehicle").orEmpty().ifEmpty { "Lainnya" }
             val running = items.count { it.optBoolean("running") }
-            column.addView(StudioUi.text(host, "${items.size} layanan · $running beroperasi", 13f, true, StudioUi.MUTED).apply {
+            val headline = StudioUi.text(host, "${items.size} line · $running beroperasi", 13f, true, StudioUi.MUTED).apply {
                 setPadding(dp(2), 0, 0, dp(8))
-            })
-            val rows = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
+            }
+            column.addView(headline)
+            val list = LineList(host, StudioCurrency.current(host), looks) { id ->
+                dialog.dismiss()
+                details(host, handle, id, clock, editable, transaction, changed)
+            }
             var search: EditText? = null
             var mode = "Semua"
             val modes = listOf("Semua") + items.map { vehicle(it) }.distinct().sorted()
@@ -57,63 +64,20 @@ internal object ServicePanel {
                 background = StudioUi.pill(host, 0x1422204a, 16)
                 setPadding(dp(4), dp(4), dp(4), dp(4))
             }
-            fun card(group: List<JSONObject>): View {
-                val first = group.first()
-                val look = looks[first.getInt("id")]
-                val color = color(look)
-                val name = first.getString("name")
-                val anyRunning = group.any { it.optBoolean("running") }
-                val card = LinearLayout(host).apply {
-                    orientation = LinearLayout.VERTICAL
-                    isFocusable = true
-                    isClickable = true
-                    background = StudioUi.card(host, 18, 0xf2ffffff.toInt())
-                    contentDescription = "$name, ${group.size} layanan, ${if (anyRunning) "beroperasi" else "belum beroperasi"}"
-                    setOnClickListener {
-                        if (group.size == 1) {
-                            dialog.dismiss()
-                            details(host, handle, first.getInt("id"), clock, editable, transaction, changed)
-                        } else StudioUi.sheet(host, name) { list, picker ->
-                            group.forEachIndexed { i, route ->
-                                val stops = looks[route.getInt("id")]?.let { ServiceStops(it).endpoints }.orEmpty()
-                                list.addView(StudioUi.row(host, null, 0, "Layanan ${i + 1}" + if (stops.isNotEmpty()) " · $stops" else "",
-                                    if (route.optBoolean("running")) "Beroperasi" else "Belum beroperasi") {
-                                    picker.dismiss(); dialog.dismiss()
-                                    details(host, handle, route.getInt("id"), clock, editable, transaction, changed)
-                                }.apply { addView(StudioUi.badge(host, code(name), color, 34), 0, LinearLayout.LayoutParams(dp(34), dp(34))) }, lp(6, host))
-                            }
-                        }
-                    }
+            fun render() {
+                val query = search?.text?.toString().orEmpty().trim()
+                val found = items.filter { it.getString("name").contains(query, ignoreCase = true) && (mode == "Semua" || vehicle(it) == mode) }
+                list.show(found, items.isNotEmpty()) { search?.setText(""); mode = "Semua"; render() }
+                val riders = list.totalRiders
+                headline.text = "${items.size} line · $running beroperasi" + when {
+                    riders != null -> " · ${StudioFormat.count(riders)} penumpang dalam 24 jam terakhir"
+                    running > 0 -> "\nPenumpang dan uang tiap line muncul saat simulasi berjalan."
+                    else -> ""
                 }
-                // A compact row (web LinesTab): code badge, name and state, so a 28-line city fits on two screens.
-                card.orientation = LinearLayout.HORIZONTAL
-                card.gravity = android.view.Gravity.CENTER_VERTICAL
-                card.minimumHeight = dp(64)
-                card.setPadding(dp(10), dp(8), dp(12), dp(8))
-                card.addView(StudioUi.badge(host, code(name), color, 40), LinearLayout.LayoutParams(dp(40), dp(40)))
-                val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
-                body.addView(StudioUi.text(host, name, 15f, color = StudioUi.INK).apply {
-                    typeface = StudioUi.heavy(host); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-                })
-                body.addView(StudioUi.text(host, (if (group.size > 1) "${group.size} layanan · " else "") +
-                    if (anyRunning) "Beroperasi" else "Belum beroperasi", 12.5f, true, if (anyRunning) StudioUi.GOOD else StudioUi.MUTED))
-                card.addView(body, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
-                return card
-            }
-            fun render(query: String) {
-                rows.removeAllViews()
-                val found = items.filter { it.getString("name").contains(query.trim(), ignoreCase = true) && (mode == "Semua" || vehicle(it) == mode) }
-                if (found.isEmpty() && items.isNotEmpty()) {
-                    rows.addView(StudioUi.text(host,"Lini tidak ditemukan.",15f,true,StudioUi.MUTED).apply { setPadding(dp(4),dp(12),0,dp(6)) })
-                    rows.addView(StudioUi.button(host,"Hapus pencarian") { search?.setText(""); mode = "Semua"; render("") })
-                }
-                // Services sharing a name (both directions, variants) form one collectible card.
-                val groups = found.groupBy { it.getString("name").trim().lowercase() }.values.toList()
-                groups.forEach { group -> rows.addView(card(group), lp(6, host)) }
             }
             if (items.size > 6) {
                 search = EditText(host).apply {
-                    hint = "Cari nama lini"
+                    hint = "Cari nama line"
                     setSingleLine()
                     typeface = StudioUi.face(host, true)
                     textSize = 16f
@@ -126,7 +90,7 @@ internal object ServicePanel {
                 column.addView(search, LinearLayout.LayoutParams(-1, dp(50)))
                 search.addTextChangedListener(object : android.text.TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render(s?.toString().orEmpty())
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render()
                     override fun afterTextChanged(s: android.text.Editable?) {}
                 })
             }
@@ -136,13 +100,13 @@ internal object ServicePanel {
                     val tab = StudioUi.text(host, m, 13f, true, StudioUi.INK).apply {
                         gravity = android.view.Gravity.CENTER
                         maxLines = 1
-                        minHeight = dp(36)
+                        minHeight = dp(40)
                         setPadding(dp(10), 0, dp(10), 0)
                         isClickable = true
                         setOnClickListener {
                             mode = m
                             buttons.forEach { b -> b.background = if (b === this) StudioUi.pill(host, StudioUi.WHITE, 12) else null }
-                            render(search?.text?.toString().orEmpty())
+                            render()
                         }
                         if (m == mode) background = StudioUi.pill(host, StudioUi.WHITE, 12)
                     }
@@ -154,8 +118,25 @@ internal object ServicePanel {
                     addView(tabs)
                 }, lp(10, host))
             }
-            column.addView(rows)
-            render("")
+            if (items.isNotEmpty()) column.addView(list.sorts { render() }, lp(10, host))
+            column.addView(list.rows, lp(4, host))
+            render()
+            // web useToday: the figures asked again while the list shows (here every two seconds)
+            val ask = summary
+            if (ask != null) {
+                val again = object : Runnable {
+                    override fun run() {
+                        if (!dialog.isShowing) return
+                        ask { text ->
+                            if (!dialog.isShowing) return@ask
+                            list.figures = text?.let { runCatching { JSONObject(it) }.getOrNull() }
+                            render()
+                            list.rows.postDelayed(this, 2000)
+                        }
+                    }
+                }
+                list.rows.post(again)
+            }
         }
     }
 
@@ -225,7 +206,7 @@ internal object ServicePanel {
                 transaction { now ->
                     val error = LineProfileView.setLimit(handle, id, kmh, now)
                     if (error != null) android.widget.Toast.makeText(host, error, android.widget.Toast.LENGTH_LONG).show()
-                    else { editLabel = "Batas laju lini"; changed(service.getString("name")) }
+                    else { editLabel = "Batas laju line"; changed(service.getString("name")) }
                     details(host, handle, id, clock, editable, transaction, changed)
                 }
             } else null)?.let { column.addView(it, lp(14, host)) }

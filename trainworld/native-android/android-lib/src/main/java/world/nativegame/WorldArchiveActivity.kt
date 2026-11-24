@@ -109,7 +109,7 @@ class WorldArchiveActivity : Activity() {
             // web SlotFacts: the city's name, lines and stations, and when it was saved
             val cover = WorldCovers.read(this,slot.id)
             val city = runCatching { store.city(slot.city).name }.getOrDefault(slot.city.uppercase())
-            val facts = listOfNotNull(city, cover?.let { "${it.lines} lini · ${it.stations} stasiun" },
+            val facts = listOfNotNull(city, cover?.let { "${it.lines} line · ${it.stations} stasiun" },
                 slot.at.takeIf { it > 0 }?.let { WorldDocuments.savedWhen(it) }).joinToString(" · ")
             val here = WorldDocuments.path(this,slot.id).canonicalPath == playing
             val row = StudioUi.row(this,StudioUi.Icon.TRAIN,StudioUi.TINT_ORANGE,slot.title,

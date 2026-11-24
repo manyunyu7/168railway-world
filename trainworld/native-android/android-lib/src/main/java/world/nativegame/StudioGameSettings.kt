@@ -118,7 +118,7 @@ internal object StudioGameSettings {
             group!!.addView(detail)
             slider("bubbleSize","Ukuran gelembung",25,200)
             slider("bubbleOpacity","Opasitas gelembung",20,100,.7f)
-            slider("lineWidth","Ketebalan garis lini",50,200)
+            slider("lineWidth","Ketebalan garis line",50,200)
             slider("stationCircleSize","Ukuran lingkaran stasiun",50,200)
             slider("basemapContrast","Kontras peta dasar",0,100)
             body.addView(StudioUi.section(host,"Keuangan"))

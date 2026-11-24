@@ -71,7 +71,7 @@ internal object TrainInspector {
                 return value
             }
             val next = row(body, "Berikutnya")
-            val along = row(body, "Sepanjang lini")
+            val along = row(body, "Sepanjang line")
             // web OnBoard: "Di dalam", the period on the right
             val boardHead = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, dp(2)) }
             boardHead.addView(StudioUi.section(activity, "Di dalam"), LinearLayout.LayoutParams(0, -2, 1f))
@@ -112,7 +112,7 @@ internal object TrainInspector {
             body.addView(StudioUi.button(activity, "Ikuti kereta", StudioUi.Tone.PRIMARY, StudioUi.Icon.CENTER) {
                 sheet.dismiss(); follow(first.optString("name"))
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-            body.addView(StudioUi.button(activity, "Buka lini", StudioUi.Tone.SURFACE, StudioUi.Icon.ROUTE) {
+            body.addView(StudioUi.button(activity, "Buka line", StudioUi.Tone.SURFACE, StudioUi.Icon.ROUTE) {
                 sheet.dismiss(); openLine(first.optInt("line"))
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
 
@@ -180,7 +180,7 @@ internal object TrainInspector {
                     line.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
                     line.addView(StudioUi.text(activity, exact(off), 16f, true, StudioUi.INK).apply { typeface = StudioUi.heavy(activity) })
                     // web trainStops.stopTip / lastTip, read out in place of the hover
-                    line.contentDescription = if (s.optBoolean("last")) "Semua penumpang turun di $name, ujung lini"
+                    line.contentDescription = if (s.optBoolean("last")) "Semua penumpang turun di $name, ujung line"
                         else "${exact(off)} dari ${exact(s.optDouble("arriving"))} penumpang di dalam turun di $name, dan ${exact(s.optDouble("on"))} naik"
                     stops.addView(line)
                 }
@@ -192,8 +192,8 @@ internal object TrainInspector {
                     purpose.text = "● " + one.optString("purposeName")
                     purpose.setTextColor(one.optInt("color") or 0xff000000.toInt())
                     val split = one.optJSONArray("split") ?: JSONArray()
-                    drawn.text = if (split.length() == 0) "Belum ada pembagian per tujuan untuk ruas lini ini"
-                        else "Diambil dari ${exact(one.optDouble("drawnFrom"))} penumpang di ruas lini ini pada ${r.optString("period").lowercase()}: " +
+                    drawn.text = if (split.length() == 0) "Belum ada pembagian per tujuan untuk ruas line ini"
+                        else "Diambil dari ${exact(one.optDouble("drawnFrom"))} penumpang di ruas line ini pada ${r.optString("period").lowercase()}: " +
                             List(split.length()) { split.getJSONObject(it) }.joinToString(", ") { "${it.optString("name")} ${Math.round(it.optDouble("share") * 100)}%" }
                 }
             }

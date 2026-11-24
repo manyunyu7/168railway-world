@@ -24,7 +24,7 @@ impl World {
     pub(super) fn set_line_fare(&mut self, id: u32, now: f64, mul: f64) -> Result<f64, String> {
         let net = &self.api.world().net;
         if !mul.is_finite() || id as usize >= net.line_count() || !net.line_ok(id) {
-            return Err("Lini sudah tidak tersedia.".into());
+            return Err("Line sudah tidak tersedia.".into());
         }
         let twins: Vec<u32> = (0..net.line_count() as u32)
             .filter(|&l| l != id && net.line_ok(l) && self.api.line_twin_of(l) == id as i32)

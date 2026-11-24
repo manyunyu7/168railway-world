@@ -244,9 +244,9 @@ internal object TrackInspector {
             }
 
             // Lini di sini
-            content.addView(StudioUi.section(activity, "Lini di sini"))
+            content.addView(StudioUi.section(activity, "Line di sini"))
             val lines = piece.getJSONArray("lines")
-            if (lines.length() == 0) content.addView(StudioUi.text(activity, "Belum ada lini yang lewat rel ini.", 13f, true, StudioUi.MUTED).apply {
+            if (lines.length() == 0) content.addView(StudioUi.text(activity, "Belum ada line yang lewat rel ini.", 13f, true, StudioUi.MUTED).apply {
                 setPadding(dp(4), 0, dp(4), 0)
             })
             for (i in 0 until lines.length()) {
