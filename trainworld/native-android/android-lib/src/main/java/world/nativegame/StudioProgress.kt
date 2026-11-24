@@ -42,7 +42,9 @@ internal object StudioProgress {
         c.getSharedPreferences("world-progress", 0).edit().putStringSet(world, ids).apply()
 
     /** Thin rounded progress bar. */
-    class Bar(c: Context, private val color: Int, private val track: Int) : View(c) {
+    class Bar(c: Context, color: Int, private val track: Int) : View(c) {
+        var color = color
+            set(v) { field = v; invalidate() }
         var fraction = 0f
             set(v) { field = v.coerceIn(0f, 1f); invalidate() }
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)

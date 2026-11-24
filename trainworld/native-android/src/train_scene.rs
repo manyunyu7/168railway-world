@@ -162,6 +162,63 @@ impl World {
     }
 }
 
+impl World {
+    /// Web TrainInspector (SPEC 8): the tapped train's line, where it heads, its next stop and how
+    /// far along its run it is, for the trip `profile` departing `dep` seconds into its hour.
+    fn train_info(&mut self, profile: usize, dep: f64, time: f64) -> Option<serde_json::Value> {
+        let epoch = self.load_trip_hour(time);
+        let model = self.api.world();
+        let id = profile / 6;
+        let run = profile / 3 % 2;
+        let service = model.svc.lines.get(id)?;
+        let r = service.runs.get(run)?;
+        let elapsed = time - epoch - dep;
+        if elapsed < 0. {
+            return None;
+        }
+        let (s, _) = profile::state_at(&r.prof.get(profile % 3)?.phases, elapsed);
+        let s = s.clamp(0., r.len);
+        let names: Vec<String> = r
+            .stop_idx
+            .iter()
+            .map(|&i| self.api.node_name(r.nodes[i as usize]))
+            .collect();
+        let next = r.stop_s.iter().position(|&x| x > s + 1.);
+        let vehicle = if self.api.is_bus(id as u32) {
+            "Bus"
+        } else if self.api.is_ferry(id as u32) {
+            "Feri"
+        } else if self.api.line_tram(id as u32) {
+            "Trem"
+        } else {
+            "Kereta"
+        };
+        Some(serde_json::json!({
+            "line": id, "name": self.api.line_name(id as u32), "color": model.net.line_colour[id] & 0xffffff,
+            "run": run, "s": s, "len": r.len, "cars": service.cars, "vehicle": vehicle,
+            "towards": names.last(), "next": next.map(|k| &names[k]), "nextIndex": next,
+            "stops": names, "stopS": r.stop_s,
+        }))
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_Engine_trainInfo(
+    env: JNIEnv,
+    _: JClass,
+    handle: jlong,
+    profile: jint,
+    dep: jdouble,
+    time: jdouble,
+) -> jni::sys::jstring {
+    if handle == 0 || profile < 0 || !time.is_finite() {
+        return std::ptr::null_mut();
+    }
+    let world = unsafe { &mut *(handle as *mut World) };
+    let value = world.train_info(profile as usize, dep, time).unwrap_or(serde_json::Value::Null);
+    env.new_string(value.to_string()).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_Engine_trainScene(
     env: JNIEnv,

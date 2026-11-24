@@ -59,6 +59,21 @@ internal class StudioTrainPainter(private val density:Float) {
         bodies = Engine.trainScene(handle,time,x,y,w/(2f*scale),h/(2f*scale),detail)
         last = view
     }
+    /** The train drawn nearest a tap (screen px), within `radius` px: its trip profile, departure ×100 and load gauge (0–200, null before loads). */
+    fun trainAt(px:Float,py:Float,scale:Float,w:Int,h:Int,radius:Float):Triple<Int,Int,Int?>? {
+        var best=-1; var bestD=radius
+        var i=1
+        while (i+14<bodies.size) {
+            val d=hypot(w*.5f+bodies[i+4]*scale-px,h*.5f-bodies[i+5]*scale-py)
+            if (d<=bestD) { bestD=d; best=i }
+            i+=15
+        }
+        if (best<0) return null
+        val profile=bodies[best+11].toInt(); val dep=bodies[best+12].toInt()
+        val useLoads = loadEpoch == floor(time/3600).toLong()*3600
+        return Triple(profile,dep,if (useLoads) loads[tripKey(profile,dep)] else null)
+    }
+    fun loadOf(profile:Int,dep:Int):Int? = if (loadEpoch == floor(time/3600).toLong()*3600) loads[tripKey(profile,dep)] else null
     fun draw(canvas:Canvas,scale:Float,w:Int,h:Int,display:StudioGameSettings.Display) {
         if (bodies.size < 16) return
         val detail = detailed

@@ -52,6 +52,7 @@ internal object Engine {
     @JvmStatic external fun previewArchive(handle:Long,time:Double):ByteArray?
     @JvmStatic external fun trainScene(handle:Long,time:Double,x:Float,y:Float,halfWidth:Float,halfHeight:Float,detail:Int):FloatArray
     @JvmStatic external fun positions(handle: Long, time: Double): FloatArray
+    @JvmStatic external fun trainInfo(handle: Long, profile: Int, dep: Double, time: Double): String?
     @JvmStatic external fun save(handle: Long, time: Double): ByteArray
     @JvmStatic external fun swapWorlds(editor: Long, candidate: Long)
     @JvmStatic external fun close(handle: Long)
@@ -487,6 +488,9 @@ class NativeWorldActivity : Activity() {
                 selectingInfrastructure -> inspectRail(point)
                 drawing -> selectPoint(point)
             }
+        }
+        map.onTrainTap = { profile, dep, fill, engine, time ->
+            if (!drawing && !removingTrack && !restoringEdit && engine != 0L) openTrain(profile, dep, fill, engine, time)
         }
         map.onStationTap = { station ->
             if (!drawing && !removingTrack && !restoringEdit && handle != 0L) {
@@ -1078,6 +1082,71 @@ class NativeWorldActivity : Activity() {
                 resumeOnPanelClose = false
                 if (reference == null && !playWhenWarm && !drawing && !restoringEdit) startReference()
             }
+        }
+    }
+
+    /**
+     * Web TrainInspector: line, direction, next stop, how far along and how full, refreshed while
+     * the sheet is open as the train moves. The simulation keeps running behind it.
+     */
+    private fun openTrain(profile: Int, dep: Int, fill: Int?, engine: Long, time: Double) {
+        val first = Engine.trainInfo(engine, profile, dep / 100.0, time)?.takeIf { it != "null" }?.let(::JSONObject) ?: return
+        val color = first.optInt("color") or 0xff000000.toInt()
+        StudioUi.sheet(this, first.optString("name")) { body, sheet ->
+            val head = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+            head.addView(StudioUi.badge(this, first.optString("name").split(' ').lastOrNull()?.take(1)?.uppercase() ?: "?", color, 36),
+                LinearLayout.LayoutParams(dp(36), dp(36)))
+            val towards = StudioUi.text(this, "", 16f, true, StudioUi.INK)
+            head.addView(towards, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
+            body.addView(head)
+            fun row(label: String): TextView {
+                val line = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(44) }
+                line.addView(StudioUi.text(this, label, 14f, true, StudioUi.MUTED), LinearLayout.LayoutParams(0, -2, 1f))
+                val value = StudioUi.text(this, "—", 15f, true, StudioUi.INK).apply { gravity = Gravity.END }
+                line.addView(value)
+                body.addView(line)
+                return value
+            }
+            val next = row("Stasiun berikutnya")
+            val along = row("Posisi di lintasan")
+            val riders = row("Penumpang")
+            val bar = StudioProgress.Bar(this, StudioUi.GOOD, 0x1a22204a)
+            body.addView(bar, LinearLayout.LayoutParams(-1, dp(10)).apply { topMargin = dp(2); bottomMargin = dp(6) })
+            val note = StudioUi.text(this, "", 12.5f, false, StudioUi.MUTED)
+            body.addView(note)
+            body.addView(StudioUi.button(this, "Buka lini", StudioUi.Tone.SURFACE, StudioUi.Icon.ROUTE) {
+                sheet.dismiss(); withCommittedWorld(pause = false) { openServiceDetails(first.optInt("line")) }
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            fun show(info: JSONObject, gauge: Int?) {
+                val vehicle = info.optString("vehicle", "Kereta")
+                towards.text = "$vehicle menuju ${info.optString("towards")}"
+                next.text = if (info.isNull("next")) "Tiba di tujuan akhir" else info.optString("next")
+                val km = { m: Double -> "%,.1f km".format(java.util.Locale("id"), m / 1000) }
+                along.text = "${km(info.optDouble("s"))} dari ${km(info.optDouble("len"))}"
+                // gauge 0–50 seats, 50–100 standing to rated load, 100–200 crowded to crush (train_loads.rs)
+                riders.text = when {
+                    gauge == null -> "Dihitung…"
+                    gauge <= 0 -> "Kosong"
+                    gauge <= 50 -> "Duduk semua"
+                    gauge <= 100 -> "Ada yang berdiri"
+                    gauge < 200 -> "Padat"
+                    else -> "Penuh sesak"
+                }
+                bar.color = when { gauge == null -> StudioUi.MUTED; gauge <= 100 -> StudioUi.GOOD; gauge < 200 -> 0xffe8a317.toInt(); else -> StudioUi.RED }
+                bar.fraction = (gauge ?: 0) / 200f
+                note.text = "${info.optInt("cars")} gerbong · bilah penuh = penuh sesak"
+            }
+            show(first, fill)
+            // follow the train while the sheet is up
+            val tick = object : Runnable {
+                override fun run() {
+                    if (!sheet.isShowing) return
+                    val t = map.trainTime()
+                    Engine.trainInfo(engine, profile, dep / 100.0, t)?.takeIf { it != "null" }?.let { show(JSONObject(it), map.trainLoad(profile, dep)) }
+                    body.postDelayed(this, 1000)
+                }
+            }
+            body.postDelayed(tick, 1000)
         }
     }
 
@@ -2679,6 +2748,10 @@ internal class NetworkView(context: Context):View(context) {
     var onBend: ((PointF) -> Unit)? = null
     val bends = mutableListOf<Pair<Int,PointF>>()
     var onStationTap: ((Int) -> Boolean)? = null
+    /** A train tapped while not drafting: trip profile, departure ×100, load gauge. */
+    fun trainTime() = trainPainter.time
+    fun trainLoad(profile: Int, dep: Int) = trainPainter.loadOf(profile, dep)
+    var onTrainTap: ((Int, Int, Int?, Long, Double) -> Unit)? = null
     /** Station tool armed: rings 1 and 2 km round the chosen spot, as the web's T-312 `stationRings`. */
     var placingStation = false
         set(value) { if (field != value) { field = value; invalidate() } }
@@ -3387,9 +3460,17 @@ internal class NetworkView(context: Context):View(context) {
         if (!isDrafting) {
             // A station beats the lens discs drawn over it (station riders up to 42 dp, homes and
             // destinations up to 24 dp): those used to swallow the tap with a ridership sheet.
+            // A train right under the finger wins over the station it stands at (web: trains are drawn above stops).
+            if (displaySettings.trains) trainPainter.trainAt(x,y,scale,width,height,12*density)?.let { (profile,dep,fill) ->
+                onTrainTap?.invoke(profile,dep,fill,trainPainter.engine(),trainPainter.time); return
+            }
             val station = stationAt(x, y)
             if (station != null && onStationTap?.invoke(station.id) == true) return
             if (overlay.inspect(x,y,stops){ id -> onStationTap?.invoke(id) }) return
+            // web: a click on a train opens the train inspector
+            if (displaySettings.trains) trainPainter.trainAt(x,y,scale,width,height,22*density)?.let { (profile,dep,fill) ->
+                onTrainTap?.invoke(profile,dep,fill,trainPainter.engine(),trainPainter.time); return
+            }
         }
         onLocation?.invoke(PointF(centerX + (x-width/2f)/scale, centerY - (y-height/2f)/scale))
     }
