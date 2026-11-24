@@ -259,6 +259,21 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     private var gridKey = ""
     private val groups = mutableMapOf<Long,DoubleArray>()
     private val modeColors = intArrayOf(0x317bb8,0x67ab55,0xd99154,0x88758a)
+    /** Web modeMix on the light basemap, including the share of trips without a route. */
+    private fun bubbleColor(g: DoubleArray): Int {
+        val train = g[3]; val walk = g[4]; val car = g[5]
+        val moved = train + walk + car
+        if (moved <= 0) return Color.rgb(182,182,182)
+        val r = (30*train + 30*walk + 230*car) / moved
+        val green = (60*train + 170*walk + 30*car) / moved
+        val b = (230*train + 60*walk + 30*car) / moved
+        val k = 230 / maxOf(r,green,b)
+        val even = (3 * minOf(train,walk,car) / moved).coerceAtMost(1.0)
+        fun channel(v: Double) = (v*k*(1-even) + 160*even).roundToInt()
+        val rgb = Color.rgb(channel(r),channel(green),channel(b))
+        return mix(rgb,0xb6b6b6,(g[6]/g[2]).toFloat())
+    }
+
     fun circles(c:Canvas, cx:Float, cy:Float, scale:Float, density:Float, display: StudioGameSettings.Display) {
         discs.clear()
         val w=c.width; val h=c.height
@@ -289,14 +304,9 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 val rad=(sqrt(g[2])/sqrt(bin)*1.6f*density).toFloat().coerceIn(2*density,24*density) * display.bubbleSize
                 if(x < -rad || y < -rad || x>w+rad || y>h+rad) continue
                 discs.add(Disc(x,y,rad,(g[0]/g[2]).toFloat(),(g[1]/g[2]).toFloat(),g,false))
-                var angle=-90f
-                for(i in 0..3) {
-                    val sweep=(360*g[3+i]/g[2]).toFloat()
-                    if(sweep==0f) continue
-                    paint.color=modeColors[i] or ((255 * display.bubbleOpacity).roundToInt() shl 24)
-                    c.drawArc(x-rad,y-rad,x+rad,y+rad,angle,sweep,true,paint)
-                    angle+=sweep
-                }
+                paint.color = bubbleColor(g)
+                paint.alpha = (255 * display.bubbleOpacity).roundToInt()
+                c.drawCircle(x,y,rad,paint)
             }
         }
         val stationMode=selection[1]
