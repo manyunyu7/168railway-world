@@ -3026,7 +3026,7 @@ internal class NetworkView(context: Context):View(context) {
         private set
 
     fun load(data:JSONObject, refit:Boolean = true,keepTrainLoads:Boolean = false) {
-        overlay.reset()
+        overlay.reset(keep = !refit)
         trainNetworkVersion++
         if (!keepTrainLoads) previewRequested=false
         trainPainter.reset(keepTrainLoads)
@@ -3347,7 +3347,8 @@ internal class NetworkView(context: Context):View(context) {
         paint.pathEffect=null
         for((_,p) in plannedStops) c.drawCircle(p.x,p.y,6*density/scale,paint)
         c.restore()
-        if (!isDrafting && overlay.active) overlay.circles(c,centerX,centerY,scale,density,displaySettings,stationZoom())
+        // web keeps the demand view up while building: that is where stations are worth placing
+        if (overlay.active) overlay.circles(c,centerX,centerY,scale,density,displaySettings,stationZoom())
         paint.style=Paint.Style.FILL
         var labelX=-10000f;var labelY=-10000f
         val labelCells=mutableSetOf<Long>()
@@ -3514,7 +3515,7 @@ internal class NetworkView(context: Context):View(context) {
         }
         paint.style=Paint.Style.FILL;paint.textSize=9*density
         val credit = "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" + if(cityLayer==null)" · US Census" else ""
-        val note = if (!isDrafting) overlay.legend() ?: baseLayer?.status else baseLayer?.status
+        val note = overlay.legend() ?: baseLayer?.status
         paint.color=0xdcffffff.toInt()
         c.drawRect(0f,height-15*density,paint.measureText(credit)+10*density,height.toFloat(),paint)
         paint.color=0xff38575c.toInt()

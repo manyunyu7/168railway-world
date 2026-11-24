@@ -94,10 +94,20 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         nativeTask = null
         loading = ""
     }
-    fun reset() {
+    /** After an edit (keep) the old figures stay drawn until the new ones arrive, as on the web; a
+     *  new world clears them at once. */
+    private var staleTrips = false
+    private var staleNetwork = false
+    fun reset(keep: Boolean = false) {
         stop()
         error = null
-        cells.clear(); stations.clear(); edgeProfit.clear(); spans.clear(); routes.clear(); loaded.clear(); discs.clear()
+        routes.clear(); loaded.clear()
+        if (keep && (cells.isNotEmpty() || stations.isNotEmpty() || spans.isNotEmpty())) {
+            staleTrips = cells.isNotEmpty(); staleNetwork = true
+            return
+        }
+        staleTrips = false; staleNetwork = false
+        cells.clear(); stations.clear(); edgeProfit.clear(); spans.clear(); discs.clear()
         bySpeed.clear(); byHeight.clear()
         busiest.fill(0f)
         gridKey = ""
@@ -140,6 +150,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 }
                 main.post {
                     if (generation == id) result.fold({ rows ->
+                        if (staleTrips) { cells.clear(); discs.clear(); staleTrips = false }
                         cells.addAll(rows)
                         loaded.add(kind)
                         gridKey = ""
@@ -164,6 +175,10 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
             main.post {
                 if (id != generation) return@post
                 val pending = result.getOrElse { failure(it.localizedMessage ?: "Lapisan jaringan belum tersedia."); return@post }
+                if (staleNetwork) {
+                    stations.clear(); edgeProfit.clear(); spans.clear(); bySpeed.clear(); byHeight.clear(); busiest.fill(0f)
+                    staleNetwork = false
+                }
                 stations.addAll(pending["stops"].orEmpty())
                 for (edge in pending["edges"].orEmpty()) edgeProfit[edge[0].toInt()] = edge[1]
                 // one row of purpose riders a span, in the spans' order (rail, bus and ferry alike)
