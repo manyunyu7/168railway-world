@@ -40,6 +40,7 @@ mod train_scene;
 mod train_arrivals;
 mod issue_text;
 mod line_bands;
+mod rail_detail;
 mod achievements;
 mod extras;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
@@ -457,13 +458,18 @@ impl World {
             routes.push(json!({"id":id,"color":row[1] as u32,"points":points,"name":self.api.line_name(id),"at":if at.len() * 2 == points.len() { at } else { vec![] }}));
         }
         // Infrastructure belongs to the map even before a passenger service uses it.
+        let crossovers = rail_detail::crossovers(&self.api);
         let tracks: Vec<_> = self.api.edges_info().chunks_exact(10)
              .map(|row| {
                 let id = row[0] as u32;
                 let points: Vec<i32> = self.api.edge_polyline(id, 0.0).into_iter()
                     .map(|coordinate| coordinate.round() as i32).collect();
-                json!({"id":id,"points": points, "kind": self.api.edge_kind(id),
-                       "level": row[8] as i32, "built":row[4] == 1.0, "topLevel": row[9] as i32, "length":row[5], "speed":row[7], "tracks": row[3] as u8})
+                let mut t = json!({"id":id, "kind": self.api.edge_kind(id),
+                       "level": row[8] as i32, "built":row[4] == 1.0, "topLevel": row[9] as i32, "length":row[5], "speed":row[7], "tracks": row[3] as u8,
+                       "crossover": crossovers.contains(&id)});
+                if let Some(h) = rail_detail::heights(&self.api, id, row[8] as i32, row[9] as i32, &points) { t["heights"] = json!(h); }
+                t["points"] = json!(points);
+                t
             }).collect();
         let nodes=self.api.nodes_info();
         let loose_ends:Vec<_>=nodes.chunks_exact(10).filter(|r| r[4]==1.)
