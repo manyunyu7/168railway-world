@@ -273,9 +273,11 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_stationRiders(
         clock.passengers.as_ref()?;
         let forecast = clock.forecast.clone()?;
         (node >= 0 && time.is_finite()).then(|| {
-            crate::train_riders::station(&clock.world, node as u32, time, &|l| {
+            let mut v = crate::train_riders::station(&clock.world, node as u32, time, &|l| {
                 forecast.line_riders(l)
-            })
+            });
+            v["transfers"] = crate::train_riders::transfers_at(&clock.world, node as u32, &forecast.transfers()).into();
+            v
         })
     });
     let text = value.unwrap_or(serde_json::Value::Null).to_string();
