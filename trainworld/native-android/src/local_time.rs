@@ -43,3 +43,12 @@ pub(super) fn running_price(lon: f64, lat: f64) -> f64 {
 pub(super) fn zone_price(id: &str) -> f64 {
     ZONES.iter().find(|r| r.0 == id).map_or(1., |r| r.4)
 }
+
+/// A zone's clock shift from the game clock, seconds (web `shiftAt` at the city's centre); None
+/// for an id outside the registry.
+pub(super) fn zone_shift(id: &str) -> Option<f64> {
+    ZONES
+        .iter()
+        .find(|(z, ..)| *z == id)
+        .map(|(_, _, _, offset, _)| (offset - CLOCK_OFFSET) * 3600.)
+}

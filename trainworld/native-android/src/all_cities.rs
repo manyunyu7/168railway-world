@@ -181,6 +181,7 @@ pub(super) fn summary(save: &[u8], manifest: &str) -> Result<Value, String> {
         }
         let mut row = json!({"id": id, "stations": n, "lines": lines.get(id).copied().unwrap_or(0), "points": p,
             "star": world.header["stars"][id],
+            "starShift": crate::local_time::zone_shift(id),
             "money": f.as_ref().map_or(Value::Null, |(v, y)| { let mut v = v.clone(); v["yesterday"] = (*y).into(); v })});
         if let Some(&[trips, rail, walk, none]) = day {
             seen = true;

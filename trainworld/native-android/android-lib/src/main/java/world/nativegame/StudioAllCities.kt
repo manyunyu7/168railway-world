@@ -85,6 +85,21 @@ object StudioAllCities {
         }.joinToString("\n")
     }
 
+    private val WEEKDAYS = listOf("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
+
+    /**
+     * Web `goalWhen` (GoalTicks.tsx): "{weekday}, hari ke-{day}, pukul {time}" for a game second
+     * `at`, in the city's local time (`shift` seconds from the game clock).
+     */
+    internal fun whenEarned(at: Double, shift: Double): String {
+        val min = kotlin.math.floor((at + shift) / 60).toLong()
+        val d = Math.floorDiv(min, 1440L)
+        val weekday = Math.floorMod(d - 1, 7L).toInt()
+        val m = Math.floorMod(min, 1440L)
+        val time = String.format(Locale.ROOT, "%02d:%02d", m / 60, m % 60)
+        return "${WEEKDAYS[weekday]}, hari ke-${java.text.NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID")).format(d)}, pukul $time"
+    }
+
     /** The mode split as the Cities tab draws it: train, walk, drive and no route side by side. */
     private fun bar(activity: Activity, split: JSONObject?): View = LinearLayout(activity).apply {
         background = StudioUi.pill(activity, StudioUi.BORDER, 3)
@@ -226,6 +241,9 @@ object StudioAllCities {
                 heads.addView(StudioUi.chip(activity, k.label + if (on) (if (dir < 0) " ↓" else " ↑") else "",
                     if (on) StudioUi.INK else StudioUi.TINT_GREY, if (on) StudioUi.WHITE else StudioUi.INK).apply {
                     contentDescription = k.tip + if (on) (if (dir < 0) ", dari terbesar" else ", dari terkecil") else ""
+                    // a thumb-sized target (48 dp), the label centred in it
+                    minHeight = StudioUi.dp(activity, 48)
+                    gravity = Gravity.CENTER
                     isClickable = true
                     setOnClickListener {
                         if (sort == k) dir = -dir else { sort = k; dir = k.first }
@@ -271,14 +289,16 @@ object StudioAllCities {
             addView(StudioUi.text(activity, share, 15f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(activity); gravity = Gravity.END })
             addView(bar(activity, c.optJSONObject("split")), LinearLayout.LayoutParams(dp(56), dp(8)).apply { topMargin = dp(3) })
         }
-        val sub = figures.joinToString(" · ") { (k, v) -> "$k $v" }
+        // web Star hover (Cities.tsx, GoalTicks.goalWhen): when the star was earned, the city's own time
+        val starWhen = if (star) whenEarned(c.getDouble("star"), c.optDouble("starShift", 0.0).takeIf { !it.isNaN() } ?: 0.0) else null
+        val sub = figures.joinToString(" · ") { (k, v) -> "$k $v" } + (starWhen?.let { "\n★ Bintang: $it" } ?: "")
         val row = StudioUi.row(activity, StudioUi.Icon.PIN, StudioUi.TINT_PURPLE, if (star) "$name ★" else name, sub, trailing,
             onCity?.let { go -> { dialog.dismiss(); go(id) } })
         // the web's hovers, read out instead
         row.contentDescription = buildList {
             add(name)
             add("$stations stasiun")
-            if (star) add("Bintang diraih saat pangsa angkutan umum di $name mencapai $STAR_SHARE%")
+            if (star) add("Bintang diraih pada $starWhen, saat pangsa angkutan umum di $name mencapai $STAR_SHARE%")
             add(splitTip("di $name", c))
             if (seen) add(StudioFormat.exact(c.optDouble("rail")) + " perjalanan angkutan umum per hari di $name")
             m?.let { add(moneyTip(name, it, currency)) }
