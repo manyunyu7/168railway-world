@@ -790,7 +790,9 @@ class NativeWorldActivity : Activity() {
         // the mission card: the achievement tier nearest to reach (web achievements); new steps toast
         StudioAchievements.reset(handle)
         val next = StudioAchievements.mission()
-        missionCard.visibility = if (next != null && !drawing && !removingTrack && !selectingInfrastructure) View.VISIBLE else View.GONE
+        // one notice at a time on the map: the passengers chip wins over the mission card
+        missionCard.visibility = if (next != null && !drawing && !removingTrack && !selectingInfrastructure &&
+            (!::warmChip.isInitialized || warmChip.visibility != View.VISIBLE)) View.VISIBLE else View.GONE
         if (next != null) {
             missionText.text = next.first
             missionBar.fraction = next.second
@@ -1165,6 +1167,8 @@ class NativeWorldActivity : Activity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        // the map's notices (mission, passengers chip) step aside while a sheet or popup is open
+        if (::missionCard.isInitialized) (missionCard.parent as? View)?.visibility = if (hasFocus) View.VISIBLE else View.INVISIBLE
         if (hasFocus && ::map.isInitialized) {
             map.finishStationInspection()
             if (resumeOnPanelClose && foreground && !checkpointInFlight) {
@@ -2785,6 +2789,7 @@ class NativeWorldActivity : Activity() {
         // While paused with riders worked out, the chip stays as the call to play (it used to vanish after 4 s, often unseen).
         val ready = !computing && parked != null && reference == null && !running && referenceState != ReferenceState.PLAYING && !drawing
         warmChip.visibility = if ((computing && (!playWhenWarm || ghost)) || ready) View.VISIBLE else View.GONE
+        if (warmChip.visibility == View.VISIBLE && ::missionCard.isInitialized) missionCard.visibility = View.GONE
         if (computing) {
             warmChip.background = StudioUi.glass(this, 18)
             warmChipRing.fraction = fraction; warmChipRing.done = false
