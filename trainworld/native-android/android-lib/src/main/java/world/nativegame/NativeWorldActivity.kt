@@ -231,7 +231,10 @@ class NativeWorldActivity : Activity() {
             setPadding(dp(8), dp(5), dp(5), dp(5))
         }
         sunArc = SunArcView(this)
-        clockPill.addView(sunArc, LinearLayout.LayoutParams(dp(if (compact) 36 else 44), dp(28)))
+        sunArc.contentDescription = "Periode permintaan"
+        sunArc.setOnClickListener { showDemandHours() }
+        sunArc.isFocusable = true
+        clockPill.addView(sunArc, LinearLayout.LayoutParams(dp(48), dp(48)))
         val timeColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         localTime = StudioUi.text(this, "—", if (compact) 16f else 18f, color = StudioUi.INK).apply {
             typeface = StudioUi.heavy(context)
@@ -1116,6 +1119,22 @@ class NativeWorldActivity : Activity() {
         running = false
         map.removeCallbacks(tick)
         updateControls()
+    }
+
+    private fun showDemandHours() {
+        val hour = Math.floorMod((referenceTime ?: clock).toLong() + localClockShift,86400L).toInt() / 3600
+        val intervals = listOf(Triple(6,20,"Tinggi"), Triple(20,24,"Sedang"), Triple(0,6,"Rendah"))
+        StudioUi.sheet(this,"Permintaan menurut jam") { body,_ ->
+            intervals.forEach { (from,to,label) ->
+                val active = hour in from until to
+                val range = "%02d:00–%02d:00".format(java.util.Locale.ROOT,from,to)
+                body.addView(StudioUi.text(this,"$range  ·  $label" + if (active) " · sekarang" else "",
+                    16f,active,if (active) StudioUi.INK else StudioUi.MUTED).apply {
+                    minHeight = dp(48)
+                    gravity = Gravity.CENTER_VERTICAL
+                })
+            }
+        }
     }
 
     private fun updatePeriodStatus(second: Int) {
