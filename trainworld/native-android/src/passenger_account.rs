@@ -60,6 +60,9 @@ pub(super) struct Forecast {
     trips: [f64; 7],
     city_ids: Vec<String>,
     regional_trips: [Regions; 6],
+    /// Per local zone, its trips, rail, walked and unserved trips a day on the average day: web
+    /// `cityDemandViews` (demandSums.ts `summaryOnDay` of `citySummary` with `cityParts`)
+    city_days: BTreeMap<String, [f64; 4]>,
     transfers: BTreeMap<([u32; 3], [u32; 3]), f64>,
 }
 
@@ -70,6 +73,10 @@ fn accumulate(target: &mut [f32], src: &[f32]) {
 }
 
 impl Forecast {
+    /// `city_days`: per local zone [trips, rail, walk, unserved] a day on the average day
+    pub(super) fn city_days(&self) -> &BTreeMap<String, [f64; 4]> {
+        &self.city_days
+    }
     pub(super) fn set_layout(&mut self, cities: &[String]) {
         self.city_ids = cities.to_vec();
     }
@@ -124,6 +131,29 @@ impl Forecast {
         let mut lean = Vec::new();
         for (city, (s, e)) in cities.iter().enumerate() {
             let totals = e.kind_totals(q);
+            {
+                let (work, other) = (s.summary(q), e.summary(q));
+                let fw = f64::from(days::load_factor(days::AVERAGE, WORK, q));
+                let mut v = [work[1] * fw, work[2] * fw, work[3] * fw];
+                for (k, t) in totals.chunks_exact(3).enumerate() {
+                    let f = f64::from(days::load_factor(days::AVERAGE, days::everyday(k), q));
+                    for i in 0..3 {
+                        v[i] += t[i] * f;
+                    }
+                }
+                // the trips no way serves follow the trips (T-2215)
+                let raw = work[1] + other[1];
+                let none = (work.get(13).copied().unwrap_or(0.)
+                    + other.get(13).copied().unwrap_or(0.))
+                    * if raw > 0. { v[0] / raw } else { 0. };
+                let row = self
+                    .city_days
+                    .entry(self.city_ids[city].clone())
+                    .or_default();
+                for (r, x) in row.iter_mut().zip([v[0], v[1], v[2], none]) {
+                    *r += x;
+                }
+            }
             for d in 0..6 {
                 let mut rail = s.summary(q)[2] * f64::from(days::load_factor(d, WORK, q));
                 for (k, t) in totals.chunks_exact(3).enumerate() {

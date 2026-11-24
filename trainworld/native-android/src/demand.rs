@@ -634,7 +634,11 @@ struct CachedForecast {
 }
 static FORECAST: std::sync::Mutex<Option<CachedForecast>> = std::sync::Mutex::new(None);
 impl Inputs {
-    fn forecast(
+    /// The zones of the boundaries read (`DemandFiles::boundaries`), for the all cities view.
+    pub(super) fn geography(&self) -> &crate::demand_zones::Geography {
+        &self.geo
+    }
+    pub(super) fn forecast(
         &self,
         save: &[u8],
         world: &mut World,
