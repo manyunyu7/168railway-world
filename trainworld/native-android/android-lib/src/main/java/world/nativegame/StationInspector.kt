@@ -14,6 +14,8 @@ import java.util.Locale
 internal object StationInspector {
     /** Daily riders for a station node and its share of the busiest stop, when the passenger layer has data. */
     var riders: ((Int) -> Pair<Int, Float>?)? = null
+    /** The simulation's riders at a station complex (train_riders.rs `station`); null before they are in. */
+    var passengers: ((Int, (String?) -> Unit) -> Unit)? = null
     @JvmStatic external fun structure(handle: Long, node: Int, clock: Double, command: String): String
     @JvmStatic external fun upgrade(handle:Long,node:Int,bit:Int,on:Int,clock:Double):String
     @JvmStatic external fun read(handle: Long, node: Int, line: Int, run: Int, clock: Double): String
@@ -169,6 +171,7 @@ internal object StationInspector {
             crowd.contentDescription = "Keramaian, $count $unit"
             sheet.add(crowd,12)
         }
+        StationRiders.section(activity, node, passengers)?.let { sheet.add(it, 12) }
         val upcoming = departures.filter { byId.containsKey(it.getInt("line")) }
         fun destination(d: JSONObject): String {
             val line = byId.getValue(d.getInt("line"))

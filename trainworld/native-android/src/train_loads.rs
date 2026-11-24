@@ -201,6 +201,21 @@ impl Loads {
         }
         rows
     }
+    /// The index in `World::trips` of the trip `profile` leaving `dep` s into the hour.
+    pub(super) fn trip(&self, world: &World, profile: usize, dep: f64) -> Option<usize> {
+        world
+            .trips
+            .chunks_exact(4)
+            .position(|t| t[0] as usize == profile && (f64::from(t[1]) - dep).abs() < 0.5)
+            .filter(|&i| self.offsets.get(i * 2).is_some_and(|&o| o >= 0.))
+    }
+    /// Riders aboard trip `i` on stretch `k` (run 0's numbering, web `tripLoad`).
+    pub(super) fn stretch(&self, i: usize, k: usize) -> Option<f64> {
+        let o = *self.offsets.get(i * 2)?;
+        (o >= 0.)
+            .then(|| self.loads.get(o as usize + k).copied().map(f64::from))
+            .flatten()
+    }
     pub(super) fn current(&self, time: f64) -> bool {
         time >= self.epoch && time < self.epoch + 3600.
     }

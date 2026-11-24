@@ -693,6 +693,20 @@ impl Inputs {
         save: &[u8],
         world: &mut World,
     ) -> Result<super::timed_account::Account, String> {
+        self.account_and_forecast(save, world).map(|(a, _)| a)
+    }
+    /// `account` and the forecast it was made from (the train and station inspectors' riders).
+    pub(super) fn account_and_forecast(
+        &self,
+        save: &[u8],
+        world: &mut World,
+    ) -> Result<
+        (
+            super::timed_account::Account,
+            std::sync::Arc<crate::passenger_account::Forecast>,
+        ),
+        String,
+    > {
         let forecast = self.forecast(save, world)?;
         let costs = super::operating::Costs::with_prices(&mut world.api, &forecast.run_prices());
         let clock = world.header["clock"].as_f64().ok_or("Jam tidak valid")?;
@@ -700,7 +714,7 @@ impl Inputs {
         let account =
             super::timed_account::Account::new(&forecast, &mut world.api, clock, &costs, upkeep);
         world.operating = Some(costs);
-        Ok(account)
+        Ok((account, forecast))
     }
 
     fn estimate(&self, save: &[u8], period: usize) -> Result<Value, String> {
