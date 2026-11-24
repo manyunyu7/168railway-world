@@ -94,6 +94,14 @@ class NativeWorldActivity : Activity() {
     private lateinit var cancel: Button
     private lateinit var sunArc: SunArcView
     private lateinit var missionCard: LinearLayout
+    private lateinit var lensLegend: LinearLayout
+    private lateinit var warmChip: LinearLayout
+    private lateinit var warmChipText: TextView
+    private lateinit var warmChipRing: WarmRing
+    private lateinit var warmCard: LinearLayout
+    private lateinit var warmBar: StudioProgress.Bar
+    private lateinit var warmPercent: TextView
+    private lateinit var warmTip: TextView
     private lateinit var missionText: TextView
     private lateinit var missionBar: StudioProgress.Bar
     private var lastCash = Double.NaN
@@ -206,8 +214,11 @@ class NativeWorldActivity : Activity() {
         val cashPill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = StudioUi.pill(context, 0xccffffff.toInt(), 22)
+            background = StudioDepot.touch(context, 0xccffffff.toInt(), 22)
             setPadding(dp(12), dp(3), dp(12), dp(4))
+            isClickable = true
+            contentDescription = "Buka keuangan"
+            setOnClickListener { withCommittedWorld { openFinance() } }
         }
         currency = StudioCurrency.current(this)
         balanceUnit = StudioUi.text(this, "KAS · ${currency.code}", 9f, true, StudioUi.MUTED)
@@ -241,7 +252,22 @@ class NativeWorldActivity : Activity() {
         missionCard.addView(missionText, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
         missionBar = StudioProgress.Bar(this, 0xffffd23f.toInt(), 0x40ffffff)
         missionCard.addView(missionBar, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(8) })
-        missionSlot.addView(missionCard, android.widget.FrameLayout.LayoutParams(dp(if (compact) 210 else 236), -2))
+        val leftTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.START }
+        leftTools.addView(missionCard, LinearLayout.LayoutParams(dp(if (compact) 210 else 236), -2))
+        warmChipRing = WarmRing(this)
+        warmChipText = StudioUi.text(this, "", 12.5f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(context); singleLine() }
+        warmChip = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = StudioUi.glass(context, 18)
+            elevation = dp(3).toFloat()
+            setPadding(dp(9), dp(7), dp(13), dp(7))
+            visibility = View.GONE
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            addView(warmChipRing, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(8) })
+            addView(warmChipText)
+        }
+        leftTools.addView(warmChip, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
+        missionSlot.addView(leftTools, android.widget.FrameLayout.LayoutParams(-2, -2))
         mapTools.addView(missionSlot, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
         val rightTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rightTools.addView(save, LinearLayout.LayoutParams(dp(46), dp(46)).apply { bottomMargin = dp(8) })
@@ -276,6 +302,48 @@ class NativeWorldActivity : Activity() {
             elevation = dp(3).toFloat()
             setPadding(dp(16),dp(9),dp(16),dp(10))
         }
+        warmCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = StudioUi.glass(context, 26)
+            elevation = dp(3).toFloat()
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            visibility = View.GONE
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        warmCard.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(StudioDepot.symbol(context, StudioUi.Icon.TRAIN, 22f, StudioUi.WHITE).apply {
+                gravity = Gravity.CENTER
+                background = StudioUi.pill(context, StudioUi.GREEN, 14)
+            }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(12) })
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(StudioUi.text(context, "Menghitung perjalanan warga", 16f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) })
+                addView(StudioUi.text(context, "${city.name} · sekali saja, lalu simulasi langsung jalan", 12f, true, StudioUi.MUTED))
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        })
+        warmBar = StudioProgress.Bar(this, StudioUi.GREEN, 0x1a22204a)
+        warmPercent = StudioUi.text(this, "", 13f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(context) }
+        warmCard.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(12), 0, 0)
+            addView(warmBar, LinearLayout.LayoutParams(0, dp(12), 1f).apply { marginEnd = dp(10) })
+            addView(warmPercent)
+        })
+        warmTip = StudioUi.text(this, "", 12.5f, true, StudioUi.INK).apply {
+            background = StudioUi.pill(context, 0x38ffd23f, 14)
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+        }
+        warmCard.addView(warmTip, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        dock.addView(warmCard, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(8) })
+        lensLegend = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = StudioUi.glass(context, 22)
+            elevation = dp(3).toFloat()
+            setPadding(dp(16), dp(9), dp(8), dp(9))
+            visibility = View.GONE
+        }
+        dock.addView(lensLegend, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(8) })
         dock.addView(controlHint, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(8) })
         dockTitle = StudioUi.text(this, "", 15f).apply { typeface = StudioUi.heavy(context) }
         status = StudioUi.text(this, "Memuat dunia…", 13f, true, StudioUi.MUTED)
@@ -316,7 +384,8 @@ class NativeWorldActivity : Activity() {
         }
         play = action {
             if (drawing) undoDraft() else if (map.requiresStudioClock) {
-                if (reference == null) startReference() else withCommittedWorld()
+                if (playWhenWarm) { playWhenWarm = false; updateWarmUi(); updateControls() }
+                else if (reference == null) startReference() else withCommittedWorld()
             } else {
                 running = !running
                 lastTick = SystemClock.elapsedRealtime()
@@ -326,7 +395,7 @@ class NativeWorldActivity : Activity() {
             }
         }
         lines = action { withCommittedWorld { openServices() } }
-        finance = action { withCommittedWorld { openFinance() } }
+        finance = action { openLenses() }
         cancel = action { discardDraft() }
         more = action { withCommittedWorld { manageWorld() } }
         for (item in listOf(cancel, play, lines, build, finance, more)) {
@@ -413,6 +482,8 @@ class NativeWorldActivity : Activity() {
                     updateSummary()
                     if(!legacyWorkshop) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
                     updateControls()
+                    updateLensLegend()
+                    scheduleWarm(2500)
                     if (workshop && map.routeCount > 0) {
                         val routes = geometry.getJSONArray("routes")
                         lastService = routes.getJSONObject(routes.length()-1).getString("name")
@@ -581,8 +652,9 @@ class NativeWorldActivity : Activity() {
                 }
             }
             if (map.stops.any { it.id >= 0 }) options.add("Pilih stasiun" to { chooseStation() })
-            options.add("Peta penumpang & lalu lintas" to { passengerLayers() })
+            options.add("Lensa peta lanjutan" to { passengerLayers() })
             if (workshop) options.add("Bongkar layanan atau stasiun" to { demolition() })
+            options.add("Keuangan" to { openFinance() })
             options.add("Pencapaian & misi" to { openProgress() })
             options.add("Tutorial bermain" to { chooseTutorial() })
             options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), city.name, ::openStation, map.cityLayer) { id ->
@@ -646,13 +718,14 @@ class NativeWorldActivity : Activity() {
         fun iconFor(label: String): Pair<StudioUi.Icon, Int> = when {
             label.startsWith("Urungkan") || label.startsWith("Ulangi") -> StudioUi.Icon.UNDO to 0xffefedf5.toInt()
             label.startsWith("Pilih stasiun") -> StudioUi.Icon.PIN to 0xffe3edf9.toInt()
-            label.startsWith("Peta penumpang") -> StudioUi.Icon.CENTER to 0xffffe4e4.toInt()
+            label.startsWith("Lensa") -> StudioUi.Icon.LAYERS to 0xffffe4e4.toInt()
             label.startsWith("Bongkar") -> StudioUi.Icon.CLOSE to 0xffffe4e4.toInt()
             label.startsWith("Tutorial") -> StudioUi.Icon.HELP to 0xffe8e2ff.toInt()
             label.startsWith("Diagram") -> StudioUi.Icon.ROUTE to 0xffe1f1f6.toInt()
             label.startsWith("Cetak") -> StudioUi.Icon.PLUS to 0xffddf4d3.toInt()
             label.startsWith("Pengaturan") -> StudioUi.Icon.MENU to 0xffefedf5.toInt()
             label.startsWith("Arsip") -> StudioUi.Icon.CLOUD to 0xffe3edf9.toInt()
+            label.startsWith("Keuangan") -> StudioUi.Icon.WALLET to 0xfffff3c4.toInt()
             else -> StudioUi.Icon.FOLDER to 0xfffff3c4.toInt()
         }
         val stations = map.stops.filter { it.id >= 0 }.distinctBy { it.name }.sortedBy { it.name }
@@ -851,6 +924,7 @@ class NativeWorldActivity : Activity() {
                         setOnClickListener {
                             dialog.dismiss()
                             map.overlay.choose(index,layer)
+                            updateLensLegend()
                             map.announceForAccessibility("$name · $label")
                         }
                     })
@@ -935,15 +1009,42 @@ class NativeWorldActivity : Activity() {
         render(build, if (drawing) "Tinjau" else "Bangun", if (drawing) plan.tool.review else "Bangun jalur",
             if (drawing) StudioUi.Icon.ROUTE else StudioUi.Icon.PLUS)
         render(lines,"Jalur","Jalur",StudioUi.Icon.ROUTE)
-        render(finance,"Kas","Keuangan",StudioUi.Icon.WALLET)
+        render(finance,"Lensa","Lensa peta",StudioUi.Icon.LAYERS)
         render(cancel,"Batal","Batalkan rancangan",StudioUi.Icon.CLOSE)
         render(more,if (drawing) "Alat" else "Menu",if (drawing) "Alat rancangan" else "Cari dan menu",StudioUi.Icon.MENU)
         when {
             drawing -> render(play,"Urung","Urungkan titik terakhir",StudioUi.Icon.UNDO)
             running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
-            else -> render(play,"×8","Putar ×8",StudioUi.Icon.PLAY)
+            playWhenWarm && computing() -> render(play,"${(warmFraction()*100).toInt()}%","Batalkan putar",StudioUi.Icon.CLOSE)
+            else -> render(play,"×8",if (parked != null) "Putar ×8, penumpang siap" else "Putar ×8",StudioUi.Icon.PLAY)
+        }
+        // A finished forecast shows as a green dot on the play button.
+        val dot = !drawing && reference == null && !running && parked != null
+        if (playDot != dot) {
+            playDot = dot
+            play.tag = null
+            when {
+                drawing -> render(play,"Urung","Urungkan titik terakhir",StudioUi.Icon.UNDO)
+                running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
+                playWhenWarm && computing() -> render(play,"${(warmFraction()*100).toInt()}%","Batalkan putar",StudioUi.Icon.CLOSE)
+                else -> render(play,"×8","Putar ×8",StudioUi.Icon.PLAY)
+            }
+            if (dot) {
+                val glyph = play.compoundDrawables[1]
+                val badge = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(0xff2fb36d.toInt()); setStroke(dp(2), StudioUi.WHITE)
+                }
+                val size = glyph.bounds.width()
+                val layered = android.graphics.drawable.LayerDrawable(arrayOf(glyph, badge)).apply {
+                    setLayerInset(1, size - dp(9), 0, -dp(2), size - dp(11))
+                    setBounds(0, 0, size, glyph.bounds.height())
+                }
+                play.setCompoundDrawables(null, layered, null, null)
+            }
         }
         map.isDrafting = drawing
+        if (::lensLegend.isInitialized && lensLegend.childCount > 0) lensLegend.visibility = if (drawing || removingTrack) View.GONE else View.VISIBLE
         // Demolition mode reads as a red banner; everything else is the frosted status pill.
         val danger = removingTrack
         if (controlHint.tag != danger) {
@@ -1230,6 +1331,7 @@ class NativeWorldActivity : Activity() {
         }
     }
     private fun refresh() {
+        if (reference == null && warming == null && !running) scheduleWarm()
         val displayClock = referenceTime ?: clock
         if (::sunArc.isInitialized) sunArc.second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         updateProgress(displayClock)
@@ -1316,6 +1418,8 @@ class NativeWorldActivity : Activity() {
         val pack = activePack
         val cityId = city.id
         val generation = ++previewGeneration
+        if (prepStart == 0L) prepStart = SystemClock.elapsedRealtime()
+        if (::map.isInitialized) { map.removeCallbacks(warmTick); map.post(warmTick) }
         trainPreview = executor.submit {
             val rows = runCatching {
                 val local = pack ?: cityStore.load(cityId)
@@ -1325,6 +1429,7 @@ class NativeWorldActivity : Activity() {
             runOnUiThread {
                 if (generation != previewGeneration) return@runOnUiThread
                 trainPreview = null
+                if (playWhenWarm) scheduleWarm(0)
                 if (rows != null && !closed && handle == source && version == map.trainNetworkVersion && reference == null) {
                     val epoch = kotlin.math.floor(time/3600).toLong()*3600
                     map.trainLoads(epoch,org.json.JSONArray(rows))
@@ -1341,6 +1446,13 @@ class NativeWorldActivity : Activity() {
 
     private fun startReference() {
         if (reference != null || handle == 0L || drawing) return
+        // The passenger preview already builds the demand the clock needs; finish it rather than start over.
+        if (trainPreview != null && parked == null) {
+            playWhenWarm = true
+            updateWarmUi()
+            updateControls()
+            return
+        }
         stopTrainPreview()
         if (worldChanged && !writeSave()) return
         val bytes = Engine.save(handle, clock)
@@ -1358,41 +1470,10 @@ class NativeWorldActivity : Activity() {
             }
             idle.close()
         }
-        lateinit var runtime: SimulationClock
-        val onClock: (Double) -> Unit = { time ->
-            if (reference === runtime && referenceState == ReferenceState.PLAYING && !closed) {
-                referenceTime = time
-                refresh()
-            }
-        }
-        val onFailure: (String) -> Unit = { reason ->
-            if (reference === runtime && referenceState != ReferenceState.SAVING) {
-                finishReference(runtime)
-                referenceUnavailable(reason)
-            }
-        }
-        val pack = activePack
-        val cityId = city.id
-        val inputs: ((ByteArray) -> String)? = if (SimulationEngine.supportsEditor(handle)) null else { archive ->
-            val local = pack ?: cityStore.load(cityId)
-            NativeRidership.inputs(this,archive,local.header,local.cells,true).toString()
-        }
-        runtime = NativeSimulationClock(inputs,onClock,onFailure)
-        runtime.onTrainLoads = { epoch, rows -> if (reference === runtime && !closed) map.trainLoads(epoch,rows) }
-        runtime.onCash = { cash -> if (reference === runtime && !closed) showBalance(cash) }
-        reference = runtime
-        referenceState = ReferenceState.OPENING
+        playWhenWarm = true
+        if (warming == null) beginWarm(bytes)
+        updateWarmUi()
         updateControls()
-        status.text = "Menyiapkan simulasi anggaran…"
-        val requestedAt = android.os.SystemClock.elapsedRealtime()
-        runtime.open(bytes) {
-            if (reference !== runtime || closed) return@open
-            if (!foreground) { finishReference(runtime); return@open }
-            referenceState = ReferenceState.PLAYING
-            updateControls()
-            android.util.Log.i("WorldSimulation", "play ready in ${android.os.SystemClock.elapsedRealtime()-requestedAt} ms")
-            runtime.play(8.0)
-        }
     }
 
     private fun withCommittedWorld(action: (() -> Unit)? = null) {
@@ -1601,6 +1682,7 @@ class NativeWorldActivity : Activity() {
             return
         }
         if (handle != 0L) {
+            scheduleWarm(1500)
             map.overlay.startNeeded()
             val selected = StudioCurrency.current(this)
             if (currency != selected) {
@@ -1610,6 +1692,248 @@ class NativeWorldActivity : Activity() {
         }
         if (!legacyWorkshop && handle != 0L) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
     }
+    // ---- Lensa peta: one-tap presets over the three overlay groups ----
+    private enum class Lens(val label: String, val trips: String, val stations: String, val track: String, val swatch: IntArray, val legend: String) {
+        NORMAL("Normal","none","none","line", intArrayOf(0xffe5484d.toInt(),0xff3e7bfa.toInt(),0xff2fb36d.toInt()), ""),
+        PASSENGERS("Penumpang","none","total","line", intArrayOf(0xfffde3e3.toInt(),0xffe5484d.toInt()), "Lingkaran makin besar = makin banyak penumpang per hari"),
+        TRANSFERS("Transit","none","transfers","line", intArrayOf(0xffebe5ff.toInt(),0xff6c4df6.toInt()), "Stasiun tempat penumpang berganti layanan"),
+        TRIPS("Asal–Tujuan","both","none","line", intArrayOf(0xffd8cffd.toInt(),0xffff7a2f.toInt()), "Asal dan tujuan perjalanan warga di kota"),
+        TRAFFIC("Lalu lintas","none","none","traffic", intArrayOf(0xffe5484d.toInt(),0xff3e7bfa.toInt(),0xff2fb36d.toInt()), "Warna = layanan, garis makin tebal = makin ramai"),
+        PROFIT("Laba","none","none","profit", intArrayOf(0xffb2182b.toInt(),0xffe9853b.toInt(),0xfff1d54a.toInt(),0xff96d58f.toInt(),0xff2166ac.toInt()), "Rugi → impas → untung"),
+        SPEED("Kecepatan","none","none","speed", intArrayOf(0xff8a2232.toInt(),0xffe2922e.toInt(),0xffa3c23c.toInt(),0xff397bc1.toInt(),0xffa03fc2.toInt()), "Lambat → cepat"),
+        HEIGHT("Ketinggian","none","none","height", intArrayOf(0xffc2351c.toInt(),0xfff0b928.toInt(),0xff58b04a.toInt(),0xff2f6fd0.toInt(),0xff4a2c9a.toInt()), "Bawah tanah → permukaan → layang")
+    }
+
+    private fun currentLens(): Lens? = map.overlay.selection.let { sel ->
+        Lens.values().firstOrNull { it.trips == sel[0] && it.stations == sel[1] && it.track == sel[2] }
+    }
+
+    private fun applyLens(lens: Lens) {
+        val sel = map.overlay.selection
+        if (sel[0] != lens.trips) map.overlay.choose(0, lens.trips)
+        if (sel[1] != lens.stations) map.overlay.choose(1, lens.stations)
+        if (sel[2] != lens.track) map.overlay.choose(2, lens.track)
+        updateLensLegend()
+        map.announceForAccessibility("Lensa ${lens.label}")
+    }
+
+    private fun swatch(colors: IntArray, radius: Int) = android.graphics.drawable.GradientDrawable(
+        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, if (colors.size == 1) intArrayOf(colors[0], colors[0]) else colors
+    ).apply { cornerRadius = dp(radius).toFloat() }
+
+    private fun updateLensLegend() {
+        if (!::lensLegend.isInitialized || !::map.isInitialized) return
+        val lens = currentLens()
+        lensLegend.removeAllViews()
+        if (lens == Lens.NORMAL || drawing) { lensLegend.visibility = View.GONE; return }
+        lensLegend.visibility = View.VISIBLE
+        val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        text.addView(StudioUi.text(this, lens?.label ?: "Lensa campuran", 15f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) })
+        if (lens != null) {
+            text.addView(LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(3), 0, 0)
+                addView(View(context).apply { background = swatch(lens.swatch, 5) }, LinearLayout.LayoutParams(dp(64), dp(9)).apply { marginEnd = dp(8) })
+                addView(StudioUi.text(context, lens.legend, 11.5f, true, StudioUi.MUTED).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
+            })
+        } else text.addView(StudioUi.text(this, "Diatur sendiri lewat Lensa peta lanjutan", 11.5f, true, StudioUi.MUTED))
+        lensLegend.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
+        lensLegend.addView(StudioDepot.symbol(this, StudioUi.Icon.CLOSE, 18f, StudioUi.INK).apply {
+            gravity = Gravity.CENTER
+            background = StudioDepot.touch(context, 0x1422204a, 18)
+            contentDescription = "Kembali ke peta normal"
+            isClickable = true
+            setOnClickListener { applyLens(Lens.NORMAL) }
+        }, LinearLayout.LayoutParams(dp(36), dp(36)))
+    }
+
+    private fun openLenses() {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = StudioUi.glass(context, 28)
+            elevation = dp(8).toFloat()
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        val popup = android.widget.PopupWindow(content, finance.rootView.width - 2 * dp(10), -2, true).apply {
+            isOutsideTouchable = true
+            elevation = dp(8).toFloat()
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
+        }
+        content.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, dp(4), dp(10))
+            addView(StudioUi.text(context, "Lensa peta", 17f, color = StudioUi.INK).apply { typeface = StudioUi.display(context) }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(StudioUi.text(context, "ketuk untuk ganti", 12f, true, StudioUi.MUTED))
+        })
+        val active = currentLens()
+        val tiles = Lens.values().map { lens -> Triple(lens.label, lens.swatch, { applyLens(lens) }) } +
+            Triple("Atur sendiri", intArrayOf(0xffeeeeee.toInt(), 0xffffffff.toInt(), 0xffeeeeee.toInt()), { passengerLayers() })
+        tiles.chunked(3).forEach { row ->
+            val line = LinearLayout(this)
+            row.forEachIndexed { i, (label, colors, pick) ->
+                val selected = label == active?.label || (active == null && label == "Atur sendiri")
+                val tile = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = StudioDepot.touch(context, if (selected) StudioUi.INK else 0xf2ffffff.toInt(), 18)
+                    setPadding(dp(7), dp(7), dp(7), dp(8))
+                    isClickable = true
+                    contentDescription = "Lensa $label"
+                    setOnClickListener { popup.dismiss(); pick() }
+                    addView(View(context).apply { background = swatch(colors, 12) }, LinearLayout.LayoutParams(-1, dp(38)))
+                    addView(StudioUi.text(context, label, 12.5f, color = if (selected) StudioUi.WHITE else StudioUi.INK).apply {
+                        typeface = StudioUi.heavy(context); gravity = Gravity.CENTER; singleLine()
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(5) })
+                }
+                line.addView(tile, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(7) })
+            }
+            content.addView(line, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(7) })
+        }
+        val bar = finance.parent as View
+        val location = IntArray(2).also { bar.getLocationInWindow(it) }
+        popup.showAtLocation(bar, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, bar.rootView.height - location[1] + dp(8))
+    }
+
+    // ---- Passenger forecast computed in the background as soon as the world is idle ----
+    private var warming: SimulationClock? = null
+    private var warmBytes: ByteArray? = null
+    private var warmStart = 0L
+    private var playWhenWarm = false
+    private var warmReadyUntil = 0L
+    private var prepStart = 0L
+    private fun computing() = warming != null || (trainPreview != null && parked == null && reference == null)
+    private var playDot: Boolean? = null
+    private var warmAt = 0L
+    private val warmTask = Runnable { warmAt = 0L; prewarm() }
+    private val warmTick = object : Runnable {
+        override fun run() {
+            updateWarmUi()
+            if (playWhenWarm) updateControls()
+            if (computing() || SystemClock.uptimeMillis() < warmReadyUntil) map.postDelayed(this, 250)
+        }
+    }
+    private val tips = listOf(
+        "Stasiun tempat dua lintas bertemu jadi titik transit. Penumpangnya bisa 2–3× stasiun biasa.",
+        "Kereta yang terlalu penuh membuat penumpang beralih. Tambah rangkaian di lintas yang padat.",
+        "Lensa Laba menunjukkan lintas yang rugi. Coba ubah tarif atau jadwalnya.",
+        "Jalur yang melewati pusat kota biasanya paling ramai di jam sibuk pagi.")
+
+    private fun warmEstimate() = getSharedPreferences("world-native", 0).getLong("warm-ms-${city.id}", 18_000L).coerceIn(2_000L, 120_000L)
+    private fun warmFraction() = if (!computing()) 1f else
+        (0.95f * (SystemClock.elapsedRealtime() - (if (prepStart != 0L) prepStart else warmStart)) / warmEstimate()).coerceIn(0f, .95f)
+
+    private fun scheduleWarm(delay: Long = 2500) {
+        if (!::map.isInitialized || closed) return
+        // Frequent callers (refresh) must not keep pushing an already pending check further away.
+        val at = SystemClock.uptimeMillis() + delay
+        if (warmAt != 0L && warmAt <= at) return
+        map.removeCallbacks(warmTask)
+        warmAt = at
+        map.postDelayed(warmTask, delay)
+    }
+
+    private fun prewarm() {
+        if (warming != null || reference != null || closed || !foreground || drawing || handle == 0L || restoringEdit || running) return
+        if (!map.requiresStudioClock || map.routeCount == 0) return
+        if (trainPreview != null) { scheduleWarm(1500); return }
+        if (worldChanged && !writeSave()) return
+        val bytes = Engine.save(handle, clock)
+        parked?.let { idle -> if (idle.isReady && parkedBytes?.contentEquals(bytes) == true) return; dropParked() }
+        beginWarm(bytes)
+    }
+
+    private fun beginWarm(bytes: ByteArray) {
+        lateinit var runtime: SimulationClock
+        val onClock: (Double) -> Unit = { time ->
+            if (reference === runtime && referenceState == ReferenceState.PLAYING && !closed) {
+                referenceTime = time
+                refresh()
+            }
+        }
+        val onFailure: (String) -> Unit = { reason ->
+            when {
+                warming === runtime -> { val wanted = playWhenWarm; cancelWarm(); updateControls(); if (wanted) referenceUnavailable(reason) }
+                parked === runtime -> dropParked()
+                reference === runtime && referenceState != ReferenceState.SAVING -> { finishReference(runtime); referenceUnavailable(reason) }
+            }
+        }
+        val pack = activePack
+        val cityId = city.id
+        val inputs: ((ByteArray) -> String)? = if (SimulationEngine.supportsEditor(handle)) null else { archive ->
+            val local = pack ?: cityStore.load(cityId)
+            NativeRidership.inputs(this,archive,local.header,local.cells,true).toString()
+        }
+        runtime = NativeSimulationClock(inputs,onClock,onFailure)
+        runtime.onTrainLoads = { epoch, rows -> if (reference === runtime && !closed) map.trainLoads(epoch,rows) }
+        runtime.onCash = { cash -> if (reference === runtime && !closed) showBalance(cash) }
+        warming = runtime
+        warmBytes = bytes
+        warmStart = SystemClock.elapsedRealtime()
+        if (prepStart == 0L) prepStart = warmStart
+        map.removeCallbacks(warmTick)
+        map.post(warmTick)
+        updateWarmUi()
+        runtime.open(bytes) {
+            if (warming !== runtime || closed) return@open
+            val took = SystemClock.elapsedRealtime() - (if (prepStart != 0L) prepStart else warmStart)
+            prepStart = 0L
+            getSharedPreferences("world-native", 0).edit().putLong("warm-ms-${city.id}", took).apply()
+            android.util.Log.i("WorldSimulation", "forecast ready in $took ms")
+            warming = null
+            parked = runtime
+            parkedBytes = warmBytes
+            warmBytes = null
+            if (playWhenWarm && foreground) {
+                playWhenWarm = false
+                startReference()
+            } else {
+                warmReadyUntil = SystemClock.uptimeMillis() + 4000
+                map.removeCallbacks(warmTick)
+                map.post(warmTick)
+                scheduleWarm()
+            }
+            updateWarmUi()
+            updateControls()
+        }
+    }
+
+    private fun cancelWarm() {
+        if (::map.isInitialized) { map.removeCallbacks(warmTask); map.removeCallbacks(warmTick) }
+        warmAt = 0L
+        val runtime = warming
+        warming = null
+        warmBytes = null
+        playWhenWarm = false
+        runtime?.close()
+        if (::warmCard.isInitialized) updateWarmUi()
+    }
+
+    private fun updateWarmUi() {
+        if (!::warmCard.isInitialized) return
+        val fraction = warmFraction()
+        val left = ((1f - fraction / .95f) * warmEstimate() / 1000f).toInt().coerceAtLeast(1)
+        val computing = computing()
+        warmCard.visibility = if (computing && playWhenWarm) View.VISIBLE else View.GONE
+        if (computing && playWhenWarm) {
+            warmBar.fraction = fraction
+            warmPercent.text = "${(fraction * 100).toInt()}% · ±$left dtk"
+            if (warmTip.text.isEmpty()) warmTip.text = "💡  " + tips.random()
+            warmTip.visibility = if (left > 5) View.VISIBLE else View.GONE
+        } else warmTip.text = ""
+        val ready = !computing && parked != null && SystemClock.uptimeMillis() < warmReadyUntil && reference == null
+        warmChip.visibility = if ((computing && !playWhenWarm) || ready) View.VISIBLE else View.GONE
+        if (computing) {
+            warmChip.background = StudioUi.glass(this, 18)
+            warmChipRing.fraction = fraction; warmChipRing.done = false
+            warmChipText.setTextColor(StudioUi.INK)
+            warmChipText.text = "Menyiapkan penumpang · ${(fraction * 100).toInt()}%"
+        } else if (ready) {
+            warmChip.background = StudioUi.pill(this, StudioUi.INK, 18)
+            warmChipRing.done = true
+            warmChipText.setTextColor(StudioUi.WHITE)
+            warmChipText.text = "Penumpang siap · tekan ×8 untuk main"
+        }
+    }
+
     private fun writeCover() {
         val slot = archiveSlot ?: return
         if (!::map.isInitialized || handle == 0L) return
@@ -1629,6 +1953,7 @@ class NativeWorldActivity : Activity() {
         writeCover()
         super.onPause()
         foreground = false
+        cancelWarm()
         if (::map.isInitialized) map.overlay.stop()
         stopTrainPreview()
         dropParked()
@@ -1640,6 +1965,7 @@ class NativeWorldActivity : Activity() {
     }
     override fun onDestroy() {
         closed = true
+        cancelWarm()
         if (::map.isInitialized) map.overlay.stop()
         reviewDialog?.dismiss()
         stopTrainPreview()
@@ -2265,5 +2591,30 @@ internal class NetworkView(context: Context):View(context) {
         pinch.onTouchEvent(e)
         pan.onTouchEvent(e)
         return true
+    }
+}
+
+/** Small progress ring for the forecast chip; a green tick when done. */
+internal class WarmRing(c: Context) : View(c) {
+    var fraction = 0f
+        set(v) { field = v; invalidate() }
+    var done = false
+        set(v) { field = v; invalidate() }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val box = RectF()
+    override fun onDraw(canvas: Canvas) {
+        val w = width * .16f
+        paint.strokeWidth = w
+        box.set(w / 2, w / 2, width - w / 2, height - w / 2)
+        if (done) {
+            paint.style = Paint.Style.FILL; paint.color = 0xff2fb36d.toInt()
+            canvas.drawOval(box, paint)
+            paint.style = Paint.Style.STROKE; paint.color = Color.WHITE
+            val path = Path().apply { moveTo(width * .3f, height * .52f); lineTo(width * .45f, height * .67f); lineTo(width * .72f, height * .36f) }
+            canvas.drawPath(path, paint)
+            return
+        }
+        paint.color = 0x2622204a; canvas.drawArc(box, 0f, 360f, false, paint)
+        paint.color = StudioUi.GREEN; canvas.drawArc(box, -90f, 360f * fraction, false, paint)
     }
 }
