@@ -280,12 +280,20 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
         return mix(rgb,0xb6b6b6,(g[6]/g[2]).toFloat())
     }
 
-    fun circles(c:Canvas, cx:Float, cy:Float, scale:Float, density:Float, display: StudioGameSettings.Display) {
+    fun circles(c:Canvas, cx:Float, cy:Float, scale:Float, density:Float, display: StudioGameSettings.Display, zoom: Float) {
         discs.clear()
         val w=c.width; val h=c.height
         val end = selection[0]
         if (end != "none" && cells.isNotEmpty()) {
-            val bin = 2.0.pow(round(log2((40*density/scale).coerceAtLeast(1f).toDouble())))
+            // Web bubbleLevel uses these zoom bands. The native cells are projected local coordinates.
+            val detailZoom = zoom + 1.8 * display.bubbleDetail
+            val level = when {
+                detailZoom >= 13.6 -> 0
+                detailZoom >= 11.8 -> 1
+                detailZoom >= 10 -> 2
+                else -> 3
+            }
+            val bin = 410.0 * sqrt(7.0).pow(level)
             val key="$end/$bin/$purpose"
             if (key != gridKey) {
                 groups.clear()

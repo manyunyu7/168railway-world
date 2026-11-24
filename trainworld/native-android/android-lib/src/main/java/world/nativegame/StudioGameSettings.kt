@@ -10,14 +10,14 @@ import android.widget.Switch
 internal object StudioGameSettings {
     data class Display(val trains:Boolean, val capacity:Boolean, val fullMarks:Boolean, val names:Boolean,
         val mapNames:Boolean, val zoomButtons:Boolean, val lineWidth:Float, val circleSize:Float,
-        val contrast:Float, val buses:Boolean, val bubbleSize:Float, val bubbleOpacity:Float, val bubbleScheme:String)
+        val contrast:Float, val buses:Boolean, val bubbleSize:Float, val bubbleOpacity:Float, val bubbleScheme:String, val bubbleDetail:Int)
 
     private fun prefs(c:Context) = c.getSharedPreferences("studio-display", Context.MODE_PRIVATE)
     fun read(c:Context):Display = with(prefs(c)) {
         Display(getBoolean("trains",true),getBoolean("capacity",true),getBoolean("fullMarks",true),
             getBoolean("stationNames",true),getBoolean("basemapLabels",true),getBoolean("zoomButtons",true),
             getFloat("lineWidth",1f),getFloat("stationCircleSize",1f),getFloat("basemapContrast",1f),getBoolean("buses",true),
-            getFloat("bubbleSize",1f),getFloat("bubbleOpacity",.7f),getString("bubbleScheme","mode") ?: "mode")
+            getFloat("bubbleSize",1f),getFloat("bubbleOpacity",.7f),getString("bubbleScheme","mode") ?: "mode",getInt("bubbleDetail",1))
     }
 
     fun show(host:Activity, changed:()->Unit) {
@@ -104,6 +104,18 @@ internal object StudioGameSettings {
             scheme.text = "Warna gelembung · " + (schemes[read(host).bubbleScheme] ?: "Campuran moda")
             scheme.minHeight = dp(48)
             group!!.addView(scheme)
+            val detail = StudioUi.button(host,"") {
+                val levels = arrayOf("−1 · Paling renggang","0","1","2 · Paling rapat")
+                StudioDialogBuilder(host).setTitle("Detail gelembung").setItems(levels) { _,index ->
+                    prefs.edit().putInt("bubbleDetail",index-1).apply()
+                    changed()
+                    dialog.dismiss()
+                    show(host,changed)
+                }.setNegativeButton("Batal",null).show()
+            }
+            detail.minHeight = dp(48)
+            detail.text = "Detail gelembung · " + read(host).bubbleDetail
+            group!!.addView(detail)
             slider("bubbleSize","Ukuran gelembung",25,200)
             slider("bubbleOpacity","Opasitas gelembung",20,100,.7f)
             slider("lineWidth","Ketebalan jalur",50,200)
