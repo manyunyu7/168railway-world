@@ -1020,7 +1020,7 @@ class NativeWorldActivity : Activity() {
     private fun updateControls() {
         val openBend = map.bends.lastOrNull()?.first == map.draft.lastIndex
         val ready = handle != 0L && !placingRail && !restoringEdit &&
-            referenceState != ReferenceState.OPENING && !checkpointInFlight
+            referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING
         build.isEnabled = ready && (!drawing || (map.draft.size >= plan.tool.minPoints && !openBend))
         dockTitle.text = if (drawing) plan.specification else ""
         dockTitle.visibility = if (drawing) View.VISIBLE else View.GONE
@@ -1564,7 +1564,7 @@ class NativeWorldActivity : Activity() {
         if(second!=lastStatus) {
             lastStatus=second
             localTime.text = "%02d:%02d:%02d".format(java.util.Locale.ROOT,second/3600%24,second/60%60,second%60)
-            if (!drawing && !selectingInfrastructure && !removingTrack && !restoringEdit && referenceState != ReferenceState.OPENING && !checkpointInFlight) {
+            if (!drawing && !selectingInfrastructure && !removingTrack && !restoringEdit && referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING) {
                 val service = if (workshop && lastService.isNotEmpty()) " · $lastService" else ""
                 status.text = if (map.routeCount == 0) "Pilih moda untuk mulai membangun jaringan." else "${trainCount} kereta di peta$service"
             }
@@ -1730,9 +1730,11 @@ class NativeWorldActivity : Activity() {
         if (checkpointInFlight) return
         if (pause && foreground) resumeOnPanelClose = false
         checkpointInFlight = true
-        if (pause) referenceState = ReferenceState.SAVING
-        updateControls()
-        status.text = "Menyimpan hasil simulasi…"
+        if (pause) {
+            referenceState = ReferenceState.SAVING
+            updateControls()
+            status.text = "Menyimpan hasil simulasi…"
+        }
         val key = local.baseFile.path
         val completed = CountDownLatch(1)
         pendingWrites[key] = completed
