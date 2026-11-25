@@ -131,9 +131,9 @@ internal class StudioTrainPainter(private val density:Float) {
             val cars = bodies[i+14].toInt()
             val empty = blend(rgb or Color.BLACK,Color.WHITE,.18f)
             val red = Color.rgb(210,60,60)
-            val rimColor = if(display.fullMarks && fill==200) red else Color.WHITE
+            val rimColor = if(display.fullVehicles && fill==200) red else Color.WHITE
             // A shader paints the current section of the same physical gauge across all cars.
-            val coreShader = if (display.capacity && fill==null) stripes.getOrPut(empty) {
+            val coreShader = if (display.vehicleLoads && fill==null) stripes.getOrPut(empty) {
                 val step = 2*density
                 LinearGradient(0f,0f,step,step,intArrayOf(empty,empty,Color.WHITE,Color.WHITE),
                     floatArrayOf(0f,.499f,.5f,1f),Shader.TileMode.REPEAT)
@@ -141,8 +141,8 @@ internal class StudioTrainPainter(private val density:Float) {
             val fraction = (if (fill == null) 0f else if(fill<=100) fill/100f else (fill-100)/100f)*cars-car
             val loaded = if(fill!=null && fill>100) blend(dark,red,.65f) else dark
             val rest = if(fill!=null && fill>100) dark else empty
-            val core = if (!display.capacity) rgb or Color.BLACK else if(fraction>=1) loaded else rest
-            val divided = display.capacity && fill != null && fraction>0 && fraction<1
+            val core = if (!display.vehicleLoads) rgb or Color.BLACK else if(fraction>=1) loaded else rest
+            val divided = display.vehicleLoads && fill != null && fraction>0 && fraction<1
             canvas.save()
             canvas.translate(cx,cy)
             canvas.rotate(Math.toDegrees(atan2(dy,dx).toDouble()).toFloat())

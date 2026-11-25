@@ -6,8 +6,15 @@ import org.json.JSONArray
 /** Web TroubleList (T-1433): what is wrong on the network, worst first. */
 internal object TroubleList {
     @JvmStatic private external fun query(handle: Long, now: Double): String
-    fun read(handle: Long, now: Double): JSONArray =
-        if (handle == 0L) JSONArray() else runCatching { JSONArray(query(handle, now)) }.getOrDefault(JSONArray())
+    fun read(handle: Long, now: Double): JSONArray {
+        val engine = if (handle == 0L) JSONArray() else runCatching { JSONArray(query(handle, now)) }.getOrDefault(JSONArray())
+        // web tiers 3 (riders left behind) and 5 (full trains) from the running simulation's report
+        // (Crowding.kt), placed among the engine's rows by tier
+        val crowd = Crowding.troubles()
+        if (crowd.isEmpty()) return engine
+        val all = List(engine.length()) { engine.getJSONObject(it) } + crowd
+        return JSONArray(all.sortedBy { it.optInt("tier") })
+    }
 
     /** Web capacityKinds.ts titles by kind and whether the place reads "di" (at) or "dekat" (near). */
     fun kindWords(kind: Int, tram: Boolean = false): Pair<String, Boolean> = when (kind) {
@@ -35,6 +42,7 @@ internal object TroubleList {
                 else if (item.optInt("tier") == 4) "Hampir penuh oleh $name. Satu kereta tambahan bisa membuat kereta menunggu; siapkan rel ganda atau peron."
                 else "$name dijadwalkan ${"%.0f".format(id, item.optDouble("tph"))} kereta/jam, relnya hanya muat ${"%.0f".format(id, item.optDouble("most"))}. Selebihnya menunggu di ujung."
             }
+            3, 5 -> Crowding.describe(item)
             6 -> name to "Line ini belum punya stasiun."
             else -> name to ""
         }.let { (title, advice) -> title to (signalAdvice(item)?.let { "$advice\n$it" } ?: advice) }

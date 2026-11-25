@@ -396,6 +396,8 @@ internal object ServicePanel {
                 val none = "Belum ada pemberhentian pada rute ini."
                 listOf(stopsTab, scheduleTab).forEach { it.addView(StudioUi.text(host, none, 13f, true, StudioUi.MUTED), lp(8, host)) }
             }
+            // web PastDay's crowding rows: average load, full trains, riders left behind (Crowding.kt)
+            Crowding.pastDay(host, id)?.let { summaryTab.addView(it, lp(12, host)) }
             // web LineFare: the line's own fare multiple, above its money
             summaryTab.addView(LineFare.row(host, handle, id, editable, transaction) {
                 editLabel = "Kelipatan tarif"

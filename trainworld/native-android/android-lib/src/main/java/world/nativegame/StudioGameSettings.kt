@@ -8,13 +8,16 @@ import android.widget.SeekBar
 import android.widget.Switch
 
 internal object StudioGameSettings {
-    data class Display(val trains:Boolean, val capacity:Boolean, val fullMarks:Boolean, val names:Boolean,
+    /** `capacity` and `fullMarks` are the web's switches of the same keys ("Rel penuh kapasitas", "Kereta padat",
+     *  CrowdLens.kt); `vehicleLoads` and `fullVehicles` are Android's own: each vehicle's fill and a red rim when packed. */
+    data class Display(val trains:Boolean, val capacity:Boolean, val fullMarks:Boolean, val vehicleLoads:Boolean, val fullVehicles:Boolean, val names:Boolean,
         val mapNames:Boolean, val zoomButtons:Boolean, val lineWidth:Float, val circleSize:Float,
         val contrast:Float, val buses:Boolean, val bubbleSize:Float, val bubbleOpacity:Float, val bubbleScheme:String, val bubbleDetail:Int)
 
     private fun prefs(c:Context) = c.getSharedPreferences("studio-display", Context.MODE_PRIVATE)
     fun read(c:Context):Display = with(prefs(c)) {
         Display(getBoolean("trains",true),getBoolean("capacity",true),getBoolean("fullMarks",true),
+            getBoolean("vehicleLoads",true),getBoolean("fullVehicles",true),
             getBoolean("stationNames",false),getBoolean("basemapLabels",true),getBoolean("zoomButtons",true),
             getFloat("lineWidth",1f),getFloat("stationCircleSize",1f),getFloat("basemapContrast",1f),getBoolean("buses",true),
             getFloat("bubbleSize",1f),getFloat("bubbleOpacity",.7f),getString("bubbleScheme","mode") ?: "mode",getInt("bubbleDetail",1))
@@ -88,8 +91,14 @@ internal object StudioGameSettings {
             heading("Peta")
             toggle("trains","Tampilkan kendaraan")
             toggle("buses","Tampilkan kendaraan bus dan feri")
-            toggle("capacity","Tampilkan keterisian kendaraan")
-            toggle("fullMarks","Tandai kendaraan penuh")
+            toggle("vehicleLoads","Tampilkan keterisian kendaraan")
+            toggle("fullVehicles","Tandai kendaraan penuh")
+            // web settingsTab.capacity and .crowded: the same keys and meaning as the web's (CrowdLens.kt)
+            fun hint(text:String) = group!!.addView(StudioUi.text(host,text,12f,true,StudioUi.MUTED).apply { setPadding(0,0,0,dp(6)) })
+            toggle("capacity","Rel penuh kapasitas").contentDescription = "Rel penuh kapasitas. Rel atau stasiun yang tidak muat untuk kereta yang dijadwalkan"
+            hint("Rel atau stasiun yang tidak muat untuk kereta yang dijadwalkan")
+            toggle("fullMarks","Kereta padat").contentDescription = "Kereta padat. Ruas tempat kereta membawa lebih dari muatan normalnya di jam tersibuk"
+            hint("Ruas tempat kereta membawa lebih dari muatan normalnya di jam tersibuk (tampilan Lalu lintas)")
             toggle("stationNames","Nama stasiun dan halte",false)
             toggle("basemapLabels","Nama jalan dan kawasan")
             toggle("zoomButtons","Tombol perbesar dan perkecil")

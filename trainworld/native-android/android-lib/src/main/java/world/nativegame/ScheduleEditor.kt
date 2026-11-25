@@ -44,6 +44,7 @@ internal class ScheduleEditor(
     /** The demand level running now in the line's local time (web: the row marked `now`). */
     private val nowLevel = service.optInt("level", -1)
     private val colour = service.optInt("color", 0x1cb0f6) or Color.BLACK
+    private val lineId = service.optInt("id", -1)
     private fun dp(v: Int) = StudioUi.dp(host, v)
     private fun gap(v: Int) = LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(v) }
     private fun group() = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
@@ -149,6 +150,8 @@ internal class ScheduleEditor(
             card.addView(StudioUi.text(host, "Pratinjau frekuensi · satu jam", 13f, true, StudioUi.MUTED))
             card.addView(preview, LinearLayout.LayoutParams(-1, dp(92)))
             body.addView(card, gap(12))
+            // web PastDay: average load, vehicles that left full and riders left on the platform
+            Crowding.pastDay(host, lineId)?.let { body.addView(it, gap(10)) }
 
             body.addView(section("Hari kerja"), gap(16))
             body.addView(StudioUi.text(host, "Atur dengan", 13f, true, StudioUi.MUTED).apply { setPadding(dp(4), 0, 0, 0) }, gap(6))
@@ -179,11 +182,24 @@ internal class ScheduleEditor(
                     background = StudioUi.card(host, 14)
                 }
                 val text = group()
-                text.addView(StudioUi.text(host, if (i == nowLevel) "$period · sekarang" else period, 14f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
+                // web LevelName: the level's crowding dot before its name, its peak and bar below (Crowding.kt)
+                val crowd = Crowding.level(lineId, i)
+                val name = StudioUi.text(host, if (i == nowLevel) "$period · sekarang" else period, 14f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) }
+                if (crowd == null) text.addView(name) else text.addView(LinearLayout(host).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(Crowding.dot(host, crowd), LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(6) })
+                    addView(name)
+                })
                 if (i == nowLevel) row.background = StudioUi.card(host, 14, StudioUi.TINT_YELLOW)
                 val hint = StudioUi.text(host, "", 12f, true, StudioUi.MUTED)
                 text.addView(hint)
                 hints.add(hint)
+                if (crowd != null) {
+                    val grade = crowd.optInt("grade")
+                    text.addView(StudioUi.text(host, Crowding.tip(crowd), 12f, true,
+                        if (grade >= 3) StudioUi.BAD else if (grade == 2) 0xffb3541e.toInt() else StudioUi.INK))
+                    Crowding.strip(host, crowd)?.let { text.addView(it, LinearLayout.LayoutParams(-1, dp(5)).apply { topMargin = dp(3); marginEnd = dp(8) }) }
+                }
                 row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
                 val initial = (if (byInterval) headwayDraft else countDraft)[i]
                 val edit = input(period, initial, true).apply {

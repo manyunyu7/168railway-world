@@ -367,8 +367,8 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_stationRiders(
                 clock.loads = crate::train_loads::Loads::new(&mut clock.world, time);
             }
             let Some(loads) = clock.loads.as_ref() else { return };
-            let net = &clock.world.api.world().net;
-            let mut members = net.complex_of(node as u32);
+            let api = &clock.world.api;
+            let mut members = api.world().net.complex_of(node as u32);
             if members.is_empty() {
                 members.push(node as u32);
             }
@@ -376,7 +376,12 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_stationRiders(
                 .platforms(&members, time)
                 .into_iter()
                 .map(|(l, r, waiting, left, wait, arriving)| {
-                    serde_json::json!({"line": l, "run": r, "waiting": waiting, "left": left, "wait": wait, "arriving": arriving})
+                    // web "Ke {name}": run 0 runs to the last stop, run 1 to the first
+                    // (a ferry's stops are its ports, not nodes: no name to read here)
+                    let stops = if api.is_ferry(l) || api.is_bus(l) { vec![] } else { api.line_stops(l) };
+                    let end = if r == 0 { stops.last() } else { stops.first() };
+                    serde_json::json!({"line": l, "name": api.line_name(l), "to": end.map(|&n| api.node_name(n)),
+                        "waiting": waiting, "left": left, "wait": wait, "arriving": arriving})
                 })
                 .collect::<Vec<_>>()
                 .into();
