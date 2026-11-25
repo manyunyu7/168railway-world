@@ -58,6 +58,7 @@ use trainworld_sim::track::wasm::TrackApi;
 mod service;
 mod native_line;
 mod line_look;
+mod line_copy;
 
 struct World {
     api: TrackApi,

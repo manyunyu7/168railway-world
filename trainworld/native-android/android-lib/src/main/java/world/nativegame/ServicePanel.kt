@@ -323,6 +323,13 @@ internal object ServicePanel {
                     }
                 }
                 action("Tampilan", StudioUi.Icon.EYE, description = "Tampilan: simbol, bentuk, dan warna line") { look() }
+                // web LineInspector "Salin lini": then the copy's own panel (LineCopy.kt)
+                action("Salin line", StudioUi.Icon.COPY, description = "Salin line: perhentian, jadwal, dan warna ke line baru") {
+                    dialog.dismiss()
+                    LineCopy.run(host, handle, id, transaction) { copy ->
+                        changed(service.getString("name")); details(host, handle, copy, clock, editable, transaction, changed)
+                    }
+                }
                 action("Hapus line", StudioUi.Icon.DELETE, StudioUi.BAD) {
                     dialog.dismiss(); (host as? NativeWorldActivity)?.removeLine(id, service.getString("name"))
                 }

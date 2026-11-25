@@ -739,7 +739,7 @@ class NativeWorldActivity : Activity() {
 
     /** A line's stops edited from its panel (LineStops.kt): the map's stops and the balance follow. */
     private fun lineStopsChanged() {
-        if (ServicePanel.editLabel != LineStops.LABEL && ServicePanel.editLabel != LineLook.LABEL) return
+        if (ServicePanel.editLabel != LineStops.LABEL && ServicePanel.editLabel != LineLook.LABEL && ServicePanel.editLabel != LineCopy.LABEL) return
         map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
         showBalance(NativeFinance.balance(handle, clock))
     }
