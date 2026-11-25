@@ -99,8 +99,9 @@ internal object StudioCityStart {
             val preset = option(network,"Jaringan contoh")
             row(network,4)
             var scenario = scenarios.keys.first()
-            val scenarioRow = FrameLayout(activity)
-            row(scenarioRow,4)
+            // Every example network of the city as swipeable map cards (one card when the city has one).
+            val examples = FrameLayout(activity)
+            row(examples,6)
             val preview = FrameLayout(activity)
             row(preview,4)
             val originHint = StudioUi.text(activity,"",13f,true,StudioUi.MUTED)
@@ -108,27 +109,22 @@ internal object StudioCityStart {
 
             fun updateNetwork() {
                 val showScenarios = city.id == "jak" && preset.isChecked
-                scenarioRow.visibility = if (showScenarios) View.VISIBLE else View.GONE
-                scenarioRow.removeAllViews()
-                if (showScenarios) {
-                    scenarioRow.addView(KScene.choice(activity,StudioUi.Icon.TRAIN,StudioUi.TINT_PURPLE,scenarios.getValue(scenario),"Ketuk untuk ganti skenario",true) {
-                        StudioUi.sheet(activity, "Pilih skenario Jakarta") { content, picker ->
-                            scenarios.forEach { (id, title) ->
-                                val item = StudioMapPreview.card(activity,StudioMapPreview.scenarioPath(id),title,
-                                    scenarioDetails.getValue(id),id == scenario) {
-                                    scenario = id
-                                    picker.dismiss()
-                                    updateNetwork()
-                                }
-                                content.addView(item,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7) })
-                            }
-                        }
+                examples.removeAllViews()
+                if (preset.isChecked) {
+                    val list = if (showScenarios) scenarios.map { (id, title) ->
+                        val (counts, modes) = StudioExampleNetworks.facts[id] ?: (emptyList<String>() to "")
+                        StudioExampleNetworks.Example(id,StudioMapPreview.scenarioPath(id),title,scenarioDetails.getValue(id),counts,modes)
+                    } else listOf(StudioExampleNetworks.Example(city.id,
+                        StudioMapPreview.cityPath(city.id).takeIf { "${city.id}.webp" in regional },
+                        "Jaringan ${city.name}","Line dan stasiun sudah tersedia."))
+                    examples.addView(StudioExampleNetworks.carousel(activity,list,scenario) { id ->
+                        scenario = id
+                        originHint.text = scenarioDetails.getValue(id)
                     })
                 }
+                examples.visibility = if (examples.childCount == 0) View.GONE else View.VISIBLE
                 preview.removeAllViews()
-                if (showScenarios) {
-                    StudioMapPreview.image(activity,StudioMapPreview.scenarioPath(scenario),"Cuplikan peta "+scenarios.getValue(scenario))?.let { preview.addView(it,FrameLayout.LayoutParams(-1,-2)) }
-                } else if ("${city.id}.webp" in regional) {
+                if (!preset.isChecked && "${city.id}.webp" in regional) {
                     StudioMapPreview.image(activity,StudioMapPreview.cityPath(city.id),"Peta wilayah ${city.name}")?.let { preview.addView(it,FrameLayout.LayoutParams(-1,-2)) }
                 }
                 preview.visibility = if (preview.childCount == 0) View.GONE else View.VISIBLE
@@ -137,6 +133,8 @@ internal object StudioCityStart {
                     preset.isChecked -> "Line dan stasiun sudah tersedia."
                     else -> "Bangun stasiun dan line pertama sendiri."
                 }
+                // The cards already say it; the hint stays for the review step.
+                originHint.visibility = if (preset.isChecked) View.GONE else View.VISIBLE
             }
             network.setOnCheckedChangeListener { _, _ -> updateNetwork() }
             lateinit var name: EditText
@@ -169,6 +167,7 @@ internal object StudioCityStart {
                 }
                 val hasPresets = city.hasNetwork || city.id == "jak"
                 preset.visibility = if (hasPresets) View.VISIBLE else View.GONE
+                preset.text = if (city.id == "jak") "Jaringan contoh (${scenarios.size})" else "Jaringan contoh"
                 val requested = if (city.id == "jak") preset.id else empty.id
                 if (network.checkedRadioButtonId == requested) updateNetwork() else network.check(requested)
             }
