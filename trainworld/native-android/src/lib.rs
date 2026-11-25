@@ -12,6 +12,7 @@ mod timed_account;
 mod train_loads;
 mod train_riders;
 mod line_summary;
+mod crowding;
 mod station_names;
 mod trip_cells;
 mod network_layers;

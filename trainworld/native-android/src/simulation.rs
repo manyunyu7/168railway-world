@@ -359,6 +359,30 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_stationRiders(
             v
         })
     });
+    // web StationInspector `WaitingNow`: each platform's crowd from the boarding account's hour
+    let value = value.map(|mut v| {
+        SESSIONS.with_borrow_mut(|s| {
+            let Some(clock) = s.active.get_mut(&id) else { return };
+            if !clock.loads.as_ref().is_some_and(|l| l.current(time)) {
+                clock.loads = crate::train_loads::Loads::new(&mut clock.world, time);
+            }
+            let Some(loads) = clock.loads.as_ref() else { return };
+            let net = &clock.world.api.world().net;
+            let mut members = net.complex_of(node as u32);
+            if members.is_empty() {
+                members.push(node as u32);
+            }
+            v["platforms"] = loads
+                .platforms(&members, time)
+                .into_iter()
+                .map(|(l, r, waiting, left, wait, arriving)| {
+                    serde_json::json!({"line": l, "run": r, "waiting": waiting, "left": left, "wait": wait, "arriving": arriving})
+                })
+                .collect::<Vec<_>>()
+                .into();
+        });
+        v
+    });
     let text = value.unwrap_or(serde_json::Value::Null).to_string();
     env.new_string(text)
         .map_or(std::ptr::null_mut(), |s| s.into_raw())
@@ -417,6 +441,33 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_lineSummary(
                 crate::line_summary::past_day_running(time, |epoch| costs.line_hour(l, epoch, country))
             },
         ))
+    });
+    let text = value.unwrap_or(serde_json::Value::Null).to_string();
+    env.new_string(text)
+        .map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
+
+/// The crowding report at game time `time` (`crowding::report`); JSON, `null` before the riders
+/// are in.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_crowding(
+    env: JNIEnv,
+    _: JClass,
+    id: jlong,
+    time: jdouble,
+) -> jni::sys::jstring {
+    let value = SESSIONS.with_borrow_mut(|s| {
+        let clock = s.active.get_mut(&id)?;
+        clock.passengers.as_ref()?;
+        if !time.is_finite() {
+            return None;
+        }
+        if !clock.loads.as_ref().is_some_and(|l| l.current(time)) {
+            clock.loads = crate::train_loads::Loads::new(&mut clock.world, time);
+        }
+        let forecast = clock.forecast.clone();
+        let board = clock.loads.as_ref().map(|l| l.board());
+        Some(crate::crowding::report(&clock.world, time, board, &|l| forecast.as_ref()?.line_riders(l)))
     });
     let text = value.unwrap_or(serde_json::Value::Null).to_string();
     env.new_string(text)
