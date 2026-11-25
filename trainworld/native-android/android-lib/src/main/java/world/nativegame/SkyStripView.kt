@@ -10,6 +10,8 @@ import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
+import android.os.SystemClock
+import android.util.Log
 import android.view.View
 import kotlin.math.abs
 import kotlin.math.asin
@@ -26,36 +28,75 @@ import kotlin.math.sin
  * height (a port of app/src/game/sun.ts), deeper at the top and lighter at the horizon; stars at
  * night, clouds at fixed times, far hills with town lights after dark, a track with sleepers, the
  * sun at the middle of each day and a crescent moon at the middle of each night peeking in from the
- * top, the red train at now, and each hour's demand level in a thin band underneath. Redrawn only
- * when the clock has moved a fifth of a pixel, the place changed or the size changed.
+ * top, the red train at now, each hour's demand level in a thin band underneath, and the holidays
+ * where the player has built along the top (SkyHolidays). Redrawn when the clock has moved a fifth of
+ * a pixel; at high speeds it glides on animation frames after a clock that comes in steps. The sky
+ * itself is one bitmap half a strip wider than the view, slid along and drawn again only when its
+ * end comes into view.
  */
 internal class SkyStripView(context: Context) : View(context) {
     private val density = resources.displayMetrics.density
 
-    /** Local time in seconds (game clock + the shift to local time) and that time's UTC offset. */
-    private var now = 8.0 * 3600
+    /** The network, for the countries the player has built in (their holidays mark the sky). */
+    var network: NetworkView? = null
+
+    /** The clock's local time in seconds (game clock + the shift to local time), the game clock
+     *  itself and that local time's UTC offset. */
+    private var target = 8.0 * 3600
+    private var gameClock = 8.0 * 3600
+    private var skyShift = 0
     private var utcOffset = 7.0
+    /** The time the sky shows: [target] itself at ordinary speeds; at high speeds (the clock comes
+     *  in steps of hours at 1000×) it glides after [target] at the clock's own pace, every frame. */
+    private var shown = Double.NaN
+    private var rate = 0.0
+    private val samples = ArrayDeque<DoubleArray>()
+    private var frameAt = 0L
     private var lon = 106.83
     private var lat = -6.2
     private var placeKnown = false
     private var drawnAt = Double.NaN
-    private var drawnKey = ""
-    private var pixelsStale = true
-    private var lastHour = -1L
+    private var placeVersion = 0
+    private var describedAt = 0L
+    private var describedHour = Long.MIN_VALUE
+    private var countriesAt = 0L
+    private var rail: List<Pair<String, Int>> = emptyList()
 
     /** Moves the sky to game clock [clock] (seconds from day 1) on a clock running [shift] s from
      *  the registry clock (UTC-5); invalidates only when that shows. */
     fun setClock(clock: Double, shift: Int) {
-        now = clock + shift
+        val wall = SystemClock.uptimeMillis()
+        if (shift != skyShift) { skyShift = shift; placeVersion++ }
+        gameClock = clock
+        val next = clock + shift
+        if (abs(next - target) > 3 * 86400.0) { samples.clear(); shown = Double.NaN }
+        if (samples.isEmpty() || samples.last()[1] != next) samples.addLast(doubleArrayOf(wall.toDouble(), next))
+        while (samples.size > 2 && wall - samples.first()[0] > 2500) samples.removeFirst()
+        target = next
+        // the clock's pace over the last two seconds or so, nothing once it has stood still for one
+        val first = samples.first(); val last = samples.last()
+        rate = if (wall - last[0] > 1200 || last[0] - first[0] < 300) 0.0 else (last[1] - first[1]) / ((wall - first[0]) / 1000.0)
         utcOffset = CLOCK_UTC_OFFSET + shift / 3600.0
         if (!placeKnown) lon = utcOffset * 15
+        if (wall - countriesAt > 2000) {
+            countriesAt = wall
+            network?.let { map ->
+                SkyHolidays.load(context) { invalidate() }
+                val now = SkyHolidays.countries(map)
+                if (now != rail) { rail = now; marksKey = ""; invalidate() }
+            }
+        }
         val w = width
         if (w <= 0) return
         val secPx = HOURS * 3600.0 / w
-        if (key() != drawnKey || drawnAt.isNaN() || abs(now - drawnAt) >= secPx * 0.2) { pixelsStale = true; invalidate() }
-        val hour = floor(now / 3600).toLong()
-        if (hour != lastHour) { lastHour = hour; describe() }
+        if (gliding(secPx)) { if (frameAt == 0L) postInvalidateOnAnimation() }
+        else if (drawnAt.isNaN() || abs(target - drawnAt) >= secPx * 0.2) invalidate()
+        val hour = floor(target / 3600).toLong()
+        if (hour != describedHour && wall - describedAt > 1000) { describedHour = hour; describedAt = wall; describe() }
     }
+
+    /** Over 3 px a second the sky glides on its own frames; below, a redraw a fifth of a pixel. */
+    private fun gliding(secPx: Double) = rate / secPx > 3 || (!shown.isNaN() && abs(target - shown) > secPx * 0.5)
 
     /** The view's centre as [lon, lat] (CitySurface.lonLat), where the sun is reckoned. */
     fun setPlace(ll: DoubleArray) { if (ll.size >= 2) setPlace(ll[0], ll[1]) }
@@ -64,23 +105,63 @@ internal class SkyStripView(context: Context) : View(context) {
     fun setPlace(lon: Double, lat: Double) {
         if (!lon.isFinite() || !lat.isFinite()) return
         if (placeKnown && abs(lon - this.lon) < 0.05 && abs(lat - this.lat) < 0.05) return
-        this.lon = lon; this.lat = lat; placeKnown = true
-        pixelsStale = true; invalidate(); describe()
+        this.lon = lon; this.lat = lat; placeKnown = true; placeVersion++
+        invalidate(); describe()
     }
 
-    private fun key() = "$width $height $lon $lat $utcOffset"
-
     private fun describe() {
-        val e = sunElevation(now, lon, lat, utcOffset)
-        val sky = when { e > 5 -> "siang"; e > -6 -> if (localHour(now) < 12) "fajar" else "senja"; else -> "malam" }
-        val h = localHour(now)
+        val e = sunElevation(target, lon, lat, utcOffset)
+        val h = localHour(target)
+        val sky = when { e > 5 -> "siang"; e > -6 -> if (h < 12) "fajar" else "senja"; else -> "malam" }
         val (level, until) = when (h) { in 6..19 -> "tinggi" to 20; in 20..23 -> "sedang" to 0; else -> "rendah" to 6 }
-        contentDescription = "Langit 24 jam: sekarang $sky, permintaan $level sampai %02d.00. Ketuk untuk periode permintaan".format(java.util.Locale.ROOT, until)
+        val days = holidayText()
+        contentDescription = "Langit 24 jam: sekarang $sky, permintaan $level sampai %02d.00.$days Ketuk untuk periode permintaan".format(java.util.Locale.ROOT, until)
+    }
+
+    /** " Libur hari ini: Nyepi, Indonesia." and the like, for what the sky marks. */
+    private fun holidayText(): String {
+        val d = SkyHolidays.data ?: return ""
+        val today = floor(target / 86400)
+        val said = LinkedHashSet<String>()
+        for (m in SkyHolidays.marks(d, rail, gameClock, skyShift)) {
+            if (m.t1 <= target) continue
+            val day = floor(m.t0 / 86400)
+            val at = if (m.t0 <= target || day == today) "hari ini" else "besok"
+            val place = countryName(m.country)
+            said += when (m.part) {
+                0 -> "Libur $at: ${m.name}, $place."
+                1 -> "Mudik $at: ${m.name}, $place."
+                2 -> "Libur panjang $at: ${m.name}, $place."
+                else -> "Arus balik $at: ${m.name}, $place."
+            }
+        }
+        return if (said.isEmpty()) "" else " " + said.joinToString(" ")
+    }
+
+    private fun countryName(cc: String) = java.util.Locale("", cc).getDisplayCountry(java.util.Locale("id")).ifBlank { cc }
+
+    private var marksKey = ""
+    private var marks: List<SkyHolidays.Mark> = emptyList()
+    private fun marksNear(now: Double): List<SkyHolidays.Mark> {
+        val d = SkyHolidays.data ?: return emptyList()
+        val clock = now - skyShift
+        val key = "${floor(clock / 3600)} $skyShift ${rail.hashCode()}"
+        if (key != marksKey) {
+            marksKey = key
+            val was = marks
+            marks = SkyHolidays.marks(d, rail, clock, skyShift)
+            if (marks.size != was.size) describe()
+        }
+        return marks
     }
 
     // --- drawing -----------------------------------------------------------------------------
 
+    /** The sky, hills, ground and rail of half a strip more than shows, from [bitmapT0] at its left
+     *  edge: slid under the view as time passes and drawn again only when its end comes into view. */
     private var bitmap: Bitmap? = null
+    private var bitmapT0 = 0.0
+    private var bitmapKey = ""
     private var pixels = IntArray(0)
     private val clip = Path()
     private val box = RectF()
@@ -89,6 +170,13 @@ internal class SkyStripView(context: Context) : View(context) {
     private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val crescent = Path()
     private val cut = Path()
+    private var sunGlow: RadialGradient? = null
+    private var moonGlow: RadialGradient? = null
+    private var draws = 0
+    private var renders = 0
+    private var drawNanos = 0L
+    private var drawMax = 0L
+    private var loggedAt = 0L
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -96,19 +184,35 @@ internal class SkyStripView(context: Context) : View(context) {
         clip.reset()
         val r = min(h / 2f, 11f * density)
         clip.addRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), r, r, Path.Direction.CW)
-        pixelsStale = true
+        val scale = h / (SKY + GAP + BAND)
+        sunGlow = RadialGradient(0f, 0f, 10f * scale, intArrayOf(0x66ffe27a, 0x00ffe27a), null, Shader.TileMode.CLAMP)
+        moonGlow = RadialGradient(0f, 0f, 8f * scale, intArrayOf(0x33fff6d0, 0x00fff6d0), null, Shader.TileMode.CLAMP)
     }
+
+    override fun onDetachedFromWindow() { frameAt = 0L; super.onDetachedFromWindow() }
 
     override fun onDraw(canvas: Canvas) {
         val w = width; val h = height
         if (w < 2 || h < 2) return
-        drawnAt = now; drawnKey = key()
+        val started = System.nanoTime()
+        val secPx = HOURS * 3600.0 / w
+        // the time to show: gliding after the clock at its pace, catching up a third of the way a second
+        val wall = SystemClock.uptimeMillis()
+        if (shown.isNaN() || !gliding(secPx)) { shown = target; frameAt = 0L }
+        else {
+            val dt = if (frameAt == 0L) 0.0 else min(0.1, (wall - frameAt) / 1000.0)
+            shown += rate * dt
+            shown += (target - shown) * min(1.0, dt * 2.5)
+            frameAt = wall
+            postInvalidateOnAnimation()
+        }
+        val now = shown
+        drawnAt = now
         val scale = h / (SKY + GAP + BAND)
         val skyRows = Math.round(SKY * scale)
         val bandH = max(2f, BAND * scale)
         val railRow = floor(RAIL_Y * scale).toInt()
         val railRows = max(1, Math.round(scale * 0.9f))
-        val secPx = HOURS * 3600.0 / w
         val nowX = Math.round(NOW_AT * w)
         val tAt = { x: Float -> now + (x - nowX) * secPx }
         val elevAt = { x: Float -> sunElevation(tAt(x), lon, lat, utcOffset) }
@@ -116,38 +220,51 @@ internal class SkyStripView(context: Context) : View(context) {
         canvas.save()
         canvas.clipPath(clip)
 
-        // the sky, hills and ground, a column at a time into one bitmap
+        // the sky, hills and ground, a column at a time into one bitmap half again as wide as the view
+        val left = now - nowX * secPx
+        val bw = w + w / 2
         var bmp = bitmap
-        if (bmp == null || bmp.width != w || bmp.height != skyRows) {
+        if (bmp == null || bmp.width != bw || bmp.height != skyRows) {
             bmp?.recycle()
-            bmp = Bitmap.createBitmap(w, skyRows, Bitmap.Config.ARGB_8888); bitmap = bmp
-            pixels = IntArray(w * skyRows); pixelsStale = true
+            bmp = Bitmap.createBitmap(bw, skyRows, Bitmap.Config.ARGB_8888); bitmap = bmp
+            pixels = IntArray(bw * skyRows); bitmapKey = ""
         }
-        if (pixelsStale) {
+        val key = "$placeVersion $w $h"
+        if (key != bitmapKey || left < bitmapT0 || left + w * secPx > bitmapT0 + bw * secPx) {
+            bitmapKey = key
+            bitmapT0 = left - 2 * secPx
+            renders++
             val hillStep = HILL_EVERY * scale * secPx
-            for (x in 0 until w) {
-                val t = now + (x + 0.5 - nowX) * secPx
+            // the sky's blend towards the horizon a row, in 256ths (to the highest hills' tops)
+            val reach = max(1f, railRow - 4.6f * scale)
+            val weight = IntArray(skyRows) { y -> (256 * (y / reach).pow(1.4f).coerceIn(0f, 1f)).toInt() }
+            for (x in 0 until bw) {
+                val t = bitmapT0 + (x + 0.5) * secPx
                 val e = sunElevation(t, lon, lat, utcOffset)
                 val l = daylight(e)
                 val top = ramp(TOP, e); val horizon = ramp(HORIZON, e)
                 val hillTop = railRow - (1.2f + 3.4f * hillNoise(t / hillStep)) * scale
+                val hillRow = hillTop.toInt()
                 val hill = mix(mix(HILL_NIGHT, HILL_DAY, l), horizon, 0.25f)
+                val rim = mix(hill, horizon, 0.35f)
                 val ground = mix(GROUND_NIGHT, GROUND_DAY, l)
                 val rail = mix(RAIL_NIGHT, RAIL_DAY, l)
+                val tr = (top shr 16) and 255; val tg = (top shr 8) and 255; val tb = top and 255
+                val dr = ((horizon shr 16) and 255) - tr; val dg = ((horizon shr 8) and 255) - tg; val db = (horizon and 255) - tb
+                var i = x
                 for (y in 0 until skyRows) {
-                    val c = when {
-                        y >= railRow && y < railRow + railRows -> rail
-                        y >= railRow + railRows -> ground
-                        y >= hillTop -> if (y < hillTop + 1) mix(hill, horizon, 0.35f) else hill
-                        else -> mix(top, horizon, (y / max(1f, hillTop)).pow(1.4f).coerceIn(0f, 1f))
+                    pixels[i] = when {
+                        y < hillRow -> { val f = weight[y]; (0xff shl 24) or ((tr + (dr * f shr 8)) shl 16) or ((tg + (dg * f shr 8)) shl 8) or (tb + (db * f shr 8)) }
+                        y < railRow -> if (y == hillRow) rim else hill
+                        y < railRow + railRows -> rail
+                        else -> ground
                     }
-                    pixels[y * w + x] = c
+                    i += bw
                 }
             }
-            bmp.setPixels(pixels, 0, w, 0, 0, w, skyRows)
-            pixelsStale = false
+            bmp.setPixels(pixels, 0, bw, 0, 0, bw, skyRows)
         }
-        canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
+        canvas.drawBitmap(bmp, ((bitmapT0 - left) / secPx).toFloat(), 0f, bitmapPaint)
 
         // scenery fixed to times: the k-th item at time k * every web px
         fun each(every: Float, f: (Float, Long) -> Unit) {
@@ -211,15 +328,36 @@ internal class SkyStripView(context: Context) : View(context) {
             canvas.drawRect(x, (railRow + railRows).toFloat(), x + scale * 0.9f, railRow + railRows + scale * 1.1f, flat)
         }
 
+        // T-862, T-264: a public holiday where the player has built is a pink ribbon along the top over
+        // its day with a tick where it starts; a superholiday's going-out and coming-back days a paler
+        // one with a small arrow at the start (right for out, left for back), its days away pink
+        for (m in marksNear(now)) {
+            val x0 = (nowX + (m.t0 - now) / secPx).toFloat(); val x1 = (nowX + (m.t1 - now) / secPx).toFloat()
+            if (x1 <= 0 || x0 >= w) continue
+            flat.color = if (m.part == 0 || m.part == 2) HOLIDAY else RUSH
+            canvas.drawRect(x0, 0f, x1, 2 * scale, flat)
+            when (m.part) {
+                0 -> canvas.drawRect(x0 - scale / 2, 0f, x0 + scale / 2, railRow.toFloat(), flat)
+                1, 3 -> {
+                    val a = 3 * scale; val ax = x0 + scale; val ay = 2 * scale
+                    crescent.reset()
+                    if (m.part == 1) { crescent.moveTo(ax, ay); crescent.lineTo(ax + a, ay + a / 2); crescent.lineTo(ax, ay + a) }
+                    else { crescent.moveTo(ax + a, ay); crescent.lineTo(ax, ay + a / 2); crescent.lineTo(ax + a, ay + a) }
+                    crescent.close()
+                    paint.color = RUSH; canvas.drawPath(crescent, paint)
+                }
+            }
+        }
+
         // T-1800: the sun at the middle of each day, the moon at the middle of each night
         val bodies = sunMoon(now, lon, lat, utcOffset)
         for (t in bodies.first) {
             val x = (nowX + (t - now) / secPx).toFloat()
             if (x < -10 * scale || x > w + 10 * scale) continue
             val cy = 0.6f * scale
-            paint.shader = RadialGradient(x, cy, 10f * scale, intArrayOf(0x66ffe27a, 0x00ffe27a), null, Shader.TileMode.CLAMP)
-            canvas.drawCircle(x, cy, 10f * scale, paint)
-            paint.shader = null
+            canvas.save(); canvas.translate(x, cy)
+            paint.shader = sunGlow; canvas.drawCircle(0f, 0f, 10f * scale, paint); paint.shader = null
+            canvas.restore()
             paint.color = 0xffffc93c.toInt(); canvas.drawCircle(x, cy, 5.2f * scale, paint)
             paint.color = 0xffffe98a.toInt(); canvas.drawCircle(x, cy, 3.6f * scale, paint)
         }
@@ -227,9 +365,9 @@ internal class SkyStripView(context: Context) : View(context) {
             val x = (nowX + (t - now) / secPx).toFloat()
             if (x < -10 * scale || x > w + 10 * scale) continue
             val r = 4.6f * scale
-            paint.shader = RadialGradient(x, 0f, 8f * scale, intArrayOf(0x33fff6d0, 0x00fff6d0), null, Shader.TileMode.CLAMP)
-            canvas.drawCircle(x, 0f, 8f * scale, paint)
-            paint.shader = null
+            canvas.save(); canvas.translate(x, 0f)
+            paint.shader = moonGlow; canvas.drawCircle(0f, 0f, 8f * scale, paint); paint.shader = null
+            canvas.restore()
             crescent.reset(); cut.reset()
             crescent.addCircle(x, 0f, r, Path.Direction.CW)
             cut.addCircle(x + 2.3f * scale, -1.1f * scale, 4f * scale, Path.Direction.CW)
@@ -264,18 +402,27 @@ internal class SkyStripView(context: Context) : View(context) {
 
         // each hour's demand level under the scene, the colour under the train the level now
         val bandTop = h - bandH
-        var x0 = 0
-        while (x0 < w) {
-            val c = DEMAND[demandAt(now + (x0 + 0.5 - nowX) * secPx)]
-            var x1 = x0 + 1
-            while (x1 < w && DEMAND[demandAt(now + (x1 + 0.5 - nowX) * secPx)] == c) x1++
-            flat.color = c
-            canvas.drawRect(x0.toFloat(), bandTop, x1.toFloat(), h.toFloat(), flat)
-            x0 = x1
+        var hour = floor(left / 3600)
+        while (true) {
+            val x0 = (nowX + (hour * 3600 - now) / secPx).toFloat()
+            if (x0 >= w) break
+            flat.color = DEMAND[demandAt(hour * 3600 + 1)]
+            canvas.drawRect(x0, bandTop, (nowX + ((hour + 1) * 3600 - now) / secPx).toFloat() + 0.5f, h.toFloat(), flat)
+            hour += 1
         }
         flat.color = 0x55ffffff
         canvas.drawRect(0f, skyRows.toFloat(), w.toFloat(), bandTop, flat)
         canvas.restore()
+
+        // WorldSky: what the sky costs, every 5 s while it glides or a draw was slow (adb logcat -s WorldSky)
+        val took = System.nanoTime() - started
+        draws++; drawNanos += took; drawMax = max(drawMax, took)
+        if (wall - loggedAt > 5000) {
+            if (loggedAt != 0L && (draws > 20 || drawMax > 8_000_000)) Log.i("WorldSky", "draws=%d sky renders=%d avg=%.2f max=%.1f ms rate=%.0f s/s · holidays %s in %s, %d marked".format(
+                java.util.Locale.ROOT, draws, renders, drawNanos / 1e6 / draws, drawMax / 1e6, rate,
+                if (SkyHolidays.data == null) "not loaded" else "loaded", rail.joinToString { "${it.first}${it.second / 3600}" }.ifEmpty { "no country" }, marks.size))
+            loggedAt = wall; draws = 0; renders = 0; drawNanos = 0; drawMax = 0
+        }
     }
 
     // --- the sun ---------------------------------------------------------------------------
@@ -353,6 +500,9 @@ internal class SkyStripView(context: Context) : View(context) {
         const val SLEEPER_DAY = 0xff6a5a50.toInt()
         const val CLOUD_NIGHT = 0xff55639a.toInt()
         const val CLOUD_DAY = 0xffffffff.toInt()
+        /** the holiday ribbon (web HOLIDAY_COLOUR) and a superholiday's going-out and coming-back days */
+        const val HOLIDAY = 0xffff5fa2.toInt()
+        const val RUSH = 0xffffafd0.toInt()
         /** --dl-high, --dl-medium, --dl-low (app/src/ui/style.css) */
         val DEMAND = intArrayOf(0xffd64545.toInt(), 0xffe5b22a.toInt(), 0xff3f7fd4.toInt())
 

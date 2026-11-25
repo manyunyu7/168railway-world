@@ -250,7 +250,7 @@ class NativeWorldActivity : Activity() {
             setPadding(dp(7), 0, 0, 0)
         }
         clockCard.addView(clockPill)
-        sky = SkyStripView(this)
+        sky = SkyStripView(this).apply { network = map }
         sky.contentDescription = "Periode permintaan"
         sky.setOnClickListener { showDemandHours() }
         sky.isFocusable = true
