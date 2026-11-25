@@ -259,6 +259,9 @@ class StudioLibraryActivity : Activity() {
             startActivity(Intent(this, WorldArchiveActivity::class.java)
                 .putExtra("localOnly",true).putExtra("archiveSource",source))
         }
+        // Attribution and source (AGPL-3.0): the game is built on trainsworld; its source is public.
+        val credits = attribution()
+        append(credits,24)
         val accountHeader = StudioUi.section(this,"Dunia di akun")
         append(accountHeader,20)
         append(status,3)
@@ -281,7 +284,26 @@ class StudioLibraryActivity : Activity() {
                 }
                 append(card,7)
             }
+            // the credits stay last, under the account's worlds
+            (credits.layoutParams)?.let { lp -> body.removeView(credits); body.addView(credits, lp) }
         }
+    }
+
+    /** Footer: what the game is built on, its licence and where its source is (AGPL-3.0 §5/§13). */
+    private fun attribution(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(4), dp(4), dp(4), dp(24))
+        fun link(text: String, url: String) = StudioUi.text(context, text, 13f, true, StudioUi.INK).apply {
+            paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+            minHeight = dp(40); gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            contentDescription = "$text, buka di browser"
+            setOnClickListener { runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) } }
+        }
+        addView(StudioUi.text(context, "168Railway World dibangun dari trainsworld karya Anita Chen dan dirilis dengan lisensi GNU AGPL-3.0. Kode sumber versi ini terbuka untuk siapa saja.", 12.5f, false, StudioUi.MUTED))
+        addView(link("Kode sumber: github.com/manyunyu7/168railway-world", "https://github.com/manyunyu7/168railway-world"))
+        addView(link("Game asli: trainsworld oleh Anita Chen", "https://github.com/circularsquare/trainsworld"))
+        addView(StudioUi.text(context, "Data peta © kontributor OpenStreetMap (ODbL) · OpenFreeMap · OpenMapTiles", 11.5f, false, StudioUi.MUTED))
     }
     private fun confirmPlay(title: String, cityId: String?, detail: String, play: () -> Unit) {
         val city = cities.firstOrNull { it.id == cityId }
