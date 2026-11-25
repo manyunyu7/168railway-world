@@ -2915,6 +2915,8 @@ class NativeWorldActivity : Activity() {
 }
 
 private const val STATIC_MARGIN = .2f
+/** One painter of base-map pictures for every map (only one map is open at a time). */
+private val GROUND_WORKER = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "world-ground").apply { isDaemon = true } }
 
 internal class NetworkView(context: Context):View(context) {
     var displaySettings = StudioGameSettings.read(context)
@@ -2922,8 +2924,8 @@ internal class NetworkView(context: Context):View(context) {
     val overlay = StudioPassengerOverlay(context as? Activity){ invalidate() }
     val passages = PassageLayer()
     private var baseLayer: StudioBaseLayer? = null
-    override fun onAttachedToWindow() { super.onAttachedToWindow(); if(baseLayer==null)baseLayer=StudioBaseLayer(context){invalidate()} }
-    override fun onDetachedFromWindow() { cameraRevision++; removeCallbacks(settled); boundaryWorker.queue.clear(); overlay.stop(); baseLayer?.close();baseLayer=null;super.onDetachedFromWindow() }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); if(baseLayer==null)baseLayer=StudioBaseLayer(context){ groundStale = true; redraw() } }
+    override fun onDetachedFromWindow() { cameraRevision++; removeCallbacks(settled); boundaryWorker.queue.clear(); overlay.stop(); baseLayer?.close();baseLayer=null;groundGeneration++;super.onDetachedFromWindow() }
     var outlineFocus: String? = null
         set(value) { if (field != value) { field = value; invalidate() } }
     var zones: ViewportZones? = null
@@ -2947,8 +2949,8 @@ internal class NetworkView(context: Context):View(context) {
                     val exact = registry.place(ll[0],ll[1],true)
                     post {
                         if (isAttachedToWindow && cameraRevision == revision) {
-                            if (exact != coarse) onViewSettled?.invoke(exact,zoom)
-                            invalidate()
+                            // only a different zone changes the picture (its outline); the same one needs no redraw
+                            if (exact != coarse) { onViewSettled?.invoke(exact,zoom); invalidate() }
                         }
                     }
                 }
@@ -3182,13 +3184,11 @@ internal class NetworkView(context: Context):View(context) {
     fun cover(maxWidth: Int = 720): android.graphics.Bitmap? {
         if (width <= 0 || height <= 0) return null
         if (staticBitmap == null || staticVersion != contentVersion || staticCx != centerX || staticCy != centerY || staticScale != scale) renderStaticLayer()
-        val bmp = staticBitmap ?: return null
-        val mx = ((bmp.width - width) / 2).coerceAtLeast(0)
-        val my = ((bmp.height - height) / 2).coerceAtLeast(0)
+        if (staticBitmap == null) return null
         val k = minOf(1f, maxWidth.toFloat() / width)
         val out = android.graphics.Bitmap.createBitmap((width * k).toInt().coerceAtLeast(1), (height * k).toInt().coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
-        Canvas(out).drawBitmap(bmp, android.graphics.Rect(mx, my, mx + width, my + height),
-            android.graphics.Rect(0, 0, out.width, out.height), Paint(Paint.FILTER_BITMAP_FLAG))
+        vw = width; vh = height
+        Canvas(out).apply { scale(k, k); compose(this) }
         return out
     }
     val trainCount get() = trainPainter.count
@@ -3471,15 +3471,14 @@ internal class NetworkView(context: Context):View(context) {
             removeCallbacks(renderStaticTask)
             if (now - staleSince > 450L) renderStaticLayer() else postDelayed(renderStaticTask, 90L)
         }
-        val bmp = staticBitmap
-        if (bmp != null && staticScale > 0f) {
-            if (staticScale != scale || staticCx != centerX || staticCy != centerY) c.drawColor(0xffeaf2ee.toInt())
-            val k = scale / staticScale
-            staticMatrix.setTranslate(-bmp.width/2f, -bmp.height/2f)
-            staticMatrix.postScale(k, k)
-            staticMatrix.postTranslate((staticCx-centerX)*scale + width/2f, (centerY-staticCy)*scale + height/2f)
-            c.drawBitmap(bmp, staticMatrix, staticPaint)
+        // the base map: painted again on the worker once the camera rests, as the network below
+        if (!groundCurrent() && !groundBusy) {
+            val now = SystemClock.uptimeMillis()
+            if (groundSince == 0L) groundSince = now
+            removeCallbacks(groundTask)
+            if (now - groundSince > 450L || groundBitmap == null) paintGround() else postDelayed(groundTask, 90L)
         }
+        compose(c)
         drawDynamic(c)
         StationDesign.draw(this, c)
         StopEditMode.draw(this, c)
@@ -3487,22 +3486,99 @@ internal class NetworkView(context: Context):View(context) {
         FrameLog.frame(System.nanoTime() - drawStarted)
     }
 
-    private fun drawStatic(c:Canvas){
+    /** Ground, then the cached network picture, moved to the current camera. */
+    private fun compose(c:Canvas){
         c.drawColor(0xffeaf2ee.toInt())
+        drawGround(c)
+        val bmp = staticBitmap
+        if (bmp != null && staticScale > 0f) {
+            val k = scale / staticScale
+            staticMatrix.setTranslate(-bmp.width/2f, -bmp.height/2f)
+            staticMatrix.postScale(k, k)
+            staticMatrix.postTranslate((staticCx-centerX)*scale + width/2f, (centerY-staticCy)*scale + height/2f)
+            c.drawBitmap(bmp, staticMatrix, staticPaint)
+        }
+    }
+
+    /**
+     * The ground under the network, drawn straight on the display canvas every frame: the cities'
+     * terrain pictures (the GPU scales them for nothing, so they follow a pan at once), the base map's
+     * last worker picture ([groundBitmap]) and the contrast wash.
+     */
+    private fun drawGround(c:Canvas){
         if(cityLayers.isEmpty() && waterBox[0]!=waterBox[2]) {
             paint.style=Paint.Style.FILL; paint.color=Color.WHITE;paint.isFilterBitmap=true
             c.drawBitmap(water,null,RectF(sx(waterBox[0]),sy(waterBox[3]),sx(waterBox[2]),sy(waterBox[1])),paint)
         }
+        val screen = RectF(0f,0f,vw.toFloat(),vh.toFloat())
         for (layer in cityLayers) {
             val b = layer.bounds
             val bounds = RectF(sx(b[0]),sy(b[3]),sx(b[2]),sy(b[1]))
-            if (RectF.intersects(bounds,RectF(0f,0f,vw.toFloat(),vh.toFloat()))) {
-                paint.color = Color.WHITE
+            if (RectF.intersects(bounds,screen)) {
+                paint.style=Paint.Style.FILL; paint.color = Color.WHITE
                 paint.isFilterBitmap = true
                 c.drawBitmap(layer.bitmap,null,bounds,paint)
             }
         }
-        baseLayer?.draw(c,trainEngine(),centerX,centerY,scale,vw,vh,trainPainter.mercatorPerFrame,displaySettings.mapNames)
+        val g = groundBitmap
+        if (g != null && groundScale > 0f) {
+            val k = scale / groundScale
+            groundMatrix.setTranslate(-g.width/2f, -g.height/2f)
+            groundMatrix.postScale(k, k)
+            groundMatrix.postTranslate((groundCx-centerX)*scale + vw/2f, (centerY-groundCy)*scale + vh/2f)
+            c.drawBitmap(g, groundMatrix, staticPaint)
+        }
+        if (displaySettings.contrast < 1f) c.drawColor(Color.argb(((1-displaySettings.contrast)*255).toInt(),245,246,239))
+    }
+
+    // The base map is painted on a worker ([groundWorker]): only the tile frames, which read the
+    // world's projection, are worked out here first (StudioBaseLayer.prepare). While it paints, the
+    // last picture is moved and scaled with the camera, as the network's is.
+    private var groundBitmap: android.graphics.Bitmap? = null
+    private var groundSpare: android.graphics.Bitmap? = null
+    private var groundCx = 0f; private var groundCy = 0f; private var groundScale = 0f
+    private var groundNames = false
+    private var groundBusy = false
+    private var groundAgain = false
+    private var groundStale = true
+    private var groundGeneration = 0
+    private var groundSince = 0L
+    private val groundMatrix = android.graphics.Matrix()
+    private val groundWorker get() = GROUND_WORKER
+    private val groundTask = Runnable { paintGround() }
+    private fun groundCurrent() = !groundStale && groundCx == centerX && groundCy == centerY && groundScale == scale && groundNames == displaySettings.mapNames
+    private fun paintGround() {
+        if (groundBusy) { groundAgain = true; return }
+        val base = baseLayer ?: return
+        if (width <= 0 || height <= 0) return
+        val (bw,bh) = staticSize()
+        val cx = centerX; val cy = centerY; val k = scale; val names = displaySettings.mapNames
+        val job = base.prepare(trainEngine(),cx,cy,k,bw,bh,trainPainter.mercatorPerFrame,names) ?: return
+        groundStale = false; groundSince = 0L
+        groundBusy = true
+        val generation = groundGeneration
+        val spare = groundSpare.takeIf { it != null && it.width == bw && it.height == bh && !it.isRecycled }
+        groundSpare = null
+        groundWorker.execute {
+            val bmp = spare ?: android.graphics.Bitmap.createBitmap(bw,bh,android.graphics.Bitmap.Config.ARGB_8888)
+            bmp.eraseColor(Color.TRANSPARENT)
+            val started = System.nanoTime()
+            runCatching { base.render(job, Canvas(bmp)) }
+            FrameLog.ground(System.nanoTime() - started)
+            post {
+                groundBusy = false
+                if (generation != groundGeneration) return@post
+                groundSpare = groundBitmap
+                groundBitmap = bmp
+                groundCx = cx; groundCy = cy; groundScale = k; groundNames = names
+                redraw()
+                if (groundAgain) { groundAgain = false; if (!groundCurrent()) paintGround() }
+            }
+        }
+    }
+
+    private fun drawStatic(c:Canvas){
+        c.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
         val h = trainEngine()
         zones?.takeIf { h != 0L }?.let { registry ->
             val sw = CitySurface.lonLat(h,centerX-vw/(2*scale),centerY-vh/(2*scale))
@@ -3525,7 +3601,6 @@ internal class NetworkView(context: Context):View(context) {
             c.restore()
             paint.style = Paint.Style.FILL
         }
-        if (displaySettings.contrast < 1f) c.drawColor(Color.argb(((1-displaySettings.contrast)*255).toInt(),245,246,239))
         if (displaySettings.mapNames) {
             val cells = mutableSetOf<Long>()
             paint.style=Paint.Style.FILL

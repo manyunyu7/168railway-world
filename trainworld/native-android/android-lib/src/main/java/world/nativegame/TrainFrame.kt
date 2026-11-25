@@ -54,6 +54,8 @@ internal object FrameLog {
     private var drawNs = 0L; private var drawMax = 0L
     private var sceneNs = 0L; private var sceneMax = 0L
     private var staticCount = 0; private var staticMax = 0L
+    private var groundCount = 0; private var groundMax = 0L
+    fun ground(ns: Long) { groundCount++; groundMax = max(groundMax, ns) }
     fun scene(ns: Long) { sceneNs += ns; sceneMax = max(sceneMax, ns) }
     fun static(ns: Long) { staticCount++; staticMax = max(staticMax, ns) }
     fun frame(ns: Long) {
@@ -61,8 +63,8 @@ internal object FrameLog {
         val now = SystemClock.elapsedRealtime()
         if (since == 0L) since = now
         if (now - since < 5000) return
-        Log.w("WorldFrame", "frames=$frames draw avg=%.2f max=%.1f ms · scene avg=%.2f max=%.1f ms · static renders=%d max=%.0f ms".format(
-            java.util.Locale.ROOT, drawNs / 1e6 / frames, drawMax / 1e6, sceneNs / 1e6 / frames, sceneMax / 1e6, staticCount, staticMax / 1e6))
-        since = now; frames = 0; drawNs = 0; drawMax = 0; sceneNs = 0; sceneMax = 0; staticCount = 0; staticMax = 0
+        Log.w("WorldFrame", "frames=$frames draw avg=%.2f max=%.1f ms · scene avg=%.2f max=%.1f ms · static renders=%d max=%.0f ms · ground (worker) %d max=%.0f ms".format(
+            java.util.Locale.ROOT, drawNs / 1e6 / frames, drawMax / 1e6, sceneNs / 1e6 / frames, sceneMax / 1e6, staticCount, staticMax / 1e6, groundCount, groundMax / 1e6))
+        since = now; frames = 0; drawNs = 0; drawMax = 0; sceneNs = 0; sceneMax = 0; staticCount = 0; staticMax = 0; groundCount = 0; groundMax = 0
     }
 }

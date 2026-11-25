@@ -27,7 +27,7 @@ internal class StudioBaseLayer(context:Context, private val invalidate:()->Unit)
     private val tried=HashMap<MapTile,Long>()
     @Volatile private var wanted:Set<MapTile> = emptySet()
     private val density=app.resources.displayMetrics.density
-    private val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap=Paint.Cap.ROUND; strokeJoin=Paint.Join.ROUND }
+    private val workPaint=Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap=Paint.Cap.ROUND; strokeJoin=Paint.Join.ROUND }
     private val quad=floatArrayOf(0f,0f,4096f,0f,4096f,4096f,0f,4096f)
     private data class ScreenTile(val matrix:Matrix,val quad:FloatArray,val tilePx:Float,val clip:Path)
     private data class Camera(val handle:Long,val x:Float,val y:Float,val scale:Float,val w:Int,val h:Int,val merc:Float)
@@ -56,10 +56,8 @@ internal class StudioBaseLayer(context:Context, private val invalidate:()->Unit)
     private var viewTiles=emptyList<MapTile>()
     private var zoom=0f
     private val frames=HashMap<MapTile,ScreenTile>()
-    private data class Wording(val text:String,val x:Float,val y:Float,val angle:Float,val major:Boolean)
+    internal data class Wording(val text:String,val x:Float,val y:Float,val angle:Float,val major:Boolean)
     private val roadNames=ArrayList<Wording>()
-    private val names=HashSet<String>()
-    private val boxes=ArrayList<RectF>()
     private fun request(t:MapTile,remote:Boolean) {
         if(closed || cache.get(t)!=null || t in busy)return
         val now=SystemClock.elapsedRealtime()
@@ -124,7 +122,7 @@ internal class StudioBaseLayer(context:Context, private val invalidate:()->Unit)
         val clip=Path().apply {moveTo(p[0],p[1]);lineTo(p[2],p[3]);lineTo(p[4],p[5]);lineTo(p[6],p[7]);close()}
         ScreenTile(m,p,hypot(p[2]-p[0],p[3]-p[1]).coerceAtLeast(1f),clip)
     }
-    private fun width(stops:FloatArray):Float {
+    private fun width(stops:FloatArray,zoom:Float):Float {
         var i=2
         while(i<stops.size && zoom>stops[i])i+=2
         if(i==stops.size)return stops.last()
@@ -132,11 +130,22 @@ internal class StudioBaseLayer(context:Context, private val invalidate:()->Unit)
         val progress=(1.4.pow(t.toDouble())-1)/(1.4.pow(span.toDouble())-1)
         return stops[i-1]+((stops[i+1]-stops[i-1])*progress).toFloat()
     }
-    fun draw(canvas:Canvas,handle:Long,x:Float,y:Float,scale:Float,w:Int,h:Int,merc:Float,mapNames:Boolean) {
-        if(handle==0L||closed||w<1||h<1||scale<=0)return
+    /** One tile to paint: its features, where they land (src) and, for a stand-in ancestor, the clip of the tile it covers. */
+    class Piece internal constructor(internal val tile:StudioVectorTile,internal val clip:Path,internal val matrix:Matrix,internal val tilePx:Float)
+    /** Everything [render] needs, taken on the UI thread (the tile frames read the world's projection). */
+    class Job internal constructor(val w:Int,val h:Int,internal val zoom:Float,internal val pieces:List<Piece>,internal val labels:List<Wording>)
+
+    /**
+     * The UI-thread half of drawing the base map at a camera: picks and requests the tiles, works out
+     * their screen frames and the road names. The painting itself ([render]) touches nothing of the
+     * world or of this object's caches, so it runs on a worker while the map keeps moving.
+     */
+    fun prepare(handle:Long,x:Float,y:Float,scale:Float,w:Int,h:Int,merc:Float,mapNames:Boolean):Job? {
+        if(handle==0L||closed||w<1||h<1||scale<=0)return null
         val c=Camera(handle,x,y,scale,w,h,merc)
         if(c!=previous)tiles(c)
         roadNames.clear()
+        val pieces=ArrayList<Piece>()
         var coverage=0
         var baseCoverage=0
         for(t in viewTiles) {
@@ -151,17 +160,7 @@ internal class StudioBaseLayer(context:Context, private val invalidate:()->Unit)
             val entry=cache.get(selected)?:continue
             baseCoverage++; if(t==selected)coverage++
             val child=frame(t,c);val src=frame(selected,c)
-            canvas.save(); canvas.clipPath(child.clip);canvas.concat(src.matrix)
-            for((style,path) in entry.tile.paths) {
-                if(style==StudioVectorTile.Style.BUILDING && zoom<13 || style==StudioVectorTile.Style.FOOT && zoom<14)continue
-                val props=styles.getValue(style)
-                if(props.second!=null) {
-                    paint.style=Paint.Style.STROKE
-                    paint.strokeWidth=width(props.second!!)*density*4096/src.tilePx
-                } else paint.style=Paint.Style.FILL
-                paint.color=props.first;canvas.drawPath(path,paint)
-            }
-            canvas.restore()
+            pieces.add(Piece(entry.tile,child.clip,src.matrix,src.tilePx))
             if(mapNames && zoom>=14 && selected==t){
                 for(label in entry.tile.labels) {
                     if(!label.major && zoom<16)continue
@@ -179,9 +178,29 @@ internal class StudioBaseLayer(context:Context, private val invalidate:()->Unit)
                 else -> null
             }
         }
+        return Job(w,h,zoom,pieces,ArrayList(roadNames))
+    }
+
+    /** Paints a [prepare]d job; safe on any one thread at a time (its own paint, nothing shared is written). */
+    fun render(job:Job,canvas:Canvas) {
+        val paint=workPaint
+        val zoom=job.zoom
+        for(piece in job.pieces) {
+            canvas.save(); canvas.clipPath(piece.clip);canvas.concat(piece.matrix)
+            for((style,path) in piece.tile.paths) {
+                if(style==StudioVectorTile.Style.BUILDING && zoom<13 || style==StudioVectorTile.Style.FOOT && zoom<14)continue
+                val props=styles.getValue(style)
+                if(props.second!=null) {
+                    paint.style=Paint.Style.STROKE
+                    paint.strokeWidth=width(props.second!!,zoom)*density*4096/piece.tilePx
+                } else paint.style=Paint.Style.FILL
+                paint.color=props.first;canvas.drawPath(path,paint)
+            }
+            canvas.restore()
+        }
         paint.textSize=10*density;paint.textAlign=Paint.Align.CENTER
-        names.clear();boxes.clear()
-        for(label in roadNames.sortedByDescending{it.major}) {
+        val names=HashSet<String>();val boxes=ArrayList<RectF>()
+        for(label in job.labels.sortedByDescending{it.major}) {
             if(label.text in names || boxes.size>=45)continue
             val half=paint.measureText(label.text)*.5f
             val rad=Math.toRadians(label.angle.toDouble())
@@ -194,6 +213,7 @@ internal class StudioBaseLayer(context:Context, private val invalidate:()->Unit)
             paint.style=Paint.Style.FILL;paint.color=0xff62675e.toInt();canvas.drawText(label.text,label.x,label.y,paint)
             canvas.restore()
         }
+        paint.textAlign=Paint.Align.LEFT
     }
     fun close(){closed=true;runCatching {connectivity.unregisterNetworkCallback(callback)};wanted=emptySet();disk.shutdownNow();net.shutdownNow();cache.evictAll();frames.clear()}
     companion object {
