@@ -20,6 +20,7 @@ class StudioLibraryActivity : Activity() {
     private lateinit var body: LinearLayout
     private lateinit var status: TextView
     private lateinit var owner: String
+    private lateinit var backdrop: MetroBackdrop
     private var operation = 0
     private var locked = false
     private var allLocal = false
@@ -42,12 +43,13 @@ class StudioLibraryActivity : Activity() {
                 insets
             }
         }
-        window.statusBarColor = 0xff9fd8f7.toInt()
-        window.navigationBarColor = 0xffbfe6a8.toInt()
+        window.statusBarColor = MetroBackdrop.PAPER
+        window.navigationBarColor = MetroBackdrop.PAPER
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
             (if (Build.VERSION.SDK_INT >= 26) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0)
         setContentView(FrameLayout(this).apply {
-            addView(KScene.Sky(context), FrameLayout.LayoutParams(-1, -1))
+            backdrop = MetroBackdrop(context)
+            addView(backdrop, FrameLayout.LayoutParams(-1, -1))
             addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(body) }, FrameLayout.LayoutParams(-1, -1))
         })
         requestedAction = if (state == null) intent.getStringExtra("studioAction") else null
@@ -63,6 +65,8 @@ class StudioLibraryActivity : Activity() {
         super.onRestart()
         if (user() == owner) refresh() else finish()
     }
+    override fun onResume() { super.onResume(); if (::backdrop.isInitialized) backdrop.resume() }
+    override fun onPause() { if (::backdrop.isInitialized) backdrop.pause(); super.onPause() }
     override fun onSaveInstanceState(state: Bundle) { super.onSaveInstanceState(state); state.putString("owner", owner) }
     private fun action(
         label: String,
