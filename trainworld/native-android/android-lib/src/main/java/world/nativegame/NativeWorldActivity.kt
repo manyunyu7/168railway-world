@@ -2491,7 +2491,19 @@ class NativeWorldActivity : Activity() {
     }
 
     @Deprecated("Compatibility with API 24")
-    override fun onBackPressed() { if (!StationDesign.back() && !StopEditMode.back()) leaveWorld() }
+    private var backArmedAt = 0L
+    /** Back in the world steps out of what is open (station design, stop editing, a drawing, a followed
+     *  train) and only then leaves; the world itself needs a second Back within 2 s (owner: one Back
+     *  used to drop the player on the menu). The ← button on the map still leaves at once. */
+    override fun onBackPressed() {
+        if (StationDesign.back() || StopEditMode.back()) return
+        if (drawing) { cancelDrawing(); return }
+        if (map.followed != null) { followChip?.performClick(); return }
+        val now = SystemClock.uptimeMillis()
+        if (now - backArmedAt < 2000) { leaveWorld(); return }
+        backArmedAt = now
+        Toast.makeText(this, "Tekan Kembali sekali lagi untuk keluar dari dunia", Toast.LENGTH_SHORT).show()
+    }
 
     @Deprecated("Retained for configuration changes on API 24 and above")
     override fun onRetainNonConfigurationInstance(): Any? =
