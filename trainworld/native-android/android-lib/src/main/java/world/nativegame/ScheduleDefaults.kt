@@ -41,13 +41,21 @@ internal object ScheduleDefaults {
         val now = info.optJSONArray("default")
         val same = info.optBoolean("same")
         fun dp(n: Int) = StudioUi.dp(host, n)
+        // compact: title and headways on one wrapped line, the two actions as small chips below
         val box = LinearLayout(host).apply {
             orientation = LinearLayout.VERTICAL
             background = StudioUi.card(host, 14)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setPadding(dp(10), dp(6), dp(8), dp(0))
         }
-        box.addView(StudioUi.text(host, titles[kind] ?: titles.getValue("rail"), 14f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
-        box.addView(StudioUi.text(host, if (now != null) headways(now) else "Belum ada bawaan", 13f, true, StudioUi.MUTED))
+        val title = titles[kind] ?: titles.getValue("rail")
+        val value = if (now != null) headways(now) else "Belum ada bawaan"
+        box.addView(StudioUi.text(host, "", 12.5f, true, StudioUi.MUTED).apply {
+            text = android.text.SpannableStringBuilder(title).apply {
+                setSpan(android.text.style.ForegroundColorSpan(StudioUi.INK), 0, length, 0)
+                append("  ·  ").append(value)
+            }
+            contentDescription = "$title: $value"
+        })
         fun run(label: String, call: (Double) -> String) {
             transaction { clock ->
                 val r = JSONObject(call(clock))
@@ -61,15 +69,15 @@ internal object ScheduleDefaults {
             }
         }
         val buttons = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-        buttons.addView(StudioUi.button(host, "Jadikan bawaan") { run(LABEL) { makeDefault(handle, id, it) } }.apply {
+        buttons.addView(StudioUi.choiceChip(host, "Jadikan bawaan", false) { run(LABEL) { makeDefault(handle, id, it) } }.apply {
             isEnabled = !same
             contentDescription = "Jadikan selang line ini bawaan untuk line baru sejenis"
-        }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        buttons.addView(StudioUi.button(host, "Pakai bawaan") { run(LABEL) { useDefault(handle, id, it) } }.apply {
+        }, LinearLayout.LayoutParams(-2, dp(48)))
+        buttons.addView(StudioUi.choiceChip(host, "Pakai bawaan", false) { run(LABEL) { useDefault(handle, id, it) } }.apply {
             isEnabled = now != null && !same
             contentDescription = "Pakai selang bawaan untuk line ini"
-        }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(6) })
-        box.addView(buttons, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        }, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(6) })
+        box.addView(buttons)
         return box
     }
 

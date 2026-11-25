@@ -152,6 +152,41 @@ internal object Crowding {
         return box
     }
 
+    /**
+     * [pastDay]'s rows as one small line for the schedule editor: "24 jam · Muatan rata-rata 48% ·
+     * Tertinggal di peron 0/570.974", riders left behind in red; null with no report.
+     */
+    fun pastDayLine(host: Activity, id: Int): View? {
+        val l = line(id) ?: return null
+        val past = l.optJSONObject("past")
+        val average = if (l.isNull("average")) null else l.optDouble("average")
+        if (past == null && average == null) return null
+        val vehicle = l.optString("vehicle", "train")
+        val u = unit(vehicle)
+        val text = android.text.SpannableStringBuilder("24 jam terakhir")
+        val spoken = mutableListOf("24 jam terakhir")
+        fun part(label: String, value: String, note: String, bad: Boolean = false) {
+            text.append("  ·  ").append(label).append(" ")
+            val start = text.length
+            text.append(value)
+            text.setSpan(android.text.style.ForegroundColorSpan(if (bad) StudioUi.BAD else StudioUi.INK), start, text.length, 0)
+            text.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, text.length, 0)
+            spoken.add(note)
+        }
+        if (average != null) part("Muatan rata-rata", "${Math.round(average * 100)}%", "Muatan rata-rata ${Math.round(average * 100)}%")
+        if (past != null) {
+            val full = past.optDouble("full"); val trains = past.optDouble("trains")
+            val left = past.optDouble("left"); val riders = past.optDouble("riders")
+            if (full > 0) part("Berangkat penuh", "${whole(full)}/${whole(trains)}", "${whole(full)}/${whole(trains)} $u berangkat penuh")
+            if (vehicle != "bus") part(when (vehicle) { "boat" -> "Tertinggal di dermaga"; "tram" -> "Tertinggal di perhentian"; else -> "Tertinggal di peron" },
+                "${whole(left)}/${whole(riders + left)}", "${whole(left)}/${whole(riders + left)} penumpang tertinggal", left >= 1)
+        }
+        return StudioUi.text(host, "", 12f, true, StudioUi.MUTED).apply {
+            setText(text)
+            contentDescription = spoken.joinToString(". ")
+        }
+    }
+
     /** The Issues list's crowded lines (web TroubleList tiers 3 and 5), from the last report. */
     fun troubles(): List<JSONObject> = report?.optJSONArray("troubles")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } } ?: emptyList()
 

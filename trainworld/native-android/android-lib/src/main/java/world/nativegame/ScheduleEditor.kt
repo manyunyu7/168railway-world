@@ -51,6 +51,21 @@ internal class ScheduleEditor(
     private fun gap(v: Int) = LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(v) }
     private fun group() = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
     private fun section(label: String) = StudioUi.section(host,label)
+    private fun TextView.single() { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+    /** A 40 dp round stepper inside its 48 dp touch target: soft, or solid ink for the main "+". */
+    private fun stepper(description: String, direction: Int, solid: Boolean, click: () -> Unit) =
+        StudioUi.iconButton(host, description, if (direction < 0) StudioUi.Icon.MINUS else StudioUi.Icon.PLUS) { click() }.apply {
+            val face = { fill: Int -> android.graphics.drawable.InsetDrawable(android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(fill)
+            }, dp(4)) }
+            background = android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_pressed), face(if (solid) StudioUi.NAVY_EDGE else 0x2622204a))
+                addState(intArrayOf(), face(if (solid) StudioUi.INK else 0x1422204a))
+            }
+            setTextColor(if (solid) StudioUi.WHITE else StudioUi.INK)
+            setPadding(0, 0, 0, 0)
+            textSize = 18f
+        }
     private fun watch(input: EditText, callback: () -> Unit) {
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -136,30 +151,33 @@ internal class ScheduleEditor(
     fun show() {
         lateinit var footer: LinearLayout
         StudioUi.sheet(host, "Jadwal", .94f, pinnedAction = { footer }) { body, dialog ->
+            // compact header: small badge, the name and the route on one line each
             val titleRow = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-            titleRow.addView(LineLook.badge(host, service.optInt("id", -1), service.getString("name"), colour, 46), LineLook.params(host, 46))
+            titleRow.addView(LineLook.badge(host, service.optInt("id", -1), service.getString("name"), colour, 32), LineLook.params(host, 32))
             val heading = group()
-            val routeTitle = StudioUi.text(host, service.getString("name"), 15f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) }
+            val routeTitle = StudioUi.text(host, service.getString("name"), 15f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host); single() }
             heading.addView(routeTitle)
             val summary = listOf(service.getString("vehicle"), route.endpoints).filter { it.isNotBlank() }.joinToString("  ·  ")
-            heading.addView(StudioUi.text(host, summary, 13f, true, StudioUi.MUTED))
-            titleRow.addView(heading, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
-            body.addView(titleRow, gap(4))
+            heading.addView(StudioUi.text(host, summary, 12f, true, StudioUi.MUTED).apply { single(); contentDescription = summary })
+            titleRow.addView(heading, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
+            body.addView(titleRow, gap(0))
             val card = group().apply {
                 background = StudioUi.card(host, 14)
-                setPadding(dp(10), dp(6), dp(10), dp(6))
+                setPadding(dp(10), dp(5), dp(10), dp(6))
             }
-            card.addView(StudioUi.text(host, "Pratinjau frekuensi · satu jam", 13f, true, StudioUi.MUTED))
-            card.addView(preview, LinearLayout.LayoutParams(-1, dp(92)))
-            body.addView(card, gap(12))
-            // web PastDay: average load, vehicles that left full and riders left on the platform
-            Crowding.pastDay(host, lineId)?.let { body.addView(it, gap(10)) }
+            card.addView(StudioUi.text(host, "Pratinjau frekuensi · satu jam", 12f, true, StudioUi.MUTED))
+            card.addView(preview, LinearLayout.LayoutParams(-1, dp(66)))
+            // web PastDay: average load, vehicles that left full and riders left on the platform, as one line
+            Crowding.pastDayLine(host, lineId)?.let { card.addView(it, gap(4)) }
+            body.addView(card, gap(8))
 
-            body.addView(section("Hari kerja"), gap(16))
-            body.addView(StudioUi.text(host, "Atur dengan", 13f, true, StudioUi.MUTED).apply { setPadding(dp(4), 0, 0, 0) }, gap(6))
+            // the weekday heading and "Atur dengan" segmented control share one row
+            val modeRow = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+            modeRow.addView(section("Hari kerja"), LinearLayout.LayoutParams(0, -2, 1f))
             val selector = LinearLayout(host).apply {
                 background = StudioUi.pill(host, 0x1422204a, 18)
                 setPadding(dp(4), dp(4), dp(4), dp(4))
+                contentDescription = "Atur dengan"
             }
             listOf(route.vehicleUnit.replaceFirstChar { it.uppercase() }, "Selang").forEachIndexed { index, label ->
                 val btn = StudioUi.button(host, label) {
@@ -172,35 +190,43 @@ internal class ScheduleEditor(
                     }
                 }
                 btn.minHeight = dp(40); btn.minimumHeight = dp(40)
-                btn.setPadding(dp(8), 0, dp(8), 0)
-                selector.addView(btn, LinearLayout.LayoutParams(0, dp(40), 1f).apply { if (index == 1) marginStart = dp(4) })
+                btn.textSize = 13f
+                btn.setPadding(dp(14), 0, dp(14), 0)
+                btn.contentDescription = "Atur dengan ${label.lowercase()}"
+                selector.addView(btn, LinearLayout.LayoutParams(-2, dp(40)).apply { if (index == 1) marginStart = dp(4) })
                 modeButtons.add(btn)
             }
-            body.addView(selector, gap(6))
+            modeRow.addView(selector)
+            body.addView(modeRow, gap(4))
             periods.forEachIndexed { i, period ->
                 val row = LinearLayout(host).apply {
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(10), dp(8), dp(8), dp(8))
+                    setPadding(dp(10), dp(4), dp(2), dp(4))
                     background = StudioUi.card(host, 14)
+                    minimumHeight = dp(52)
                 }
                 val text = group()
                 // web LevelName: the level's crowding dot before its name, its peak and bar below (Crowding.kt)
                 val crowd = Crowding.level(lineId, i)
-                val name = StudioUi.text(host, if (i == nowLevel) "$period · sekarang" else period, 14f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) }
+                val name = StudioUi.text(host, if (i == nowLevel) "$period · sekarang" else period, 14f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host); single() }
                 if (crowd == null) text.addView(name) else text.addView(LinearLayout(host).apply {
                     gravity = Gravity.CENTER_VERTICAL
-                    addView(Crowding.dot(host, crowd), LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(6) })
+                    addView(Crowding.dot(host, crowd), LinearLayout.LayoutParams(dp(12), dp(12)).apply { marginEnd = dp(5) })
                     addView(name)
                 })
                 if (i == nowLevel) row.background = StudioUi.card(host, 14, StudioUi.TINT_YELLOW)
-                val hint = StudioUi.text(host, "", 12f, true, StudioUi.MUTED)
+                val hint = StudioUi.text(host, "", 11.5f, true, StudioUi.MUTED)
                 text.addView(hint)
                 hints.add(hint)
                 if (crowd != null) {
+                    // the peak and the stretches' bar side by side; the other periods' loads stay in the dot's description
                     val grade = crowd.optInt("grade")
-                    text.addView(StudioUi.text(host, Crowding.tip(crowd), 12f, true,
-                        if (grade >= 3) StudioUi.BAD else if (grade == 2) 0xffb3541e.toInt() else StudioUi.INK))
-                    Crowding.strip(host, crowd)?.let { text.addView(it, LinearLayout.LayoutParams(-1, dp(5)).apply { topMargin = dp(3); marginEnd = dp(8) }) }
+                    val load = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+                    val tip = Crowding.tip(crowd)
+                    load.addView(StudioUi.text(host, tip.replace("\n", " · "), 11.5f, true,
+                        if (grade >= 3) StudioUi.BAD else if (grade == 2) 0xffb3541e.toInt() else StudioUi.INK).apply { single(); contentDescription = tip })
+                    Crowding.strip(host, crowd)?.let { load.addView(it, LinearLayout.LayoutParams(dp(44), dp(4)).apply { marginStart = dp(6) }) }
+                    text.addView(load)
                 }
                 row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
                 val initial = (if (byInterval) headwayDraft else countDraft)[i]
@@ -209,7 +235,8 @@ internal class ScheduleEditor(
                     inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
                     background = null
                     typeface = StudioUi.heavy(host)
-                    textSize = 17f
+                    textSize = 16f
+                    setPadding(0, 0, 0, 0)
                 }
                 fields.add(edit)
                 fun move(direction: Int) {
@@ -225,23 +252,11 @@ internal class ScheduleEditor(
                     }
                     edit.setText((current + direction).coerceIn(0, 128).toString())
                 }
-                fun adjust(direction: Int) = StudioUi.iconButton(host,
-                    "${if (direction < 0) "Kurangi" else "Tambah"} permintaan ${period.lowercase()}",
-                    if (direction < 0) StudioUi.Icon.MINUS else StudioUi.Icon.PLUS) { move(direction) }.apply {
-                    // Round stepper: a soft minus and a solid plus.
-                    background = android.graphics.drawable.GradientDrawable().apply {
-                        shape = android.graphics.drawable.GradientDrawable.OVAL
-                        setColor(if (direction < 0) 0x1422204a else StudioUi.INK)
-                    }
-                    setTextColor(if (direction < 0) StudioUi.INK else StudioUi.WHITE)
-                    setPadding(0, 0, 0, 0)
-                    textSize = 20f
-                }
-                // 48 dp steppers: the minimum thumb target
-                row.addView(adjust(-1), LinearLayout.LayoutParams(dp(48), dp(48)))
-                row.addView(edit, LinearLayout.LayoutParams(dp(60), -2).apply { setMargins(dp(2),0,dp(2),0) })
-                row.addView(adjust(1), LinearLayout.LayoutParams(dp(48), dp(48)))
-                body.addView(row, gap(8))
+                // round stepper: a soft minus and a solid plus
+                row.addView(stepper("Kurangi permintaan ${period.lowercase()}", -1, solid = false) { move(-1) }, LinearLayout.LayoutParams(dp(48), dp(48)))
+                row.addView(edit, LinearLayout.LayoutParams(dp(48), dp(48)))
+                row.addView(stepper("Tambah permintaan ${period.lowercase()}", 1, solid = true) { move(1) }, LinearLayout.LayoutParams(dp(48), dp(48)))
+                body.addView(row, gap(6))
                 watch(edit) {
                     (if (byInterval) headwayDraft else countDraft)[i] = edit.text.toString()
                     refresh()
@@ -249,58 +264,100 @@ internal class ScheduleEditor(
             }
 
             // web DaySections: the weekends' own section, the share of the weekdays' trains or, set by
-            // hand, the trains at each level ("Kereta akhir pekan diatur manual")
-            body.addView(section("Akhir pekan"), gap(16))
-            body.addView(StudioUi.text(host, "Akhir pekan dan hari libur nasional", 12f, true, StudioUi.MUTED).apply { setPadding(dp(4), 0, 0, 0) }, gap(2))
+            // hand, the trains at each level ("Kereta akhir pekan diatur manual"); folded to a summary row
             val shareStart = service.optInt("weekend", 100).toString()
             val manual = service.optBoolean("weekendManual")
             val weekendStart = Array(3) { service.optJSONArray("weekendCounts")?.optInt(it, 0) ?: 0 }
-            val weekend = input("Porsi kereta akhir pekan terhadap kereta hari kerja", shareStart, true)
-            val shareRow = LinearLayout(host).apply {
+            val weekendBox = group().apply { visibility = View.GONE }
+            val weekendHead = LinearLayout(host).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(10), dp(6), dp(8), dp(6))
+                minimumHeight = dp(48)
+                background = StudioDepot.touch(host, 0xd9ffffff.toInt(), 14)
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+                isClickable = true
+            }
+            val weekendText = group()
+            weekendText.addView(StudioUi.text(host, "Akhir pekan & libur nasional", 13.5f, true, StudioUi.INK).apply { single() })
+            val weekendSummary = StudioUi.text(host, "", 11.5f, true, StudioUi.MUTED).apply { single() }
+            weekendText.addView(weekendSummary)
+            weekendHead.addView(weekendText, LinearLayout.LayoutParams(0, -2, 1f))
+            val weekendArrow = StudioUi.text(host, "▾", 16f, true, StudioUi.MUTED)
+            weekendHead.addView(weekendArrow)
+            body.addView(weekendHead, gap(10))
+            body.addView(weekendBox)
+            fun openWeekend(open: Boolean) {
+                weekendBox.visibility = if (open) View.VISIBLE else View.GONE
+                weekendArrow.text = if (open) "▴" else "▾"
+                weekendHead.contentDescription = "Akhir pekan dan hari libur nasional, ${weekendSummary.text}. " + if (open) "Ketuk untuk melipat" else "Ketuk untuk membuka"
+            }
+            weekendHead.setOnClickListener { openWeekend(weekendBox.visibility != View.VISIBLE) }
+            val weekend = input("Porsi kereta akhir pekan terhadap kereta hari kerja", shareStart, true).apply {
+                background = null; typeface = StudioUi.heavy(host); setPadding(0, 0, 0, 0)
+            }
+            fun compactRow() = LinearLayout(host).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), 0, dp(2), 0)
+                minimumHeight = dp(48)
                 background = StudioUi.card(host, 14)
             }
-            shareRow.addView(StudioUi.text(host, "Porsi dari hari kerja (%)", 14f, true), LinearLayout.LayoutParams(0, -2, 1f))
-            shareRow.addView(weekend, LinearLayout.LayoutParams(dp(84), dp(48)))
-            body.addView(shareRow, gap(6))
+            val shareRow = compactRow()
+            shareRow.addView(StudioUi.text(host, "Porsi dari hari kerja (%)", 13.5f, true), LinearLayout.LayoutParams(0, -2, 1f))
+            shareRow.addView(weekend, LinearLayout.LayoutParams(dp(72), dp(48)))
+            weekendBox.addView(shareRow, gap(4))
             val manualNote = StudioUi.text(host, "Kereta akhir pekan diatur manual. Mengubah porsi mengembalikannya ke porsi.", 12f, true, 0xff7a5600.toInt()).apply {
                 setPadding(dp(4), 0, 0, 0)
                 visibility = if (manual) View.VISIBLE else View.GONE
             }
-            body.addView(manualNote, gap(4))
+            weekendBox.addView(manualNote, gap(2))
             val weekendFields = periods.mapIndexed { i, period ->
-                val row = LinearLayout(host).apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(10), dp(6), dp(8), dp(6))
-                    background = StudioUi.card(host, 14)
+                val row = compactRow()
+                row.addView(StudioUi.text(host, "$period · ${route.vehicleUnit}", 13.5f, true), LinearLayout.LayoutParams(0, -2, 1f))
+                val field = input("Kereta akhir pekan, permintaan ${period.lowercase()}", weekendStart[i].toString(), true).apply {
+                    background = null; typeface = StudioUi.heavy(host); setPadding(0, 0, 0, 0)
                 }
-                row.addView(StudioUi.text(host, "$period · ${route.vehicleUnit}", 14f, true), LinearLayout.LayoutParams(0, -2, 1f))
-                val field = input("Kereta akhir pekan, permintaan ${period.lowercase()}", weekendStart[i].toString(), true)
-                fun step(d: Int) = StudioUi.iconButton(host, "${if (d < 0) "Kurangi" else "Tambah"} ${route.vehicleUnit} akhir pekan, permintaan ${period.lowercase()}",
-                    if (d < 0) StudioUi.Icon.MINUS else StudioUi.Icon.PLUS) {
+                fun step(d: Int) = stepper("${if (d < 0) "Kurangi" else "Tambah"} ${route.vehicleUnit} akhir pekan, permintaan ${period.lowercase()}", d, solid = false) {
                     field.setText(((field.text.toString().toIntOrNull() ?: 0) + d).coerceIn(0, 128).toString())
                 }
                 row.addView(step(-1), LinearLayout.LayoutParams(dp(48), dp(48)))
-                row.addView(field, LinearLayout.LayoutParams(dp(60), dp(48)).apply { setMargins(dp(2), 0, dp(2), 0) })
+                row.addView(field, LinearLayout.LayoutParams(dp(48), dp(48)))
                 row.addView(step(1), LinearLayout.LayoutParams(dp(48), dp(48)))
-                body.addView(row, gap(6))
+                weekendBox.addView(row, gap(4))
                 field
+            }
+            fun weekendRecap() {
+                val counts = weekendFields.joinToString("/") { it.text.toString().ifBlank { "–" } }
+                weekendSummary.text = "Porsi ${weekend.text.toString().ifBlank { "–" }}% · ${periods.joinToString("/")}: $counts ${route.vehicleUnit}"
+                openWeekend(weekendBox.visibility == View.VISIBLE)
             }
             weekendFields.forEach { f -> watch(f) {
                 manualNote.visibility = if (manual || weekendFields.indices.any { weekendFields[it].text.toString() != weekendStart[it].toString() }) View.VISIBLE else View.GONE
+                weekendRecap()
             } }
+            watch(weekend) { weekendRecap() }
+            weekendRecap()
 
-            defaults?.invoke(dialog)?.let { body.addView(it, gap(12)) }
+            defaults?.invoke(dialog)?.let { body.addView(it, gap(8)) }
 
             val advanced = group().apply { visibility = View.GONE }
             lateinit var fold: Button
             fun expand(open: Boolean) {
                 advanced.visibility = if (open) View.VISIBLE else View.GONE
-                fold.text = if (open) "Sembunyikan pengaturan lanjutan" else "Pengaturan lanjutan"
+                StudioUi.select(fold, open)
+                fold.contentDescription = if (open) "Sembunyikan pengaturan lanjutan" else "Pengaturan lanjutan"
             }
-            fold = StudioUi.button(host, "Pengaturan lanjutan") { expand(advanced.visibility != View.VISIBLE) }
-            body.addView(fold, gap(12))
+            // the advanced fold and the timetable as two small chips on one row
+            val tools = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+            fold = StudioUi.choiceChip(host, "Pengaturan lanjutan", false) { expand(advanced.visibility != View.VISIBLE) }.apply {
+                single(); setPadding(dp(10), 0, dp(10), 0)
+            }
+            tools.addView(fold, LinearLayout.LayoutParams(0, dp(48), 1f))
+            if (route.names.isNotEmpty()) tools.addView(StudioUi.choiceChip(host, "Grafik & keberangkatan", false) { showTimetable() }.apply {
+                single(); setPadding(dp(10), 0, dp(10), 0)
+                contentDescription = "Grafik & keberangkatan saat ini"
+                setCompoundDrawablesRelative(StudioUi.glyph(host, StudioUi.Icon.ROUTE, StudioUi.INK), null, null, null)
+                compoundDrawablePadding = dp(4)
+            }, LinearLayout.LayoutParams(0, dp(48), 1.2f).apply { marginStart = dp(6) })
+            body.addView(tools, gap(4))
             body.addView(advanced)
             fun option(title: String, value: String, numeric: Boolean = true): EditText {
                 advanced.addView(StudioUi.text(host,title,13f,true,StudioUi.MUTED).apply { setPadding(dp(4),0,0,0) },gap(10))
@@ -312,15 +369,13 @@ internal class ScheduleEditor(
                 option("Gerbong per rangkaian (0 = otomatis)", service.getInt("cars").toString()) else null
             val dwell = option("Berhenti di ${route.stopType} (detik)", service.getInt("dwell").toString())
             val turn = option("Balik di terminal (detik)", service.getInt("turn").toString())
-            if (route.names.isNotEmpty()) body.addView(StudioUi.button(host, "Grafik & keberangkatan saat ini", icon = StudioUi.Icon.ROUTE) {
-                showTimetable()
-            },gap(5))
             val error = StudioUi.text(host, "", 14f, true, 0xffa12d29.toInt()).apply {
                 visibility = View.GONE
                 accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
             }
             fun invalid(field: EditText, reason: String): Nothing? {
-                if (field !in fields) expand(true)
+                if (field == weekend || field in weekendFields) openWeekend(true)
+                else if (field !in fields) expand(true)
                 field.requestFocus()
                 field.error = reason
                 error.text = reason
