@@ -24,7 +24,9 @@ internal class ScheduleEditor(
     private val service: JSONObject,
     private val showTimetable: () -> Unit,
     private val applySchedule: (JSONObject, (JSONObject) -> Unit) -> Unit,
-    private val onApplied: (JSONObject) -> Unit
+    private val onApplied: (JSONObject) -> Unit,
+    /** The new-line default headways under the weekends (ScheduleDefaults.kt), given the sheet. */
+    private val defaults: ((android.app.Dialog) -> View?)? = null
 ) {
     private val route = ServiceStops(service)
     /** Web `schedule.demandName` and `levelTimes` (game/periods.ts): each demand level and its hours. */
@@ -272,6 +274,8 @@ internal class ScheduleEditor(
             weekendFields.forEach { f -> watch(f) {
                 manualNote.visibility = if (manual || weekendFields.indices.any { weekendFields[it].text.toString() != weekendStart[it].toString() }) View.VISIBLE else View.GONE
             } }
+
+            defaults?.invoke(dialog)?.let { body.addView(it, gap(12)) }
 
             val advanced = group().apply { visibility = View.GONE }
             lateinit var fold: Button

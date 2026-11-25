@@ -417,6 +417,8 @@ internal object ServicePanel {
             FinanceHistory.lineMoney(host, service.optJSONArray("lineDays"), service.optInt("today"), StudioCurrency.current(host))?.let {
                 summaryTab.addView(it, lp(12, host))
             }
+            // web AverageSpeed (src/service/defaults.rs)
+            ScheduleDefaults.averageSpeedRow(host, service)?.let { summaryTab.addView(it, lp(12, host)) }
             // web LineTopSpeed + LineProfile: the top speed, the speed limit and the line along its length
             LineProfileView.section(host, handle, id, color, if (editable) { kmh ->
                 dialog.dismiss()
@@ -450,7 +452,10 @@ internal object ServicePanel {
             onApplied = { updated ->
                 changed(updated.getString("name"))
                 details(host, handle, id, clock, true, transaction, changed)
-            }
+            },
+            defaults = { sheet -> ScheduleDefaults.section(host, handle, id, transaction) { updated ->
+                sheet.dismiss(); changed(updated.getString("name")); edit(host, handle, id, clock, updated, transaction, changed)
+            } }
         ).show()
     }
 }
