@@ -205,7 +205,7 @@ class StudioLibraryActivity : Activity() {
                 card.addView(StudioUi.button(this,"Simpan sebagai dunia baru",icon = StudioUi.Icon.COPY) { if (!locked) upload(active.first, true) },
                     LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(4) })
             }
-            append(card,0)
+            append(card,16) // clear of the toolbar (owner: the card touched the cloud button)
         } else {
             append(KScene.Island(this),8,200)
             append(StudioUi.text(this,"Belum ada dunia tersimpan di HP ini. Bangun pulau pertamamu atau pilih simpanan akun di bawah.",15f,true,StudioUi.MUTED).apply {
