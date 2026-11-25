@@ -2513,6 +2513,11 @@ class NativeWorldActivity : Activity() {
             return
         }
         if (handle != 0L) {
+            // a forecast that finished while away: play if that was asked for
+            if (playWhenWarm && warming == null && parked?.isReady == true && reference == null) {
+                playWhenWarm = false
+                startReference()
+            }
             scheduleWarm(1500)
             map.overlay.startNeeded()
             val selected = StudioCurrency.current(this)
@@ -2784,6 +2789,7 @@ class NativeWorldActivity : Activity() {
         warmAt = 0L
         val runtime = warming
         warming = null
+        prepStart = 0L // a forecast started again counts from 0 %, not from where the dropped one was
         warmBytes = null
         playWhenWarm = false
         runtime?.close()
@@ -2799,7 +2805,7 @@ class NativeWorldActivity : Activity() {
         warmCard.visibility = if (computing && playWhenWarm && !ghost) View.VISIBLE else View.GONE
         if (computing && playWhenWarm && !ghost) {
             warmBar.fraction = fraction
-            warmPercent.text = "${(fraction * 100).toInt()}% · ±$left dtk"
+            warmPercent.text = if (fraction >= .95f) "95% · hampir selesai" else "${(fraction * 100).toInt()}% · ±$left dtk"
             if (warmTip.text.isEmpty()) warmTip.text = "💡  " + tips.random()
             warmTip.visibility = if (left > 5) View.VISIBLE else View.GONE
         } else warmTip.text = ""
@@ -2811,7 +2817,7 @@ class NativeWorldActivity : Activity() {
             warmChip.background = StudioUi.glass(this, 18)
             warmChipRing.fraction = fraction; warmChipRing.done = false
             warmChipText.setTextColor(StudioUi.INK)
-            warmChipText.text = (if (ghost) "Menghitung perjalanan setelah perubahanmu" else "Menyiapkan penumpang") + " · ${(fraction * 100).toInt()}%"
+            warmChipText.text = (if (ghost) "Menghitung perjalanan setelah perubahanmu" else "Menyiapkan penumpang") + if (fraction >= .95f) " · hampir selesai" else " · ${(fraction * 100).toInt()}%"
         } else if (ready) {
             warmChip.background = StudioUi.pill(this, StudioUi.INK, 18)
             warmChipRing.done = true
@@ -2841,7 +2847,11 @@ class NativeWorldActivity : Activity() {
         super.onPause()
         WorldSound.pause()
         foreground = false
+        // Away from the app nothing keeps computing (lighter on the phone); a play asked for still
+        // happens once the forecast, started again on return, is ready.
+        val wanted = playWhenWarm || referenceState == ReferenceState.PLAYING
         cancelWarm()
+        playWhenWarm = wanted
         stopGhost()
         if (::map.isInitialized) map.overlay.stop()
         stopTrainPreview()
@@ -2851,6 +2861,8 @@ class NativeWorldActivity : Activity() {
             stopClock()
             if (reference == null && hostLibrary && !drawing && worldChanged) writeSave()
         }
+        // back in the app it plays on by itself, as it was playing (or about to) when left
+        playWhenWarm = wanted
     }
     override fun onDestroy() {
         closed = true
