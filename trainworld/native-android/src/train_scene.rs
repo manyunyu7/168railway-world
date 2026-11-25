@@ -184,11 +184,20 @@ impl World {
         }
         let (s, _) = profile::state_at(&r.prof.get(profile % 3)?.phases, elapsed);
         let s = s.clamp(0., r.len);
-        let names: Vec<String> = r
+        let mut names: Vec<String> = r
             .stop_idx
             .iter()
             .map(|&i| self.api.node_name(r.nodes[i as usize]))
             .collect();
+        // A bus or ferry run has no path (empty `stop_idx`): its stops are the plan's, named as the
+        // line panel names them, in run 0's order (it said "Bus menuju null" before).
+        if service.is_bus() {
+            names = self.service_stop_names(id as u32);
+            if run == 1 {
+                names.reverse();
+            }
+            names.truncate(r.stop_s.len().max(1));
+        }
         let next = r.stop_s.iter().position(|&x| x > s + 1.);
         let vehicle = if self.api.is_bus(id as u32) {
             "Bus"
@@ -644,5 +653,36 @@ mod same_as_before {
             }
         }
         assert!(compared > 100_000, "compared {compared} floats");
+    }
+}
+
+#[cfg(test)]
+mod bus_towards {
+    use super::*;
+    /// The bus panel said "Bus menuju null" (TransJakarta Koridor 9, Jabodetabek 2026): a bus run has no
+    /// path, so its named stops came out empty. Every bus trip of the template now heads somewhere named.
+    #[test]
+    fn every_bus_trip_heads_to_a_named_stop() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/android-lib/src/main/assets/world-native/scenarios");
+        let mut w = World::open(&std::fs::read(format!("{dir}/jak.save")).unwrap()).unwrap();
+        let t = (w.header["clock"].as_f64().unwrap_or(0.) / 86400.).floor() * 86400. + 8. * 3600. + 1800.;
+        w.load_trip_hour(t);
+        let trips: Vec<f32> = w.trips.clone();
+        let mut buses = 0;
+        for trip in trips.chunks_exact(4) {
+            let profile = trip[0] as usize;
+            if !w.api.is_bus((profile / 6) as u32) || w.api.is_ferry((profile / 6) as u32) {
+                continue;
+            }
+            let dep = f64::from(trip[1]);
+            let Some(info) = w.train_info(profile, dep, t) else { continue };
+            let towards = info["towards"].as_str().unwrap_or("");
+            assert!(!towards.trim().is_empty(), "{}: {info}", info["name"]);
+            let stops = info["stops"].as_array().unwrap();
+            assert_eq!(stops.len(), info["stopS"].as_array().unwrap().len(), "{}", info["name"]);
+            assert_eq!(stops.last().unwrap().as_str(), Some(towards));
+            buses += 1;
+        }
+        assert!(buses > 10, "{buses} bus trips");
     }
 }

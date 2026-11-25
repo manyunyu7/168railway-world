@@ -123,7 +123,9 @@ internal object TrainInspector {
             var vehicle = first.optString("vehicle", "Kereta")
             fun showPlace(info: JSONObject) {
                 vehicle = info.optString("vehicle", "Kereta")
-                towards.text = "$vehicle menuju ${info.optString("towards")}"
+                // a run with no named last stop says the line, never "null"
+                val end = if (info.isNull("towards")) "" else info.optString("towards").trim()
+                towards.text = if (end.isEmpty()) "$vehicle ${info.optString("name")}" else "$vehicle menuju $end"
                 next.text = if (info.isNull("next")) "Terminus" else info.optString("next")
                 along.text = "${km(info.optDouble("s"))} dari ${km(info.optDouble("len"))}"
                 (typicalRow.getChildAt(0) as LinearLayout).getChildAt(0).let { (it as TextView).text = "$vehicle biasa jam ini" }
