@@ -2490,19 +2490,19 @@ class NativeWorldActivity : Activity() {
         }
     }
 
-    @Deprecated("Compatibility with API 24")
-    private var backArmedAt = 0L
     /** Back in the world steps out of what is open (station design, stop editing, a drawing, a followed
-     *  train) and only then leaves; the world itself needs a second Back within 2 s (owner: one Back
-     *  used to drop the player on the menu). The ← button on the map still leaves at once. */
+     *  train, track removal) and only then asks before leaving (owner: one Back used to drop the player on
+     *  the menu). Leaving saves the world on the phone, as the ← button on the map does. */
+    @Deprecated("Compatibility with API 24")
     override fun onBackPressed() {
         if (StationDesign.back() || StopEditMode.back()) return
         if (drawing) { cancelDrawing(); return }
         if (map.followed != null) { followChip?.performClick(); return }
-        val now = SystemClock.uptimeMillis()
-        if (now - backArmedAt < 2000) { leaveWorld(); return }
-        backArmedAt = now
-        Toast.makeText(this, "Tekan Kembali sekali lagi untuk keluar dari dunia", Toast.LENGTH_SHORT).show()
+        if (removingTrack || selectingInfrastructure) { leaveWorld(); return }
+        StudioDialogBuilder(this).setTitle("Keluar dari dunia?")
+            .setMessage("Progresmu disimpan di HP ini. Kamu bisa lanjut kapan saja dari Duniaku.")
+            .setPositiveButton("Simpan & keluar") { _, _ -> leaveWorld() }
+            .setNegativeButton("Tetap main", null).show()
     }
 
     @Deprecated("Retained for configuration changes on API 24 and above")
