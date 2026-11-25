@@ -1,7 +1,8 @@
 // Original 168Railway World start-page art: two intersecting commuter lines.
 import { Icon } from "./widgets";
 
-export function RailwayBrand() {
+/** `title` false: the lines and the loco alone, as the launcher card's top strip (StartMenu.tsx) */
+export function RailwayBrand({ title = true }: { title?: boolean } = {}) {
   return <header class="railway-brand">
     <svg aria-hidden="true" class="railway-brand-lines" viewBox="0 0 400 108" preserveAspectRatio="xMidYMid slice">
       <g class="route-grid">
@@ -26,6 +27,6 @@ export function RailwayBrand() {
         <path d="M31 74q9 6 18-1" fill="none" stroke="#245a39" stroke-width="3"/>
       </g>
     </svg>
-    <div class="railway-brand-title"><span class="railway-mark" aria-hidden="true"><Icon.train/></span><h1 id="start-title">168Railway <strong>World</strong></h1></div>
+    {title && <div class="railway-brand-title"><span class="railway-mark" aria-hidden="true"><Icon.train/></span><h1 id="start-title">168Railway <strong>World</strong></h1></div>}
   </header>;
 }

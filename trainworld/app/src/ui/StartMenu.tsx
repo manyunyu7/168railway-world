@@ -31,6 +31,7 @@ import { LanguageSelect } from "./LanguageSelect";
 import { DeleteAsk, pickSaveFile, savedWhen, SlotFacts, SlotStats, SlotWhere, SlotThumb, SlotTitle, useBackups, VersionsLine, type VersionActions } from "./SavesPanel";
 import { Icon } from "./widgets";
 import { Changelog } from "./Changelog";
+import { RailwayBrand } from "./RailwayBrand";
 import { CommunityButton } from "./Community";
 import { dismissUpdate, updateToShow } from "./updates";
 import { accountBackupFile, accountList, accountOnly, cardOf, damagedAccount, deleteOwed, deleteVersions, downloadAccountGame, downloadFailure, pinnedFile, settleOnStart, slotsChanged, stopStartSettle } from "../game/accountGames";
@@ -141,6 +142,7 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
   };
   // 168Railway launcher (2026-11 redesign, option A): the sign-in on the left, Jabodetabek's map as the stage
   return <div class="launch launch-guest">
+      <LaunchStrip />
     <section class="launch-side guest-gate">
     <LaunchBrand />
     <div class="launch-intro">
@@ -191,6 +193,14 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
         <div class="launch-card light"><span class="launch-kicker">{t("launch.blankKicker")}</span><strong>{t("launch.blankTitle")}</strong><span>{t("launch.blankText")}</span></div>
       </div>
     </div>
+  </div>;
+}
+
+/** 168Railway launcher card (option D): the commuter lines and the loco across the card's top, the name on them */
+function LaunchStrip() {
+  return <div class="launch-strip" aria-hidden="true">
+    <RailwayBrand title={false} />
+    <span class="launch-strip-name"><span class="railway-mark"><Icon.train /></span>168Railway <strong>World</strong></span>
   </div>;
 }
 
@@ -362,6 +372,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
   const scenTip = view.tab === "real" ? t(`newGame.jaboTip.${view.jabo}` as MessageKey) : t("newGame.blankStageTip");
   return <div class="start-menu launch-menu" role="dialog" aria-modal="true" aria-labelledby="start-title">
     {guest ? <GuestGate first={first} onIn={() => { setGuest(false); void listSlots().then(setSlots, () => {}); }} /> : sheet ? <div class="launch launch-new">
+      <LaunchStrip />
       <section class="launch-side new-game-box">
         <div class="launch-titlebar">
           <button class="btn icon launch-back" aria-label={t("newGame.back")} data-tip={t("newGame.back")} onClick={() => setSheet(false)}><Icon.goBack /></button>
@@ -380,6 +391,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
         </div>
       </div>
     </div> : <div class="launch launch-home">
+      <LaunchStrip />
       <section class="launch-side">
         <LaunchBrand><div class="start-top"><AccountButton kind="start" /></div></LaunchBrand>
         <div class="launch-games-head">
