@@ -1974,7 +1974,8 @@ class NativeWorldActivity : Activity() {
     }
     private fun refresh() {
         // A ghost lives only while the edit's riders warm to take over from it.
-        if (handover.ghost != null && (warming == null || !playWhenWarm)) { stopGhost(); return }
+        // (not in the middle of a panel edit: its warm only starts once the edit is applied; stopping the ghost there froze the clock after a stop edit)
+        if (handover.ghost != null && beforePanelEdit == null && (warming == null || !playWhenWarm)) { stopGhost(); return }
         if (reference == null && warming == null && !running) scheduleWarm()
         val displayClock = referenceTime ?: clock
         if (::sunArc.isInitialized) sunArc.second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
@@ -2701,8 +2702,14 @@ class NativeWorldActivity : Activity() {
         "Line yang melewati pusat kota biasanya paling ramai di jam sibuk pagi.")
 
     private fun warmEstimate() = getSharedPreferences("world-native", 0).getLong("warm-ms-${city.id}", 18_000L).coerceIn(2_000L, 120_000L)
-    private fun warmFraction() = if (!computing()) 1f else
-        (0.95f * (SystemClock.elapsedRealtime() - (if (prepStart != 0L) prepStart else warmStart)) / warmEstimate()).coerceIn(0f, .95f)
+    private fun warmElapsed() = SystemClock.elapsedRealtime() - (if (prepStart != 0L) prepStart else warmStart)
+    /** The forecast's own progress while it solves (SimulationEngine.openProgress: rounds done), else time against the last one's. */
+    private fun warmFraction(): Float {
+        if (!computing()) return 1f
+        val real = if (warming != null) runCatching { SimulationEngine.openProgress() }.getOrDefault(0f) else 0f
+        if (real > 0f) return real.coerceIn(0f, .99f)
+        return (0.95f * warmElapsed() / warmEstimate()).coerceIn(0f, if (warming != null) .1f else .95f)
+    }
 
     private fun scheduleWarm(delay: Long = 2500) {
         if (!::map.isInitialized || closed) return
@@ -2799,7 +2806,8 @@ class NativeWorldActivity : Activity() {
     private fun updateWarmUi() {
         if (!::warmCard.isInitialized) return
         val fraction = warmFraction()
-        val left = ((1f - fraction / .95f) * warmEstimate() / 1000f).toInt().coerceAtLeast(1)
+        val left = (if (fraction > .15f) warmElapsed() * (1f - fraction) / fraction / 1000f
+            else (1f - fraction / .95f) * warmEstimate() / 1000f).toInt().coerceAtLeast(1)
         val computing = computing()
         val ghost = handover.ghost != null
         warmCard.visibility = if (computing && playWhenWarm && !ghost) View.VISIBLE else View.GONE
