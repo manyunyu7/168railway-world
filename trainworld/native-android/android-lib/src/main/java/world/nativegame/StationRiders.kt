@@ -113,10 +113,15 @@ internal object StationRiders {
             val t = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 background = StudioUi.pill(activity, tint, 12)
-                setPadding(dp(10), dp(5), dp(10), dp(5))
+                setPadding(dp(8), dp(5), dp(8), dp(5))
                 contentDescription = "$label $value penumpang per hari"
             }
-            t.addView(StudioUi.text(activity, value, 16f, true, StudioUi.INK).apply { typeface = StudioUi.heavy(activity); maxLines = 1 })
+            // big complexes reach seven digits ("1.163.840"): shrink to fit the tile instead of cutting digits off
+            t.addView(StudioUi.text(activity, value, 16f, true, StudioUi.INK).apply {
+                typeface = StudioUi.heavy(activity); maxLines = 1
+                if (android.os.Build.VERSION.SDK_INT >= 26) setAutoSizeTextTypeUniformWithConfiguration(10, 16, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+                else if (value.length > 7) textSize = 13f
+            }, LinearLayout.LayoutParams(-1, dp(22)))
             t.addView(StudioUi.text(activity, label, 11.5f, true, StudioUi.MUTED).apply { maxLines = 1 })
             tiles.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
         }

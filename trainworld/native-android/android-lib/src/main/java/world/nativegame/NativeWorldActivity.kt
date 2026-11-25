@@ -3121,7 +3121,7 @@ internal class NetworkView(context: Context):View(context) {
     private var railBounds: RectF? = null
     fun pickRadiusMeters(): Double = (28.0 * density / scale).coerceIn(6.0,250.0)
 
-    data class Station(val x:Float,val y:Float,val name:String,val id:Int,val platform:StudioStationGlyph?,val packedId:Int)
+    data class Station(val x:Float,val y:Float,val name:String,val id:Int,val platform:StudioStationGlyph?,val packedId:Int,val complex:Int = id)
     private fun stationZoom() = kotlin.math.log2(scale / density * 40075016.7f / (512f * trainPainter.mercatorPerFrame))
     val stops=mutableListOf<Station>()
     var onTrainPreviewNeeded: (() -> Unit)? = null
@@ -3305,7 +3305,7 @@ internal class NetworkView(context: Context):View(context) {
         val stations=data.getJSONArray("stations")
         for(i in 0 until stations.length()) {
             val s=stations.getJSONArray(i)
-            stops.add(Station(s.getDouble(0).toFloat(),s.getDouble(1).toFloat(),s.getString(2),s.getInt(3),StudioStationGlyph.read(s.optJSONObject(4)),s.optInt(5,s.getInt(3))))
+            stops.add(Station(s.getDouble(0).toFloat(),s.getDouble(1).toFloat(),s.getString(2),s.getInt(3),StudioStationGlyph.read(s.optJSONObject(4)),s.optInt(5,s.getInt(3)),s.optInt(6,s.getInt(3))))
         }
         passages.load(data)
         if(refit)fit(); overlay.startNeeded(); invalidate()

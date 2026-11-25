@@ -22,8 +22,8 @@ import kotlin.math.hypot
  * its search box stays. The figures come while the simulation runs and are asked again every two
  * seconds, as the line list's.
  *
- * Not ported: the web's complexes as one row (each station is its own row, as the web's "apart"
- * switch shows them), the lines' bullets on each row, renaming and hand ordering.
+ * A station complex is one row, as the web's (riders added up, nearest member's distance).
+ * Not ported: the web's "apart" switch, the lines' bullets on each row, renaming and hand ordering.
  */
 internal object StationList {
     private enum class Key(val label: String, val first: Int) { RIDERS("Penumpang", -1), NEAR("Jarak", 1), NAME("Nama", 1) }
@@ -36,16 +36,22 @@ internal object StationList {
 
     fun show(
         activity: Activity,
-        stations: List<NetworkView.Station>,
+        all: List<NetworkView.Station>,
         centre: PointF,
         summary: (((String?) -> Unit) -> Unit),
         open: (Int) -> Unit,
     ) {
         fun dp(n: Int) = StudioUi.dp(activity, n)
-        // ground metres from the middle of the map (the plane's units shrink by cosh(y/R), as showStationAboveSheet's)
-        val near = stations.associate { s ->
-            s.id to (hypot((s.x - centre.x).toDouble(), (s.y - centre.y).toDouble()) / cosh(((s.y + centre.y) / 2f / EARTH_M).toDouble()))
+        // web StationsTab: a station complex (stations joined by passages) is one row, its riders added up
+        val members = all.groupBy { it.complex }.values.associate { group ->
+            group.minBy { it.id }.id to group
         }
+        val stations = members.values.map { group ->
+            group.minBy { it.id }.copy(name = group.map { it.name }.distinct().joinToString(" · "))
+        }
+        // ground metres from the middle of the map (the plane's units shrink by cosh(y/R), as showStationAboveSheet's)
+        fun metres(s: NetworkView.Station) = hypot((s.x - centre.x).toDouble(), (s.y - centre.y).toDouble()) / cosh(((s.y + centre.y) / 2f / EARTH_M).toDouble())
+        val near = members.mapValues { (_, group) -> group.minOf { metres(it) } }
         val total = stations.groupingBy { it.name }.eachCount()
         StudioUi.sheet(activity, "Stasiun") { column, dialog ->
             var riders: Map<Int, Double>? = null
@@ -146,8 +152,9 @@ internal object StationList {
                         val fresh = text?.let { parse(it) }
                         // while the riders are worked out again the answer comes back empty: keep the last
                         if (fresh != null && (fresh.isNotEmpty() || riders == null)) {
-                            val changed = fresh != riders
-                            riders = fresh
+                            val summed = members.mapValues { (_, group) -> group.sumOf { fresh[it.id] ?: 0.0 } }
+                            val changed = summed != riders
+                            riders = summed
                             if (changed) render()
                         }
                         list.postDelayed(this, 2000)

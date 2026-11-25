@@ -495,7 +495,9 @@ impl World {
                 self.api.node_name(row[0] as u32),
                 row[0] as u32,
                 station_map::shape(&self.api, row[0] as usize, &edge_use),
-                packed
+                packed,
+                // the station complex it belongs to (its lowest node id): lists show a complex as one row, as the web's
+                self.api.world().net.complex_of(row[0] as u32).into_iter().min().unwrap_or(row[0] as u32)
             ]));
         }
         for id in self.api.bus_lines() {
