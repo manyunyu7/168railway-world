@@ -199,6 +199,7 @@ class NativeWorldActivity : Activity() {
             trainEngine = { handle }
             trainClock = { ms -> (reference ?: handover.ghost)?.timeAt(ms) }
             WorldSound.riders = { t, ask, done -> (reference ?: handover.ghost)?.arrivalRiders(t, ask, done) ?: done(null) }
+            Crowding.ask = { done -> (reference ?: handover.ghost ?: parked)?.crowding(map.trainTime(), done) ?: done(null) }
             overlay.city = city.id
             val overlayCity = city.id
             overlay.manifest = { bytes, viewed ->
@@ -1338,6 +1339,9 @@ class NativeWorldActivity : Activity() {
         if (key == troubleKey && wall - troubleAt < 30_000) return
         troubleKey = key; troubleAt = wall
         troubles = TroubleList.read(handle, now)
+        // the crowding report (Crowding.kt) and the map's capacity tags (CrowdLens.kt) with the list
+        CrowdLens.refresh(handle, when (Math.floorMod(now.toLong() + localClockShift, 86400L) / 3600) { in 6..19L -> 0; in 20..23L -> 1; else -> 2 })
+        Crowding.refresh { troubleKey = ""; updateTroubles(); map.invalidate() }
         val n = troubles.length()
         troubleButton.visibility = if (n > 0) View.VISIBLE else View.GONE
         troubleButton.text = n.toString()
@@ -3543,6 +3547,7 @@ internal class NetworkView(context: Context):View(context) {
                 paint.color = overlay.railColor(piece.id,piece.info.low,piece.info.speed)
                 c.drawPath(piece.path,paint)
             }
+            if (overlay.track == "traffic") CrowdLens.under(c, paint, routeWidth, displaySettings.fullMarks) { e -> pieces.firstOrNull { it.id == e }?.path }
             overlay.drawRoutes(c,routeWidth,if (overlay.track == "traffic") bands.traffic(overlay,routeWidth) else null)
         }
         rails.drawBlueprint(c, paint, scale, centerY, routeWidth)
@@ -3550,6 +3555,7 @@ internal class NetworkView(context: Context):View(context) {
         paint.strokeWidth=3*density/scale
         for((_,p) in plannedStops) c.drawCircle(p.x,p.y,6*density/scale,paint)
         c.restore()
+        if (displaySettings.capacity) CrowdLens.drawTags(c, paint, density, vw, vh, ::sx, ::sy)
         // web keeps the demand view up while building: that is where stations are worth placing
         if (overlay.active) overlay.circles(c,centerX,centerY,scale,density,displaySettings,stationZoom())
         paint.style=Paint.Style.FILL

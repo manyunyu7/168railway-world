@@ -79,7 +79,7 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
     }
     private val edgeProfit = mutableMapOf<Int,Float>()
     /** `purposes`: the span's riders under each filter purpose after "every purpose" (Rust `purpose_spans`). */
-    private class Span(val path: Path, val riders: Float, val profit: Float, val color: Int, val purposes: FloatArray, val id: Int = -1, val f0: Float = 0f, val f1: Float = 0f)
+    private class Span(val path: Path, val riders: Float, val profit: Float, val color: Int, val purposes: FloatArray, val id: Int = -1, val f0: Float = 0f, val f1: Float = 0f, val k: Int = -1)
     private val spans = mutableListOf<Span>()
     private val bySpeed = mutableMapOf<Int,Path>()
     private val byHeight = mutableMapOf<Int,Path>()
@@ -196,13 +196,16 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 for (edge in pending["edges"].orEmpty()) edgeProfit[edge[0].toInt()] = edge[1]
                 // one row of purpose riders a span, in the spans' order (rail, bus and ferry alike)
                 val byPurpose = pending["purpose_spans"].orEmpty()
+                // each line's spans come stop to stop in order: the k-th is its run 0 stretch k (CrowdLens)
+                val stretchOf = HashMap<Int, Int>()
                 for ((i, s) in pending["spans"].orEmpty().withIndex()) {
+                    val k = stretchOf.merge(s[0].toInt(), 0) { a, _ -> a + 1 }!!
                     val route = routes[s[0].toInt()] ?: continue
                     val measure = route.second
                     val path = Path()
                     if (measure.getSegment(s[1]*measure.length,s[2]*measure.length,path,true)) {
                         val purposes = byPurpose.getOrNull(i) ?: FloatArray(PURPOSES.size - 1)
-                        spans.add(Span(path,s[3],s[4],route.first,purposes,s[0].toInt(),s[1],s[2]))
+                        spans.add(Span(path,s[3],s[4],route.first,purposes,s[0].toInt(),s[1],s[2],k))
                         busiest[0] = max(busiest[0],s[3])
                         for (p in purposes.indices) busiest[p+1] = max(busiest[p+1],purposes[p])
                     }
@@ -303,8 +306,11 @@ internal class StudioPassengerOverlay(private val activity: Activity?, private v
                 val top = busiest[shown]
                 val share = if (top > 0) (riders / top).coerceIn(0f,1f) else 0f
                 paint.strokeWidth = trafficWidth(width, share)
+                val drawn = banded?.invoke(s.id, s.f0, s.f1) ?: s.path
+                // web "Kereta padat": a crowded stretch's red edge
+                CrowdLens.outline(c, paint, s.id, s.k, paint.strokeWidth, drawn)
                 paint.color=s.color
-                c.drawPath(banded?.invoke(s.id, s.f0, s.f1) ?: s.path, paint)
+                c.drawPath(drawn, paint)
                 continue
             } else if(track == "profit" && s.profit >= 0) {
                 paint.strokeWidth=width

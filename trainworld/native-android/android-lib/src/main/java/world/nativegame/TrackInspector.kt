@@ -258,7 +258,9 @@ internal object TrackInspector {
                 val line = lines.getJSONObject(i)
                 val id = line.getInt("id")
                 val name = line.getString("name")
-                val row = StudioUi.row(activity, null, 0, name) { dialog.dismiss(); openLine(id) }
+                // web trackHover: the stretch's average load and its crowded hour's peak (Crowding.kt)
+                val loads = Crowding.stretchText(id, line.optInt("stretch", -1))
+                val row = StudioUi.row(activity, null, 0, name, loads) { dialog.dismiss(); openLine(id) }
                 row.addView(LineLook.badge(activity, id, name, Color.BLACK or line.getInt("color"), 32), 0, LineLook.params(activity, 32))
                 content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             }

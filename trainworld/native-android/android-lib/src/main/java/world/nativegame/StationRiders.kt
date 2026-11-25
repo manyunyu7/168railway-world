@@ -154,5 +154,44 @@ internal object StationRiders {
             box.addView(StudioUi.text(activity, purposes.joinToString(" · ") { "${it.optString("name")} ${pct(it.optDouble("share"))}" },
                 12.5f, true, StudioUi.MUTED).apply { setPadding(0, dp(6), 0, 0) })
         }
+        waitingNow(activity, box, rows(r.optJSONArray("platforms")), lines)
+    }
+
+    /** Web `formatDuration` for Indonesian: "4m00s", "1h05m", "45s". */
+    private fun duration(s: Double): String {
+        val t = Math.round(s); val h = t / 3600; val m = t / 60 % 60; val sec = t % 60
+        return when { t >= 3600 -> String.format(Locale.ROOT, "%dh%02dm", h, m); t >= 60 -> String.format(Locale.ROOT, "%dm%02ds", m, sec); else -> "${t}s" }
+    }
+
+    /**
+     * Web StationInspector `WaitingNow`: each platform (a line one way) with its riders waiting now and,
+     * from the boarding account's hour, those a full train left behind and the longest wait, else
+     * those arriving.
+     */
+    private fun waitingNow(activity: Activity, box: LinearLayout, platforms: List<JSONObject>, lines: List<JSONObject>) {
+        fun dp(n: Int) = StudioUi.dp(activity, n)
+        val colour = lines.associate { it.optInt("id") to it.optInt("color") }
+        val shown = platforms.filter { colour.containsKey(it.optInt("line")) }
+        if (shown.isEmpty()) return
+        box.addView(StudioUi.section(activity, "Menunggu sekarang").apply { setPadding(0, dp(10), 0, 0) })
+        for (p in shown) {
+            val line = p.optInt("line")
+            val row = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(44) }
+            row.addView(LineLook.badge(activity, line, p.optString("name"), Color.BLACK or (colour[line] ?: 0), 26), LineLook.params(activity, 26))
+            val what = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(6), 0) }
+            val to = if (p.isNull("to")) p.optString("name") else "Ke ${p.optString("to")}"
+            what.addView(StudioUi.text(activity, to, 13f, true, StudioUi.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            val left = p.optDouble("left"); val arriving = p.optDouble("arriving"); val wait = duration(p.optDouble("wait"))
+            val note = when {
+                left >= 1 -> "${whole(left)} tertinggal, tunggu terlama $wait"
+                arriving >= 1 -> "${whole(arriving)} datang, tunggu terlama $wait"
+                else -> "Tidak ada yang datang"
+            }
+            what.addView(StudioUi.text(activity, note, 12f, true, if (left >= 1) StudioUi.BAD else StudioUi.MUTED))
+            row.addView(what, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(StudioUi.text(activity, whole(p.optDouble("waiting")), 14f, true, StudioUi.INK).apply { typeface = StudioUi.heavy(activity) })
+            row.contentDescription = "$to: ${whole(p.optDouble("waiting"))} menunggu. $note"
+            box.addView(row)
+        }
     }
 }

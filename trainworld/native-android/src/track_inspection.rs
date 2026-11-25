@@ -87,7 +87,9 @@ fn read(w: &mut World, e: u32) -> Option<Value> {
     };
     let colours: std::collections::HashMap<u32, u32> =
         w.api.lines_info().chunks_exact(22).map(|r| (r[0] as u32, r[1] as u32)).collect();
-    let lines: Vec<Value> = lines.iter().map(|&l| json!({"id":l,"name":w.api.line_name(l),"color":colours.get(&l).copied().unwrap_or(0)})).collect();
+    let lines: Vec<Value> = lines.iter().map(|&l| json!({"id":l,"name":w.api.line_name(l),"color":colours.get(&l).copied().unwrap_or(0),
+        // the line's stop-to-stop stretch here, for its loads (web trackHover `n.lines.stretch`)
+        "stretch":crate::crowding::stretch_of_edge(w, l, e)})).collect();
     // web PieceRebuild `open`: the levels and the other family's kinds this piece takes alone
     let (mut levels, mut kinds) = (vec![], vec![]);
     if !crossover {

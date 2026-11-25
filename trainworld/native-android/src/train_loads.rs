@@ -274,6 +274,30 @@ impl Loads {
         let waited = if riders > 0. { (left * (gap + before / 2.) + fresh * gap / 2.) / riders } else { 0. };
         Some((boarded, waited, left))
     }
+    /// The hour's boarding buffer (`TrackApi::boarding_hour`), for its crowded stretches.
+    pub(super) fn board(&self) -> &[f32] {
+        &self.board
+    }
+    /// Web `platformsAt` for the platforms at any of `members` at game time `time`: per platform its
+    /// line, run, riders waiting now, riders a full train left behind this hour, the longest wait
+    /// for a train leaving this hour (s) and riders arriving this hour.
+    pub(super) fn platforms(&self, members: &[u32], time: f64) -> Vec<(u32, u32, f64, f64, f64, f64)> {
+        let [q0, e0, p0, a0, end] = self.at;
+        let b = &self.board;
+        let p = Platforms { events: &b[e0..p0], pulses: &b[p0..a0], arrivals: &b[a0..end] };
+        let t = time - self.epoch;
+        b[q0..e0]
+            .chunks_exact(12)
+            .filter(|q| members.contains(&(q[0] as u32)))
+            .map(|q| {
+                // web crowdAt: nobody before the platform's first train
+                let first = q[8] as usize;
+                let stopped = q[9] > 0. && f64::from(p.events[2 * first]) <= t;
+                let waiting = if stopped { p.wait(q, t) } else { 0. };
+                (q[1] as u32, q[2] as u32, waiting, f64::from(q[5]), f64::from(q[6]), f64::from(q[7]))
+            })
+            .collect()
+    }
     pub(super) fn current(&self, time: f64) -> bool {
         time >= self.epoch && time < self.epoch + 3600.
     }
