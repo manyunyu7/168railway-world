@@ -127,7 +127,7 @@ impl World {
         Value::Array(out.into_iter().map(|t| t.2).collect())
     }
 
-    fn inspect_service(&self, id: u32, now: f64) -> Option<Value> {
+    pub(super) fn inspect_service(&self, id: u32, now: f64) -> Option<Value> {
         // web game/periods.ts PERIODS: high 06-20, medium 20-24, low 00-06, in the line's local time
         fn level_at(local: f64) -> usize {
             match (local.rem_euclid(86400.) / 3600.) as u32 {
@@ -161,7 +161,7 @@ impl World {
             "Kereta komuter"
         };
         Some(
-            json!({"name":self.api.line_name(id),"color":r[1],"cars":r[8],"count":[r[13],r[14],r[15]],"headway":self.api.line_auto(id),
+            json!({"id":id,"name":self.api.line_name(id),"color":r[1],"symbol":self.api.line_symbol(id),"shape":super::line_look::own_shape(&self.header, id),"modeShape":super::line_look::mode_shape(&self.api, id),"cars":r[8],"count":[r[13],r[14],r[15]],"headway":self.api.line_auto(id),
           "weekend":weekend.first().copied().unwrap_or(100.),
           "limits":self.limits(id),"lineDays":self.header["lineDays"][id.to_string()],
           "today":((now + super::local_time::day_shift(&self.header)) / 86400.).floor(),"weekendManual":weekend.get(1).is_some_and(|&m| m == 1.),"weekendCounts":weekend.get(2..5),"dwell":r[19],"turn":r[20],"cycle":r[10],"cycles":[r[10],r[11],r[12]],"length":r[9],"limit":self.api.line_limit(id),
