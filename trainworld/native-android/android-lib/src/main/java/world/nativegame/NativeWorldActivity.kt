@@ -126,7 +126,7 @@ class NativeWorldActivity : Activity() {
     private lateinit var zoomTools: LinearLayout
     private lateinit var controlHint: LinearLayout
     private lateinit var cancel: Button
-    private lateinit var sunArc: SunArcView
+    private lateinit var sky: SkyStripView
     private lateinit var missionCard: LinearLayout
     private lateinit var lensLegend: LinearLayout
     private lateinit var warmChip: LinearLayout
@@ -237,19 +237,24 @@ class NativeWorldActivity : Activity() {
         hud.addView(header)
         header.addView(glassIcon(StudioUi.Icon.BACK, "Kembali", 50) { leaveWorld() },
             LinearLayout.LayoutParams(dp(50), dp(50)))
-        // One frosted pill: day arc, clock, network summary and cash.
+        // One frosted card: clock, network summary and cash, the day's sky along its foot (SkyStripView).
+        val clockCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = StudioUi.glass(context, 22)
+            elevation = dp(3).toFloat()
+            setPadding(dp(5), dp(4), dp(5), dp(5))
+        }
         val clockPill = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            background = StudioUi.glass(context, 26)
-            elevation = dp(3).toFloat()
-            minimumHeight = dp(52)
-            setPadding(dp(8), dp(5), dp(5), dp(5))
+            minimumHeight = dp(46)
+            setPadding(dp(7), 0, 0, 0)
         }
-        sunArc = SunArcView(this)
-        sunArc.contentDescription = "Periode permintaan"
-        sunArc.setOnClickListener { showDemandHours() }
-        sunArc.isFocusable = true
-        clockPill.addView(sunArc, LinearLayout.LayoutParams(dp(48), dp(48)))
+        clockCard.addView(clockPill)
+        sky = SkyStripView(this)
+        sky.contentDescription = "Periode permintaan"
+        sky.setOnClickListener { showDemandHours() }
+        sky.isFocusable = true
+        clockCard.addView(sky, LinearLayout.LayoutParams(-1, dp(24)).apply { topMargin = dp(3) })
         val timeColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         localTime = StudioUi.text(this, "—", if (compact) 16f else 18f, color = StudioUi.INK).apply {
             typeface = StudioUi.heavy(context)
@@ -263,7 +268,7 @@ class NativeWorldActivity : Activity() {
         timeColumn.addView(info)
         timeColumn.contentDescription = "Ringkasan semua kota"
         timeColumn.setOnClickListener { if (handle != 0L && !drawing) allCities() }
-        clockPill.addView(timeColumn, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
+        clockPill.addView(timeColumn, LinearLayout.LayoutParams(0, -2, 1f))
         val cashPill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -284,7 +289,7 @@ class NativeWorldActivity : Activity() {
         cashPill.addView(balanceUnit)
         cashPill.addView(balance)
         clockPill.addView(cashPill, LinearLayout.LayoutParams(-2, dp(42)))
-        header.addView(clockPill, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(6) })
+        header.addView(clockCard, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(6) })
         save = glassIcon(StudioUi.Icon.SAVE, "Simpan ke Studio", 48) { withCommittedWorld { saveWorld() } }.apply { isEnabled = false }
 
         val mapTools = LinearLayout(this).apply { gravity = Gravity.TOP }
@@ -1985,7 +1990,7 @@ class NativeWorldActivity : Activity() {
         if (handover.ghost != null && beforePanelEdit == null && (warming == null || !playWhenWarm)) { stopGhost(); return }
         if (reference == null && warming == null && !running) scheduleWarm()
         val displayClock = referenceTime ?: clock
-        if (::sunArc.isInitialized) sunArc.second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
+        if (::sky.isInitialized) sky.setClock(displayClock, localClockShift)
         updateProgress(displayClock)
         map.trainRate = if (referenceState == ReferenceState.PLAYING) speedChip.rate else 0.0
         val trainCount = map.updateTrains(displayClock, referenceState == ReferenceState.PLAYING)
@@ -2365,6 +2370,7 @@ class NativeWorldActivity : Activity() {
             else -> cityStore.city(id).name
         }
         updateViewportSummary()
+        FloatArray(4).also { map.faceCamera(it); sky.setPlace(CitySurface.lonLat(handle, it[0], it[1])) }
         map.outlineFocus = id
         wantedZone = id?.takeIf { zoom > 7.5f }
         loadViewedZone()
