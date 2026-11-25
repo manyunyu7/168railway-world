@@ -514,9 +514,9 @@ internal class MetroBackdrop(context: Context) : View(context) {
         /** web: rgba(110,160,210,.2) on the light background */
         private val RIVER = 0xffd8e3f0.toInt()
         /** web: rgba(235,240,246,.08) and the glow at .35 of that */
-        private const val SCRIM = 0x14ebf0f6
-        private const val SCRIM_GLOW = 0x07ebf0f6
-        private const val BLUR = 7f
+        private const val SCRIM = 0x47ebf0f6
+        private const val SCRIM_GLOW = 0x1aebf0f6
+        private const val BLUR = 14f
         private const val CORNER = 13f
         private const val LINE = 7f
         private const val STEP = 3f
