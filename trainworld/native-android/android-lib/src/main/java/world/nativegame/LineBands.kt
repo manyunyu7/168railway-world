@@ -134,8 +134,11 @@ internal class LineBands {
     fun drawLines(c: Canvas, paint: Paint, width: Float, casing: Float, px: Float) {
         lineGeometry(width)
         paint.color = 0xfffaf6e9.toInt()
-        for (d in drawn) for ((k, p) in d.whole) { paint.strokeWidth = width * RailLayer.lineShare(k) + casing; c.drawPath(p, paint) }
+        // lines hidden on the map (LineVisibility.kt) leave their band empty, as the web's alpha 0
+        val off = LineVisibility.off
+        for (d in drawn) if (d.id !in off) for ((k, p) in d.whole) { paint.strokeWidth = width * RailLayer.lineShare(k) + casing; c.drawPath(p, paint) }
         for (d in drawn) {
+            if (d.id in off) continue
             paint.color = LineLook.tint(d.id) ?: d.color
             for ((k, p) in d.solo) { paint.strokeWidth = max(px, width * RailLayer.lineShare(k)); c.drawPath(p, paint) }
             for ((k, p) in d.banded) { paint.strokeWidth = max(px, width * RailLayer.lineShare(k) * BAND_SHARE - BAND_GAP_PX * px); c.drawPath(p, paint) }

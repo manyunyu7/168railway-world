@@ -33,10 +33,8 @@ impl World {
         bodies.clear();
         bodies.push(0.); // The network total is independent of camera and detail.
         // Parsed once per frame rather than once per trip.
-        let hidden: Vec<usize> = self.header["hidden"]
-            .as_array()
-            .map(|ids| ids.iter().filter_map(|v| v.as_str()?.parse().ok()).collect())
-            .unwrap_or_default();
+        // Hidden lines and their quad-track twins (line_visibility.rs).
+        let hidden = crate::line_visibility::drawn_hidden(self);
         for trip in self.trips.chunks_exact(4) {
             let elapsed = time - epoch - f64::from(trip[1]);
             if elapsed < 0. || time >= epoch + f64::from(trip[2]) {
@@ -383,6 +381,14 @@ mod tests {
             found_bend,
             "separate cars take separate headings on the curved rail"
         );
+        // T-3420: a line hidden on the map draws no trains; the network total still counts them
+        let t = start + 20.;
+        let shown = world.train_scene(t, &camera(2));
+        crate::line_visibility::set_hidden(&mut world, &[0]);
+        let hidden = world.train_scene(t, &camera(2));
+        assert!(shown.len() > 1 && hidden.len() == 1, "{} {}", shown.len(), hidden.len());
+        assert_eq!(shown[0], hidden[0]);
+        crate::line_visibility::set_hidden(&mut world, &[]);
         let far = Camera {
             x: 1e7,
             y: 1e7,
@@ -476,7 +482,7 @@ mod same_as_before {
         let model = self.api.world();
         let net = &model.net;
         let mut bodies = vec![0.]; // The network total is independent of camera and detail.
-        let hidden = self.header["hidden"].as_array();
+        let hidden = crate::line_visibility::drawn_hidden(self);
         for trip in self.trips.chunks_exact(4) {
             let elapsed = time - epoch - f64::from(trip[1]);
             if elapsed < 0. || time >= epoch + f64::from(trip[2]) {
@@ -490,10 +496,7 @@ mod same_as_before {
             let id = profile / 6;
             let run = profile / 3 % 2;
             let service = &model.svc.lines[id];
-            if hidden.is_some_and(|ids| {
-                ids.iter()
-                    .any(|v| v.as_str().and_then(|s| s.parse::<usize>().ok()) == Some(id))
-            }) {
+            if hidden.contains(&id) {
                 continue;
             }
             let r = &service.runs[run];

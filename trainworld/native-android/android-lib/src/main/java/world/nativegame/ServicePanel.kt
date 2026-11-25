@@ -55,7 +55,7 @@ internal object ServicePanel {
                 setPadding(dp(2), 0, 0, dp(8)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             }
             column.addView(headline)
-            val list = LineList(host, StudioCurrency.current(host), looks) { id ->
+            val list = LineList(host, StudioCurrency.current(host), looks, handle) { id ->
                 dialog.dismiss()
                 details(host, handle, id, clock, editable, transaction, changed)
             }

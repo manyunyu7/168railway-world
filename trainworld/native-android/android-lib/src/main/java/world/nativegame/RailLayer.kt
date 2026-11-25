@@ -38,7 +38,7 @@ internal class RailLayer(private val density: Float) {
 
     // ---- the lines (Line view) over the track
     private class LineRun(val cls: Int, val from: Int, val to: Int)
-    private class Route(val color: Int, val xy: FloatArray, val normal: FloatArray, val runs: List<LineRun>) {
+    private class Route(val id: Int, val color: Int, val xy: FloatArray, val normal: FloatArray, val runs: List<LineRun>) {
         val centre = HashMap<Int, Path>()
         var d = Float.NaN
         val plus = Path(); val minus = Path()
@@ -100,7 +100,7 @@ internal class RailLayer(private val density: Float) {
                 while (k < n - 1 && cls(k) == c) k++
                 runs.add(LineRun(c, j, k)); j = k
             }
-            val route = Route(r.getInt("color") or Color.BLACK, xy, mitres(xy), runs)
+            val route = Route(r.optInt("id", -1), r.getInt("color") or Color.BLACK, xy, mitres(xy), runs)
             for (run in runs) add(route.centre.getOrPut(run.cls) { Path() }, xy, route.normal, run.from, run.to, 0f)
             routes.add(route)
         }
@@ -213,8 +213,11 @@ internal class RailLayer(private val density: Float) {
         }
         paint.pathEffect = null
         paint.color = CASING
-        for (r in routes) for ((cls, path) in r.centre) { paint.strokeWidth = lineWidth(cls) + casing; c.drawPath(path, paint) }
+        // lines hidden on the map (LineVisibility.kt) are not drawn
+        val off = LineVisibility.off
+        for (r in routes) if (r.id !in off) for ((cls, path) in r.centre) { paint.strokeWidth = lineWidth(cls) + casing; c.drawPath(path, paint) }
         for (r in routes) {
+            if (r.id in off) continue
             if (parted && !(abs(l.off - r.d) <= l.off * .02f)) {
                 r.d = l.off; r.plus.reset(); r.minus.reset()
                 for (run in r.runs) if (run.cls == LINE_DOUBLE) { add(r.plus, r.xy, r.normal, run.from, run.to, l.off); add(r.minus, r.xy, r.normal, run.from, run.to, -l.off) }

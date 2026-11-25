@@ -15,7 +15,7 @@ internal class StudioTrainPainter(private val density:Float) {
     var engine: () -> Long = { 0L }
     var mercatorPerFrame = 1f
     var time = Double.NaN
-    private data class View(val handle:Long,val time:Double,val x:Float,val y:Float,val scale:Float,val w:Int,val h:Int)
+    private data class View(val handle:Long,val time:Double,val x:Float,val y:Float,val scale:Float,val w:Int,val h:Int,val hidden:Int)
     private var last: View? = null
     /** The scene's first [size] floats; the array is kept and refilled every frame. */
     private var bodies = FloatArray(1024)
@@ -51,7 +51,7 @@ internal class StudioTrainPainter(private val density:Float) {
     fun update(x:Float,y:Float,scale:Float,w:Int,h:Int) {
         val handle = engine()
         if (handle == 0L || !time.isFinite() || scale <= 0f) { size = 0; last = null; return }
-        val view = View(handle,time,x,y,scale,w,h)
+        val view = View(handle,time,x,y,scale,w,h,LineVisibility.version)
         if (last == view) return
         // MapLibre uses 512 CSS pixels across its zoom-zero world.
         zoom = log2(scale / density * 40075016.7f / (512f*mercatorPerFrame))

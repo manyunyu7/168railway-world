@@ -746,6 +746,8 @@ class NativeWorldActivity : Activity() {
 
     private fun openServices() {
         LineLook.redraw = { map.invalidate() }
+        LineVisibility.changed = { map.invalidate(); worldChanged = true }
+        LineVisibility.persist = { if (!closed && reference == null) writeSave() }
         LineStops.riders = { line, done -> (reference ?: handover.ghost ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
         ServicePanel.summary = { done -> (reference ?: handover.ghost ?: parked)?.lineSummary(map.trainTime(), done) ?: done(null) }
         ServicePanel.open(this, handle, clock, true, ::editPanel) { name ->
@@ -1226,8 +1228,8 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun chooseStation() {
-        val stations = map.stops.filter { it.id >= 0 }.sortedBy { it.name }
-        StationChooser.show(this, stations.map { it.id to it.name }, ::openStation)
+        StationList.show(this, map.stops.filter { it.id >= 0 }, map.centerPoint(),
+            { done -> (reference ?: handover.ghost ?: parked)?.lineSummary(map.trainTime(), done) ?: done(null) }, ::openStation)
     }
 
     private fun passengerLayers() {
@@ -2320,6 +2322,7 @@ class NativeWorldActivity : Activity() {
         var changed = false
         for (zone in visitedThisSession) if (CitySurface.visitViewport(candidate,homeCity,zone)) changed = true
         if (StudioAchievements.carry(handle,candidate)) changed = true
+        if (LineVisibility.carryTo(handle,candidate)) changed = true
         worldHomeSetting?.let {
             CitySurface.worldHome(candidate,if (it) 1 else 0)
             changed = true
@@ -3060,6 +3063,7 @@ internal class NetworkView(context: Context):View(context) {
         val r = radius/scale
         var best: Int? = null; var bestD = r
         for ((id, xy) in routeXY) {
+            if (id in LineVisibility.off) continue
             var i = 0
             while (i + 3 < xy.size) {
                 val ax = xy[i]; val ay = xy[i+1]; val bx = xy[i+2]; val by = xy[i+3]
@@ -3277,7 +3281,7 @@ internal class NetworkView(context: Context):View(context) {
                 if (bounds == null) railBounds = RectF(x,y,x,y) else bounds.union(x,y)
             }
         }
-        bands.load(data); rails.load(data)
+        bands.load(data); rails.load(data); LineVisibility.refresh(trainEngine())
         val routes=data.getJSONArray("routes")
         for(i in 0 until routes.length()) {
             val row=routes.getJSONObject(i);val points=row.getJSONArray("points")

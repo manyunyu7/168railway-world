@@ -41,6 +41,7 @@ mod train_arrivals;
 mod station_life;
 mod issue_text;
 mod line_bands;
+mod line_visibility;
 mod rail_detail;
 mod achievements;
 mod extras;

@@ -12,11 +12,15 @@ import org.json.JSONObject
  * 24 hours, its fares for the whole day, its running cost and upkeep, and its expected profit today
  * (`MoneyToday`, red at a loss); a group opens with its chevron to show its lines, each with its own
  * figures (`GroupFigures` adds them up). Sorted like the web's column heads, riders first.
+ * The eye beside the view toggle is the web's hide mode (LineVisibility.kt): on, each card, route
+ * and table row has its own eye to hide or show it on the map.
  */
 internal class LineList(
     private val host: Activity,
     private val currency: StudioCurrency,
     private val looks: Map<Int, JSONObject?>,
+    /** the world, for the lines hidden on the map; 0 shows no eyes */
+    private val handle: Long = 0L,
     private val pick: (Int) -> Unit,
 ) {
     val rows = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
@@ -102,8 +106,30 @@ internal class LineList(
     }
     private var sortBar: View? = null
 
-    /** Kartu | Tabel side by side (owner: "2 mode"), the one in use filled. */
+    /** Kartu | Tabel side by side (owner: "2 mode"), the one in use filled; before them the web's
+     * hide-mode eye ("Sembunyikan lini"; on, "Tampilkan semua lini" leaves it and shows every line). */
     fun modeToggle(changed: () -> Unit): View {
+        val pill = modes(changed)
+        if (handle == 0L) return pill
+        val row = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+        val eye = android.widget.ImageView(host).apply { scaleType = android.widget.ImageView.ScaleType.CENTER; isClickable = true }
+        fun paint() {
+            val on = LineVisibility.eyes
+            eye.background = StudioUi.pill(host, if (on) StudioUi.INK else 0x1422204a, 16)
+            eye.setImageDrawable(StudioUi.glyph(host, StudioUi.Icon.EYE, if (on) StudioUi.WHITE else StudioUi.INK))
+            eye.contentDescription = if (on) "Tampilkan semua lini" else "Sembunyikan lini"
+        }
+        eye.setOnClickListener {
+            if (LineVisibility.eyes) LineVisibility.showAll(handle) else LineVisibility.eyes = true
+            paint(); changed()
+        }
+        paint()
+        row.addView(eye, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(6) })
+        row.addView(pill, LinearLayout.LayoutParams(-2, -1))
+        return row
+    }
+
+    private fun modes(changed: () -> Unit): View {
         val view = LinearLayout(host).apply { background = StudioUi.pill(host, 0x1422204a, 16); setPadding(dp(3), dp(3), dp(3), dp(3)) }
         // icons only (owner: "pake icon aja"): cards and table
         val modeViews = listOf(Triple(false, "Kartu", StudioUi.Icon.CARDS), Triple(true, "Tabel", StudioUi.Icon.TABLE)).map { (isTable, label, icon) ->
@@ -205,6 +231,28 @@ internal class LineList(
         when { s.running -> null; s.status == "broken" -> "Rusak"; else -> "Belum beroperasi" },
     ).joinToString(" · ").ifEmpty { "Beroperasi" }
 
+    /** Lines hidden on the map, read once a render. */
+    private var hid: Set<Int> = emptySet()
+    private fun eyesOn() = handle != 0L && LineVisibility.eyes
+    private fun allHidden(group: List<JSONObject>) = group.all { it.getInt("id") in hid }
+
+    /** Web `VisToggle`: a row's eye, open while its lines are drawn; a group's is open while all
+     * are, and a tap on it shows them all once any is hidden. 48 dp to touch. */
+    private fun eye(group: List<JSONObject>, name: String, size: Int = 48): View {
+        val ids = group.map { it.getInt("id") }
+        val n = ids.count { it in hid }
+        return android.widget.ImageView(host).apply {
+            scaleType = android.widget.ImageView.ScaleType.CENTER
+            isClickable = true; isFocusable = true
+            background = StudioDepot.touch(host, 0, 14)
+            setImageDrawable(StudioUi.glyph(host, StudioUi.Icon.EYE, if (n == 0) StudioUi.INK else StudioUi.MUTED))
+            imageAlpha = when (n) { 0 -> 255; ids.size -> 90; else -> 170 }
+            contentDescription = (if (n == 0) "Sembunyikan " else "Tampilkan ") + name + " di peta"
+            setOnClickListener { LineVisibility.setHidden(handle, ids, n == 0); refresh() }
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+    }
+
     private fun card(groupKey: String, group: List<JSONObject>, title: String): View {
         val first = group.first()
         val color = ServicePanel.color(looks[first.getInt("id")])
@@ -227,6 +275,8 @@ internal class LineList(
                 else pick(first.getInt("id"))
             }
         }
+        if (eyesOn()) head.addView(eye(group, title))
+        if (allHidden(group)) card.alpha = .55f
         head.addView(LineLook.badge(host, first.getInt("id"), title, color, 36), LineLook.params(host, 36))
         val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
         body.addView(StudioUi.text(host, title, 14f, color = StudioUi.INK).apply {
@@ -251,6 +301,8 @@ internal class LineList(
                 contentDescription = "$name${if (stops.isNotEmpty()) ", $stops" else ""}, buka rincian"
                 setOnClickListener { pick(id) }
                 val top = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+                if (eyesOn()) top.addView(eye(listOf(route), name))
+                if (many && id in hid) alpha = .6f
                 val names = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
                 names.addView(StudioUi.text(host, name, 13.5f, true, StudioUi.INK).apply { maxLines = 1 })
                 if (stops.isNotEmpty()) names.addView(StudioUi.text(host, stops, 11.5f, true, StudioUi.MUTED).apply {
@@ -273,6 +325,7 @@ internal class LineList(
      * (both directions, variants) form one row. */
     fun show(found: List<JSONObject>, any: Boolean, clear: () -> Unit) {
         last = Triple(found, any, clear)
+        hid = LineVisibility.hiddenIds(handle)
         rows.removeAllViews()
         if (found.isEmpty() && any) {
             rows.addView(StudioUi.text(host, "Line tidak ditemukan.", 14f, true, StudioUi.MUTED).apply { setPadding(dp(4), dp(12), 0, dp(6)) })
@@ -354,6 +407,8 @@ internal class LineList(
                 contentDescription = "$name, ${s.riders?.let { StudioFormat.count(it) } ?: "—"} penumpang, laba ${if (s.money) usd(s.profit) else "—"}"
             }
             val nameCell = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
+            if (eyesOn()) { row.minimumHeight = dp(48); nameCell.addView(eye(g, name)) }
+            if (allHidden(g)) row.alpha = .55f
             nameCell.addView(LineLook.badge(host, first.getInt("id"), name, ServicePanel.color(looks[first.getInt("id")]), 22), LineLook.params(host, 22))
             nameCell.addView(StudioUi.text(host, short(name) + if (g.size > 1) " (${g.size})" else "", 12.5f, true, StudioUi.INK).apply {
                 // long names wrap to a second line instead of "…" (owner: "ganti baris aja")
@@ -369,7 +424,15 @@ internal class LineList(
                 val one = sum(listOf(route))
                 val sub = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(40); isClickable = true; setOnClickListener { pick(route.getInt("id")) } }
                 val label = route.getString("name").let { if (it == name) "Rute ${i + 1}" else it }
-                cell(sub, 0, "   ↳ $label", StudioUi.MUTED, true, false)
+                if (eyesOn()) {
+                    // the route's own eye, then its name, in the name column
+                    sub.minimumHeight = dp(48)
+                    val c0 = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), 0, 0, 0) }
+                    c0.addView(eye(listOf(route), label))
+                    c0.addView(StudioUi.text(host, label, 11.5f, true, StudioUi.MUTED).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+                    sub.addView(c0, LinearLayout.LayoutParams(0, -1, weights[0]))
+                } else cell(sub, 0, "   ↳ $label", StudioUi.MUTED, true, false)
+                if (route.getInt("id") in hid) sub.alpha = .6f
                 cell(sub, 1, if (known && one.riders != null) StudioFormat.count(one.riders!!) else "—", StudioUi.INK, false, true)
                 cell(sub, 2, if (known && one.money) money(one.profit) else "—", profitInk(one), false, true)
                 cell(sub, 3, if (known && one.running) one.trains.toInt().toString() else "—", StudioUi.INK, false, true)

@@ -32,6 +32,31 @@ pub(crate) fn riders_of(day: &[f64]) -> HashMap<u32, f64> {
     out
 }
 
+/// Each station's boardings in the past 24 hours from `TrackApi::past_day`'s layout, the stops of
+/// every rail line added up by station node (web game/today.ts `stationsToday`), in node order.
+/// Bus lines' stops are not stations and are left out.
+pub(crate) fn stations_of(api: &trainworld_sim::track::wasm::TrackApi, day: &[f64]) -> Vec<(u32, f64)> {
+    let mut out: std::collections::BTreeMap<u32, f64> = Default::default();
+    let mut at = 1;
+    for _ in 0..day.first().copied().unwrap_or(0.) as usize {
+        let Some(head) = day.get(at..at + 7) else { break };
+        let (id, n, spans) = (head[0] as u32, head[1] as usize, head[6] as usize);
+        let from = at + 7 + 2 * spans;
+        at += 15 + 2 * spans + n;
+        if api.world().net.is_bus(id) {
+            continue;
+        }
+        let (stops, Some(board)) = (api.line_stops(id), day.get(from..from + n)) else { continue };
+        if stops.len() != n {
+            continue;
+        }
+        for (node, b) in stops.into_iter().zip(board) {
+            *out.entry(node).or_default() += b;
+        }
+    }
+    out.into_iter().collect()
+}
+
 /// Running cost over the 24 hours before `now`, each hour's `hour_cost(epoch)` (US$M an hour) by
 /// the part of it inside them (web `runningToday`).
 pub(crate) fn past_day_running(now: f64, hour_cost: impl Fn(f64) -> f64) -> f64 {
@@ -57,7 +82,9 @@ pub(crate) fn summary(
     running: impl Fn(u32) -> f64,
 ) -> Value {
     let api = &world.api;
-    let riders = riders_of(&api.past_day(now));
+    let day = api.past_day(now);
+    let riders = riders_of(&day);
+    let stations: Vec<Value> = stations_of(api, &day).into_iter().map(|(n, b)| json!([n, b])).collect();
     let shares = api.line_upkeep(&LEVEL_HOURS);
     let upkeep: HashMap<u32, f64> = shares
         .chunks_exact(2)
@@ -86,7 +113,7 @@ pub(crate) fn summary(
             json!({"id": id, "status": status, "riders": ridden, "trains": trains, "money": money})
         })
         .collect();
-    json!({"lines": lines, "riders": total})
+    json!({"lines": lines, "riders": total, "stations": stations})
 }
 
 #[cfg(test)]
@@ -134,6 +161,12 @@ mod tests {
         let stops: f64 = rows["stops"].as_array().unwrap().iter().map(|r| r["today"].as_f64().unwrap_or(0.)).sum();
         assert!(riders > 0. && (riders - stops).abs() < 1e-6 * riders.max(1.), "{riders} {stops}");
         assert_eq!(v["riders"].as_f64().unwrap(), riders);
+        // each station's boardings: the stops' figures by node, adding up to the line's riders
+        let st = v["stations"].as_array().unwrap();
+        let nodes = world.api.line_stops(0);
+        assert!(!st.is_empty() && st.iter().all(|r| nodes.contains(&(r[0].as_u64().unwrap() as u32))));
+        let boarded: f64 = st.iter().map(|r| r[1].as_f64().unwrap()).sum();
+        assert!((boarded - riders).abs() < 1e-6 * riders.max(1.), "{boarded} {riders}");
         let money = &line["money"];
         let up = money["upkeep"].as_f64().unwrap();
         assert!(up > 0., "a running line pays a share of its track's upkeep");
