@@ -186,73 +186,60 @@
   .launch .start-new:active:not(:disabled) { transform: none; }
 }
 
-/* ---- 2026-11-25: option D, the launcher as one card in the middle of the dotted ground ----
-   strip (the commuter lines and the loco) across the top, the map as a framed box on the left,
-   the sign-in / games / new game sheet on the right */
-.start-menu.launch-menu { display: grid; place-items: center; padding: 24px; overflow: auto;
+/* ---- 2026-11-25: option D, signed in only (the guest keeps the full-window launcher above): the menu and the
+   new game sheet as one card in the middle of the dotted ground, the commuter lines and the loco across its top,
+   the map as a framed box on the left, the games or the sheet on the right. StartMenu.tsx `.launch.is-card` */
+.start-menu.launch-menu:has(> .launch.is-card) { display: grid; place-items: center; padding: 24px; overflow: auto;
   background-color: color-mix(in srgb, var(--bg) 93%, var(--accent));
   background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 15%, transparent) 1px, transparent 1.5px);
   background-size: 18px 18px; }
-.start-menu.launch-menu > .launch { position: relative; inset: auto; width: min(1120px, 100%); height: min(860px, calc(100dvh - 48px));
+.start-menu.launch-menu > .launch.is-card { position: relative; inset: auto; width: min(1120px, 100%); height: min(860px, calc(100dvh - 48px));
   display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(380px, .8fr); grid-template-rows: 84px minmax(0, 1fr);
   grid-template-areas: "strip strip" "stage side"; border-radius: 28px; overflow: hidden; background: var(--bg);
   border: 1px solid var(--rule); box-shadow: 0 5px 0 color-mix(in srgb, var(--text) 11%, var(--bg)), 0 18px 50px rgb(20 49 39 / 14%); }
 .launch-strip { grid-area: strip; position: relative; overflow: hidden; background: #103e32; }
-.launch-strip .railway-brand { margin: 0; background: #103e32; }
 /* the art keeps its own shape (400 x 108) at the strip's right end, the name on the plain left */
-.launch-strip .railway-brand { display: flex; justify-content: flex-end; height: 100%; }
+.launch-strip .railway-brand { margin: 0; background: #103e32; display: flex; justify-content: flex-end; height: 100%; }
 .launch-strip .railway-brand-lines { width: auto; height: 84px; aspect-ratio: 400 / 108; }
 .launch-strip-name { position: absolute; left: 22px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 10px;
   padding: 6px 14px 6px 6px; border-radius: 14px; background: #103e32; color: #fff; font-size: 21px; font-weight: 900; letter-spacing: -.4px; }
 .launch-strip-name strong { color: #94e74e; font-weight: inherit; }
 .launch-strip-name .railway-mark { width: 36px; height: 36px; border-radius: 10px; }
-.launch .launch-stage { grid-area: stage; margin: 20px 0 20px 20px; border-radius: 20px; border: 1px solid var(--rule); }
-.launch .launch-side, .launch-guest .launch-side, .launch-new .launch-side { grid-area: side; width: auto; border-right: 0; padding: 20px 26px 18px; gap: 14px; }
+.is-card .launch-stage { grid-area: stage; margin: 20px 0 20px 20px; border-radius: 20px; border: 1px solid var(--rule); }
+.is-card .launch-side { grid-area: side; width: auto; border-right: 0; padding: 20px 26px 18px; gap: 14px; }
 /* the strip names the game: the side's own brand row keeps only the account button */
-.launch .launch-brand .railway-mark, .launch .launch-brand .launch-brand-name { display: none; }
-.launch .launch-brand { min-height: 0; justify-content: flex-end; }
-.launch .launch-brand:not(:has(.start-top)) { display: none; }
-.launch-guest .launch-side { padding-inline: 30px; gap: 16px; }
-.launch-intro { margin-top: 0; gap: 8px; }
-.launch-headline { font-size: 32px; letter-spacing: -1px; }
-.launch-sub { font-size: 15px; }
-.launch-cards { display: none; }
-.launch-chips { left: 16px; right: 16px; top: 16px; gap: 6px; }
-.launch-chips li { padding: 6px 12px; font-size: 13px; }
-.launch-panel { left: 14px; right: 14px; bottom: 14px; padding: 16px 18px; gap: 12px; border-radius: 18px; max-height: calc(100% - 80px); }
-.launch-panel-title { font-size: 24px; }
-.launch .launch-play { min-height: 52px; padding-inline: 22px; font-size: 16px; }
-.launch-stats { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
-.launch-stat { padding: 9px 11px; }
-.launch-stat strong { font-size: 17px; }
-.launch .start-update { left: 14px; top: 14px; max-width: calc(100% - 28px); font-size: 13px; padding: 4px 4px 4px 12px; }
-.launch-stage-thumb { padding-top: 62px; }
-.launch-stage-thumb .save-thumb, .launch-stage-thumb.on-base .save-thumb { height: min(240px, calc(100% - 360px)); min-height: 120px; border-width: 6px; }
-.launch-games-head h1 { font-size: 22px; }
-.launch .launch-game .save-thumb { width: 84px; height: 56px; }
-.launch-scenario .launch-panel-title { font-size: 22px; }
-.launch .new-game-scenario img { height: 50px; }
-.launch .new-game-scenario span { padding: 6px 9px 8px; }
-.launch .new-game-jabo-head .muted { display: none; }
-.launch .new-game-scenarios { gap: 8px; }
+.is-card .launch-brand .railway-mark, .is-card .launch-brand .launch-brand-name { display: none; }
+.is-card .launch-brand { min-height: 0; justify-content: flex-end; }
+.is-card .launch-panel { left: 14px; right: 14px; bottom: 14px; padding: 16px 18px; gap: 12px; border-radius: 18px; max-height: calc(100% - 80px); }
+.is-card .launch-panel-title { font-size: 24px; }
+.is-card .launch-play { min-height: 52px; padding-inline: 22px; font-size: 16px; }
+.is-card .launch-stats { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.is-card .launch-stat { padding: 9px 11px; }
+.is-card .launch-stat strong { font-size: 17px; }
+.is-card .start-update { left: 14px; top: 14px; max-width: calc(100% - 28px); font-size: 13px; padding: 4px 4px 4px 12px; }
+.is-card .launch-stage-thumb { padding-top: 62px; }
+.is-card .launch-stage-thumb .save-thumb, .is-card .launch-stage-thumb.on-base .save-thumb { height: min(240px, calc(100% - 360px)); min-height: 120px; border-width: 6px; }
+.is-card .launch-games-head h1 { font-size: 22px; }
+.is-card .launch-game .save-thumb { width: 84px; height: 56px; }
+.is-card .launch-scenario .launch-panel-title { font-size: 22px; }
+.is-card .new-game-scenario img { height: 50px; }
+.is-card .new-game-scenario span { padding: 6px 9px 8px; }
+.is-card .new-game-jabo-head .muted { display: none; }
+.is-card .new-game-scenarios { gap: 8px; }
+.is-card.launch-new .launch-side { gap: 10px; padding-top: 16px; }
+.is-card.launch-new .new-game { gap: 10px; }
 
 @media (max-width: 860px) {
-  .start-menu.launch-menu { display: block; padding: 0; }
-  .start-menu.launch-menu > .launch { width: 100%; height: auto; min-height: 100%; display: flex; flex-direction: column;
+  .start-menu.launch-menu:has(> .launch.is-card) { display: block; padding: 0; }
+  .start-menu.launch-menu > .launch.is-card { width: 100%; height: auto; min-height: 100%; display: flex; flex-direction: column;
     border-radius: 0; border: 0; box-shadow: none; }
   .launch-strip { flex: none; height: 60px; order: -2; }
   .launch-strip .railway-brand-lines { height: 60px; }
-  .launch-panel { zoom: 1; width: auto; left: auto; right: auto; bottom: auto; }
   .launch-strip-name { left: 12px; font-size: 17px; }
   .launch-strip-name .railway-mark { width: 30px; height: 30px; }
-  .launch .launch-stage { order: -1; margin: 12px 12px 0; border-radius: 18px; border: 0; overflow: visible; }
-  .launch-stage-img, .launch-stage-thumb { height: 220px; border-radius: 18px; overflow: hidden; }
-  .launch-guest .launch-stage { height: 220px; }
-  .launch-new .launch-stage { height: 180px; }
-  .launch-new .launch-stage-img { height: 180px; }
-  .launch-guest .launch-side, .launch-new .launch-side { margin-top: 0; border-radius: 0; }
-  .launch-panel { margin: 150px 0 0; }
-  .launch-chips { top: auto; bottom: 12px; }
+  .is-card .launch-stage { order: -1; margin: 12px 12px 0; border-radius: 18px; border: 0; overflow: visible; }
+  .is-card .launch-stage-img, .is-card .launch-stage-thumb { height: 220px; border-radius: 18px; overflow: hidden; }
+  .is-card.launch-new .launch-stage, .is-card.launch-new .launch-stage-img { height: 180px; }
+  .is-card.launch-new .launch-side { margin-top: 0; border-radius: 0; }
+  .is-card .launch-panel { zoom: 1; width: auto; left: auto; right: auto; bottom: auto; margin: 150px 0 0; }
 }
-.launch-new .launch-side { gap: 10px; padding-top: 16px; }
-.launch-new .new-game { gap: 10px; }

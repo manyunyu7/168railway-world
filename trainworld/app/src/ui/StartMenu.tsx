@@ -142,7 +142,6 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
   };
   // 168Railway launcher (2026-11 redesign, option A): the sign-in on the left, Jabodetabek's map as the stage
   return <div class="launch launch-guest">
-      <LaunchStrip />
     <section class="launch-side guest-gate">
     <LaunchBrand />
     <div class="launch-intro">
@@ -371,7 +370,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
   const shownCard = shown ? (shown.top.kind === "slot" ? shown.top.slot : cardOf(shown.top.game)) : null;
   const scenTip = view.tab === "real" ? t(`newGame.jaboTip.${view.jabo}` as MessageKey) : t("newGame.blankStageTip");
   return <div class="start-menu launch-menu" role="dialog" aria-modal="true" aria-labelledby="start-title">
-    {guest ? <GuestGate first={first} onIn={() => { setGuest(false); void listSlots().then(setSlots, () => {}); }} /> : sheet ? <div class="launch launch-new">
+    {guest ? <GuestGate first={first} onIn={() => { setGuest(false); void listSlots().then(setSlots, () => {}); }} /> : sheet ? <div class="launch launch-new is-card">
       <LaunchStrip />
       <section class="launch-side new-game-box">
         <div class="launch-titlebar">
@@ -390,7 +389,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
           <p>{scenTip}</p>
         </div>
       </div>
-    </div> : <div class="launch launch-home">
+    </div> : <div class="launch launch-home is-card">
       <LaunchStrip />
       <section class="launch-side">
         <LaunchBrand><div class="start-top"><AccountButton kind="start" /></div></LaunchBrand>
