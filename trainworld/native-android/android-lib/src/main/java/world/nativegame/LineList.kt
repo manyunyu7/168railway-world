@@ -22,14 +22,43 @@ internal class LineList(
     val rows = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
     /** line_summary.rs's answer, null while there is none (no running simulation). */
     var figures: JSONObject? = null
-        set(value) {
+        set(incoming) {
+            // While the riders are worked out again (a new day's demand, an edit) the answer comes back
+            // empty or with lines' figures missing: keep showing the last ones instead of dashes.
+            val value = keepLast(field ?: lastFigures, incoming)
             field = value
+            if (value != null) lastFigures = value
             byId = buildMap {
                 val ls = value?.optJSONArray("lines") ?: return@buildMap
                 for (i in 0 until ls.length()) ls.optJSONObject(i)?.let { put(it.optInt("id"), it) }
             }
         }
     private var byId: Map<Int, JSONObject> = emptyMap()
+    companion object {
+        /** The last figures shown, so a list opened while the riders are being counted starts with them. */
+        private var lastFigures: JSONObject? = null
+        /** Forget them when another world opens. */
+        fun forget() { lastFigures = null }
+
+        private fun has(f: JSONObject?) = f != null && !f.isNull("riders") && f.has("riders")
+        internal fun keepLast(old: JSONObject?, now: JSONObject?): JSONObject? {
+            if (old == null) return now
+            if (now == null) return old
+            val before = buildMap { old.optJSONArray("lines")?.let { ls -> for (i in 0 until ls.length()) ls.optJSONObject(i)?.let { put(it.optInt("id"), it) } } }
+            val lines = now.optJSONArray("lines") ?: return old
+            var any = false
+            for (i in 0 until lines.length()) {
+                val f = lines.optJSONObject(i) ?: continue
+                val was = before[f.optInt("id")] ?: continue
+                if (f.optString("status") != "running" || was.optString("status") != "running") continue
+                if (!has(f) && has(was)) { f.put("riders", was.get("riders")); any = true }
+                if (f.optJSONObject("money") == null && was.optJSONObject("money") != null) { f.put("money", was.getJSONObject("money")); any = true }
+            }
+            if ((now.isNull("riders") || !now.has("riders")) && has(old)) { now.put("riders", old.get("riders")); any = true }
+            if (any) now.put("stale", true)
+            return now
+        }
+    }
     val totalRiders: Double? get() = figures?.optDouble("riders")?.takeIf { it.isFinite() }
 
     private enum class Key(val label: String, val first: Int) { RIDERS("Penumpang", -1), MONEY("Laba", -1), TRAINS("Armada", -1), NEW("Terbaru", -1), NAME("Nama", 1) }

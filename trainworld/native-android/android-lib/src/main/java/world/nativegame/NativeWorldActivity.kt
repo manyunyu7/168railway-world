@@ -180,6 +180,7 @@ class NativeWorldActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LineList.forget()
         if (intent.hasExtra("archiveSlot") && archiveSlot == null) {
             Toast.makeText(this, "Dunia ini tidak tersedia untuk akun aktif.", Toast.LENGTH_LONG).show()
             finish()
