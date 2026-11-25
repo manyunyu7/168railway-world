@@ -13,6 +13,26 @@ use trainworld_sim::{
     track::frame::{Frame, FrameKind},
 };
 
+/// Stage timings of the calling thread, for `open_bench` (no-ops outside tests).
+#[cfg(test)]
+pub(super) mod prof {
+    use std::{cell::RefCell, time::Instant};
+    thread_local! { pub static LOG: RefCell<Option<(Instant, Vec<(String, f64)>)>> = const { RefCell::new(None) }; }
+    pub fn start() { LOG.with_borrow_mut(|l| *l = Some((Instant::now(), vec![]))); }
+    pub fn mark(name: &str) {
+        LOG.with_borrow_mut(|l| if let Some((t, v)) = l.as_mut() {
+            v.push((name.into(), t.elapsed().as_secs_f64() * 1e3));
+            *t = Instant::now();
+        });
+    }
+    pub fn take() -> Vec<(String, f64)> { LOG.with_borrow_mut(|l| l.take().map(|x| x.1).unwrap_or_default()) }
+}
+#[cfg(not(test))]
+mod prof {
+    #[inline(always)]
+    pub fn mark(_: &str) {}
+}
+
 const ATTRACTIONS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/attractions.bin"));
 
 fn attractions(city: &str, frame: &Frame) -> Vec<f32> {
@@ -49,39 +69,292 @@ fn commute(
     Ok(solve(save, packs, &[period], market_input, None, None, None)?.remove(0))
 }
 
-// Each population sees the same frozen load. The summation between barriers stays ordered.
+type Everyday = trainworld_sim::demand::everyday::EverydayApi;
+type Intercity = trainworld_sim::demand::intercity::IntercityApi;
+type Slots = Vec<(
+    trainworld_sim::demand::api::CommuteSlot,
+    trainworld_sim::demand::everyday::EverydaySlot,
+)>;
+
+/// How far the forecast of the clock's open (`SimulationEngine.openProgress`) has come, 0 to 1, as
+/// f32 bits: the populations' rounds done over all of them, the setup before and the account after
+/// each a small part.
+static OPEN_PROGRESS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// The share of the open before the periods' rounds start (files, the solvers and the market).
+const SETUP_SHARE: f32 = 0.1;
+/// The share of the open after the rounds (the account).
+const ACCOUNT_SHARE: f32 = 0.05;
+thread_local! {
+    /// Whether this thread's solve is the clock's open, which reports into `OPEN_PROGRESS`.
+    static REPORT_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+/// Runs `f` (the clock's open on this thread) with its solve reporting into `OPEN_PROGRESS`,
+/// from 0 to 1.
+pub(super) fn reporting_open<R>(f: impl FnOnce() -> R) -> R {
+    set_open_progress(0.);
+    REPORT_OPEN.set(true);
+    struct Done;
+    impl Drop for Done {
+        fn drop(&mut self) {
+            REPORT_OPEN.set(false);
+        }
+    }
+    let _done = Done;
+    let r = f();
+    set_open_progress(1.);
+    r
+}
+pub(super) fn open_progress() -> f32 {
+    f32::from_bits(OPEN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed))
+}
+pub(super) fn set_open_progress(f: f32) {
+    OPEN_PROGRESS.store(f.clamp(0., 1.).to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+/// Counts the rounds of a solve into `OPEN_PROGRESS` (only the clock's forecast reports one).
+struct Rounds {
+    done: std::sync::atomic::AtomicUsize,
+    total: usize,
+    report: bool,
+}
+impl Rounds {
+    fn tick(&self) {
+        let done = self.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        if self.report && self.total > 0 {
+            let f = done.min(self.total) as f32 / self.total as f32;
+            set_open_progress(SETUP_SHARE + (1. - SETUP_SHARE - ACCOUNT_SHARE) * f);
+        }
+    }
+}
+
+/// At most `permits` populations' passes at once (the device's cores, up to 8), however many
+/// periods run: the threads beyond wait rather than share the cores and hold their working memory.
+struct Gate {
+    free: std::sync::Mutex<usize>,
+    freed: std::sync::Condvar,
+}
+impl Gate {
+    fn new(permits: usize) -> Self {
+        Gate { free: std::sync::Mutex::new(permits.max(1)), freed: std::sync::Condvar::new() }
+    }
+    fn run<R>(&self, f: impl FnOnce() -> R) -> R {
+        let mut free = self.free.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *free == 0 {
+            free = self.freed.wait(free).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *free -= 1;
+        drop(free);
+        struct Back<'a>(&'a Gate);
+        impl Drop for Back<'_> {
+            fn drop(&mut self) {
+                *self.0.free.lock().unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
+                self.0.freed.notify_one();
+            }
+        }
+        let _back = Back(self);
+        f()
+    }
+}
+/// The threads a solve works its periods on: the device's cores, at most 8.
+fn solve_threads() -> usize {
+    #[cfg(test)]
+    if let Some(n) = std::env::var("WORLD_SOLVE_THREADS").ok().and_then(|v| v.parse().ok()) {
+        return n;
+    }
+    std::thread::available_parallelism().map_or(1, |n| n.get()).min(8)
+}
+
+/// One round of the regional market's period `.0` (round `.1` on the frozen loads `.2`), asked of
+/// the thread holding the market; it answers whether the round went and the market's loads after
+/// it (segments, boardings, alightings).
+type MarketAsk = (usize, usize, Vec<f32>, std::sync::mpsc::Sender<(bool, Vec<f32>)>);
+
+/// Round `round` of one period's populations (each city's commuters, then its everyday outings,
+/// and the market), all on the same frozen load `load`; the market's loads after it, empty without
+/// a market. The commuters run here and the outings beside them, as the web's workers do.
+#[allow(clippy::too_many_arguments)]
 fn advance(
-    cities: &mut [(DemandApi, trainworld_sim::demand::everyday::EverydayApi)],
-    market: Option<&mut trainworld_sim::demand::intercity::IntercityApi>,
+    cities: &[(DemandApi, Everyday)],
+    slots: &mut Slots,
+    market: Option<&std::sync::mpsc::Sender<MarketAsk>>,
+    gate: &Gate,
     period: usize,
     round: usize,
     load: &[f32],
-) -> bool {
-    let (work, outings): (Vec<_>, Vec<_>) = cities.iter_mut().map(|(s, e)| (s, e)).unzip();
-    std::thread::scope(|scope| {
-        let commuters = scope.spawn(move || {
-            work.into_iter().all(|s| match round {
-                0 => s.solve(period),
-                4 => s.cap_with_external(period, load),
-                _ => s.crowd_with_external(period, load),
+) -> Option<Vec<f32>> {
+    let answer = market.map(|ask| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let sent = ask.send((period, round, load.to_vec(), tx)).is_ok();
+        (sent, rx)
+    });
+    let (work, outings): (Vec<_>, Vec<_>) = slots.iter_mut().map(|(c, e)| (c, e)).unzip();
+    let (a, b) = std::thread::scope(|scope| {
+        let everyday = scope.spawn(|| {
+            gate.run(|| {
+                cities.iter().zip(outings).all(|((_, e), s)| match round {
+                    0 => e.solve_slot(s),
+                    4 => e.cap_slot(s, load),
+                    _ => e.crowd_slot(s, load),
+                })
             })
         });
-        let everyday = scope.spawn(move || {
-            outings.into_iter().all(|s| match round {
-                0 => s.solve(period),
-                4 => s.cap_with_external(period, load),
-                _ => s.crowd_with_external(period, load),
+        let a = gate.run(|| {
+            cities.iter().zip(work).all(|((c, _), s)| match round {
+                0 => c.solve_slot(s),
+                4 => c.cap_slot(s, load),
+                _ => c.crowd_slot(s, load),
             })
         });
-        let regional = market.is_none_or(|s| match round {
-            0 => s.solve(period),
-            4 => s.cap_with_external(period, load),
-            _ => s.crowd_with_external(period, load),
-        });
-        let a = commuters.join().unwrap_or(false);
-        let b = everyday.join().unwrap_or(false);
-        a && b && regional
-    })
+        (a, everyday.join().unwrap_or(false))
+    });
+    let regional = match answer {
+        None => Some(vec![]),
+        Some((true, rx)) => rx.recv().ok().and_then(|(ok, loads)| ok.then_some(loads)),
+        Some((false, _)) => None,
+    };
+    (a && b).then_some(regional?)
+}
+
+/// What one period's rounds leave for its accounts: the boardings before crowding, those of the
+/// last crowding round, and its populations' slots.
+struct PeriodRun {
+    free_board: Vec<f32>,
+    rounds_board: Vec<f32>,
+}
+
+/// Period `period`'s rounds, as the web's worker runs them: the free-flow solve, three crowding
+/// rounds and the capacity cut, every population seeing the same frozen load each round.
+fn run_period(
+    cities: &[(DemandApi, Everyday)],
+    slots: &mut Slots,
+    market: Option<&std::sync::mpsc::Sender<MarketAsk>>,
+    gate: &Gate,
+    rounds: &Rounds,
+    period: usize,
+) -> Result<PeriodRun, String> {
+    let Some(mut regional) = advance(cities, slots, market, gate, period, 0, &[]) else {
+        return Err("Periode perjalanan tidak tersedia".into());
+    };
+    rounds.tick();
+    // Match the web worker's three rounds: freeze the combined loads before advancing
+    // either population, since each shares the same seats and boarding capacity.
+    let mut free_board = Vec::new();
+    let mut rounds_board = Vec::new();
+    for round in 0..=3 {
+        let mut frozen = Vec::<f32>::new();
+        for (work, outings) in slots.iter() {
+            let combined = work.loads().map_or(vec![], |l| l.concat());
+            let everyday = outings.loads().map_or(vec![], |l| l.concat());
+            if frozen.is_empty() {
+                frozen.resize(combined.len(), 0.);
+            }
+            if combined.len() != frozen.len() || everyday.len() != frozen.len() {
+                return Err("Susunan ruas perjalanan berbeda".into());
+            }
+            for ((total, a), b) in frozen.iter_mut().zip(combined).zip(everyday) {
+                *total += a;
+                *total += b;
+            }
+        }
+        if market.is_some() {
+            if regional.len() != frozen.len() {
+                return Err("Susunan jaringan regional berbeda".into());
+            }
+            for (f, x) in frozen.iter_mut().zip(&regional) {
+                *f += x;
+            }
+        }
+        let nodes = frozen.len() / 3;
+        let board = &frozen[nodes..2 * nodes];
+        if round == 0 {
+            free_board.extend_from_slice(board);
+        }
+        if round == 3 {
+            // The web accounts for passengers who would have boarded without crowding.
+            let arrivals = free_board
+                .iter()
+                .zip(board)
+                .map(|(free, last)| free.max(*last))
+                .collect::<Vec<_>>();
+            rounds_board.extend_from_slice(board);
+            free_board = arrivals;
+            frozen.extend(&free_board);
+            if advance(cities, slots, market, gate, period, 4, &frozen).is_none() {
+                return Err("Susunan kapasitas akhir berbeda".into());
+            }
+            rounds.tick();
+            break;
+        }
+        let Some(next) = advance(cities, slots, market, gate, period, round + 1, &frozen) else {
+            return Err("Perhitungan kapasitas tidak tersedia".into());
+        };
+        rounds.tick();
+        regional = next;
+    }
+    Ok(PeriodRun { free_board, rounds_board })
+}
+
+/// Every period of `periods` run at once (`run_period`, the populations' passes held to
+/// `solve_threads` at a time), the market's rounds on this thread, which holds it; each period's
+/// result in `periods`' order. Each population's figures are those of the periods run one after
+/// the other to the bit: a period's rounds read only its own state and the same frozen loads.
+fn run_periods(
+    cities: &mut [(DemandApi, Everyday)],
+    mut market: Option<&mut Intercity>,
+    periods: &[usize],
+    report: bool,
+) -> Vec<(Result<PeriodRun, String>, Slots)> {
+    let gate = Gate::new(solve_threads());
+    let rounds = Rounds {
+        done: 0.into(),
+        total: 5 * periods.len(),
+        report,
+    };
+    let mut held: Vec<Slots> = periods
+        .iter()
+        .map(|&q| {
+            cities
+                .iter_mut()
+                .map(|(c, e)| (c.take_period(q), e.take_period(q)))
+                .collect()
+        })
+        .collect();
+    let shared: &[(DemandApi, Everyday)] = cities;
+    let (gate, rounds) = (&gate, &rounds);
+    let runs = std::thread::scope(|scope| {
+        let (ask, asked) = std::sync::mpsc::channel::<MarketAsk>();
+        let has_market = market.is_some();
+        let workers: Vec<_> = periods
+            .iter()
+            .zip(held.iter_mut())
+            .map(|(&q, slots)| {
+                let ask = has_market.then(|| ask.clone());
+                std::thread::Builder::new()
+                    .name(format!("forecast-{q}"))
+                    .spawn_scoped(scope, move || run_period(shared, slots, ask.as_ref(), gate, rounds, q))
+            })
+            .collect();
+        drop(ask);
+        // the market's rounds, in the order the periods ask for them, until every period is done
+        if let Some(m) = market.as_deref_mut() {
+            for (q, round, load, answer) in asked {
+                let ok = match round {
+                    0 => m.solve(q),
+                    4 => m.cap_with_external(q, &load),
+                    _ => m.crowd_with_external(q, &load),
+                };
+                let loads = if ok && round < 4 { [m.seg(q), m.board(q), m.alight(q)].concat() } else { vec![] };
+                let _ = answer.send((ok, loads));
+            }
+        }
+        workers
+            .into_iter()
+            .map(|w| match w {
+                Ok(w) => w.join().unwrap_or_else(|_| Err("Perhitungan perjalanan terputus".into())),
+                Err(e) => Err(e.to_string()),
+            })
+            .collect::<Vec<_>>()
+    });
+    runs.into_iter().zip(held).collect()
 }
 /// The trip rows' zone meaning every local zone of the solve (the opened cities of a world, each
 /// zone's rows in turn, all in the one world frame once packed).
@@ -238,6 +511,7 @@ fn solve(
     // the zone whose trip rows to write, and whether with each filter purpose's (`trip_cells`)
     cells: Option<TripRows>,
 ) -> Result<Vec<Value>, String> {
+    prof::mark("before solve");
     let world = World::open(save).ok_or("Simpanan tidak dapat dibaca")?;
     let first = packs.first().ok_or("Paket kota tidak tersedia")?;
     let fares = super::fares::Fares::read(&world.header["fares"], &first.country);
@@ -256,6 +530,7 @@ fn solve(
             ),
         ));
     }
+    prof::mark("solve: open save + install streets");
     let nodes = api.nodes_info();
     let mut coords: HashMap<u32, (f64, f64)> = nodes
         .chunks_exact(10)
@@ -438,8 +713,10 @@ fn solve(
     if span.iter().all(|&v| v == 1.) {
         span.clear();
     }
-    let mut cities = Vec::new();
-    for (pack, (id, frame)) in packs.iter().zip(frames.iter().cloned()) {
+    prof::mark("solve: network arrays");
+    let header = &world.header;
+    // each city's two populations, built on a thread of its own while this one opens the market
+    let build = |pack: &LocalPack, id: String, frame: Frame| -> Result<(DemandApi, Everyday), String> {
         let project = |points: &[f64]| -> Vec<f32> {
             points
                 .chunks_exact(2)
@@ -464,7 +741,7 @@ fn solve(
             &pack.cells,
             &sites,
         )?;
-        let local = &super::fares::Fares::read(&world.header["fares"], &pack.country).local;
+        let local = &super::fares::Fares::read(&header["fares"], &pack.country).local;
         let wallet = scalar(local, "weight");
         solver.set_fare_weight(wallet)?;
         outings.set_fare_weight(wallet)?;
@@ -500,9 +777,12 @@ fn solve(
         solver.set_transfer_fare(transfer)?;
         outings.set_transfer_fare(transfer)?;
         outings.set_ferry(&ferry)?;
-        cities.push((solver, outings));
-    }
-    let mut market = if let Some((index, drives, zones)) = market_input {
+        Ok((solver, outings))
+    };
+    let open_market = || -> Result<Option<Intercity>, String> {
+        let Some((index, drives, zones)) = market_input else {
+            return Ok(None);
+        };
         let mut m = super::regional::open(index, drives, zones)?;
         let regional = &fares.market;
         m.set_fare_weight(scalar(regional, "weight"))?;
@@ -519,10 +799,25 @@ fn solve(
         m.set_fare_mul(&rate_mul)?;
         m.set_base_mul(&base_mul)?;
         m.set_fare_curve(&to_curve(regional))?;
-        Some(m)
-    } else {
-        None
+        Ok(Some(m))
     };
+    let (cities, market) = std::thread::scope(|scope| {
+        let build = &build;
+        let builders: Vec<_> = packs
+            .iter()
+            .zip(frames.iter().cloned())
+            .map(|(pack, (id, frame))| scope.spawn(move || build(pack, id, frame)))
+            .collect();
+        let market = open_market();
+        let cities = builders
+            .into_iter()
+            .map(|b| b.join().unwrap_or_else(|_| Err("Perhitungan perjalanan terputus".into())))
+            .collect::<Result<Vec<_>, String>>();
+        (cities, market)
+    });
+    let mut cities = cities?;
+    let mut market = market?;
+    prof::mark("solve: city solvers and market (parallel)");
     if let Some(account) = account.as_deref_mut() {
         account.set_layout(
             &packs
@@ -549,74 +844,28 @@ fn solve(
             }
         }
     }
+    prof::mark("solve: account layout");
+    if REPORT_OPEN.get() {
+        set_open_progress(SETUP_SHARE);
+    }
+    let runs = run_periods(&mut cities, market.as_mut(), periods, REPORT_OPEN.get());
+    prof::mark("solve: periods' rounds (parallel)");
+    // Each period is accounted for as when the periods were solved in turn: the populations hold
+    // it and the periods before it that were kept, none after it (`transfers_day` reads them all).
+    let mut later: Vec<_> = periods
+        .iter()
+        .map(|&q| market.as_mut().map(|m| m.take_period(q)))
+        .collect();
     let mut results = Vec::new();
-    for &period in periods {
-        if !advance(&mut cities, market.as_mut(), period, 0, &[]) {
-            return Err("Periode perjalanan tidak tersedia".into());
+    for ((&period, (run, slots)), held) in periods.iter().zip(runs).zip(later.iter_mut()) {
+        for ((work, outings), (c, e)) in cities.iter_mut().zip(slots) {
+            work.put_period(c);
+            outings.put_period(e);
         }
-        // Match the web worker's three rounds: freeze the combined loads before advancing
-        // either population, since each shares the same seats and boarding capacity.
-        let mut free_board = Vec::new();
-        let mut rounds_board = Vec::new();
-        for round in 0..=3 {
-            let mut frozen = Vec::<f32>::new();
-            for (solver, outings) in &cities {
-                let combined = [
-                    solver.seg(period),
-                    solver.board(period),
-                    solver.alight(period),
-                ]
-                .concat();
-                let everyday = [
-                    outings.seg(period),
-                    outings.board(period),
-                    outings.alight(period),
-                ]
-                .concat();
-                if frozen.is_empty() {
-                    frozen.resize(combined.len(), 0.);
-                }
-                if combined.len() != frozen.len() || everyday.len() != frozen.len() {
-                    return Err("Susunan ruas perjalanan berbeda".into());
-                }
-                for ((total, a), b) in frozen.iter_mut().zip(combined).zip(everyday) {
-                    *total += a;
-                    *total += b;
-                }
-            }
-            if let Some(m) = market.as_mut() {
-                let loads = [m.seg(period), m.board(period), m.alight(period)].concat();
-                if loads.len() != frozen.len() {
-                    return Err("Susunan jaringan regional berbeda".into());
-                }
-                for (f, x) in frozen.iter_mut().zip(loads) {
-                    *f += x;
-                }
-            }
-            let nodes = frozen.len() / 3;
-            let board = &frozen[nodes..2 * nodes];
-            if round == 0 {
-                free_board.extend_from_slice(board);
-            }
-            if round == 3 {
-                // The web accounts for passengers who would have boarded without crowding.
-                let arrivals = free_board
-                    .iter()
-                    .zip(board)
-                    .map(|(free, last)| free.max(*last))
-                    .collect::<Vec<_>>();
-                rounds_board.extend_from_slice(board);
-                free_board = arrivals;
-                frozen.extend(&free_board);
-                if !advance(&mut cities, market.as_mut(), period, 4, &frozen) {
-                    return Err("Susunan kapasitas akhir berbeda".into());
-                }
-                break;
-            }
-            if !advance(&mut cities, market.as_mut(), period, round + 1, &frozen) {
-                return Err("Perhitungan kapasitas tidak tersedia".into());
-            }
+        if let (Some(m), Some(slot)) = (market.as_mut(), held.take()) {
+            m.put_period(slot);
         }
+        let PeriodRun { free_board, rounds_board } = run?;
         let mut work = [0.; 14];
         let mut other = [0.; 14];
         let mut boardings = 0.;
@@ -682,6 +931,7 @@ fn solve(
             }
         }
     }
+    prof::mark("solve: summaries + account periods");
     match cells {
         Some(TripRows::Into(id, by_purpose, out)) => {
             *out = zone_trip_rows(id, by_purpose, &frames, &cities, market.as_ref())?;
@@ -954,6 +1204,7 @@ impl Inputs {
             let header: Value = serde_json::from_str(&pack.header).map_err(|e| e.to_string())?;
             super::city_surface::install_streets(&mut world.api, &header, &pack.cells);
         }
+        prof::mark("solved: install streets (editor world)");
         let running = world.api.world().svc.lines.iter().any(|s| s.running);
         if !running && !cells {
             return Ok(None);
@@ -1045,6 +1296,7 @@ impl Inputs {
         String,
     > {
         let forecast = self.forecast(save, world)?;
+        prof::mark("after forecast");
         let costs = super::operating::Costs::with_prices(&mut world.api, &forecast.run_prices());
         let clock = world.header["clock"].as_f64().ok_or("Jam tidak valid")?;
         let upkeep = self.geo.upkeep(&mut world.api);
@@ -1052,6 +1304,7 @@ impl Inputs {
             super::timed_account::Account::new(&forecast, &mut world.api, clock, &costs, upkeep);
         account.extras = crate::extras::Daily::new(&world.header, &world.api, &forecast);
         world.operating = Some(costs);
+        prof::mark("account: costs + timed account + extras");
         Ok((account, forecast))
     }
 
@@ -1089,6 +1342,10 @@ pub extern "system" fn Java_world_nativegame_NativeRidership_estimate(
         .map_or(std::ptr::null_mut(), |s| s.into_raw())
 }
 #[cfg(test)]
+mod legacy;
+#[cfg(test)]
+mod open_bench;
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -1120,7 +1377,7 @@ mod tests {
     }
     /// A small synthetic zone pack `id` with its frame's origin at `lon`, `lat`: its header (with
     /// the everyday layer's jobs) and cells.
-    fn zone_pack(id: &str, lon: f64, lat: f64) -> (String, Vec<u8>) {
+    pub(super) fn zone_pack(id: &str, lon: f64, lat: f64) -> (String, Vec<u8>) {
         use trainworld_sim::demand::pack;
         let (mut x, mut y, mut pop, mut jobs, mut h3) = (vec![], vec![], vec![], vec![], vec![]);
         for i in 0..15 {
@@ -1147,7 +1404,7 @@ mod tests {
         (h.to_string(), bin)
     }
     /// A workshop save with one running service.
-    fn served_save() -> Vec<u8> {
+    pub(super) fn served_save() -> Vec<u8> {
         let mut w = World::workshop();
         let t = w.header["clock"].as_f64().unwrap();
         w.build_service([0., 0.], [3500., 600.], "Hudson", t).unwrap();

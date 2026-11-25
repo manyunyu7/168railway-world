@@ -1038,6 +1038,7 @@ use logsum::*;
 pub use costs::*;
 pub use build::*;
 pub use api::*;
+pub use exports::MarketSlot;
 
 #[cfg(test)]
 mod tests;

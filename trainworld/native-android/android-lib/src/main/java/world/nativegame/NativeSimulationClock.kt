@@ -35,6 +35,8 @@ internal object SimulationEngine {
     external fun supportsEditor(editor: Long): Boolean
     external fun open(snapshot: ByteArray, ms: Long): Long
     external fun openNetwork(snapshot: ByteArray, manifest: String, ms: Long): Long
+    /** How far the openNetwork running now has come, 0..1 (its forecast's rounds done); callable from any thread. */
+    external fun openProgress(): Float
     external fun loads(id: Long, time: Double): IntArray?
     external fun play(id: Long, ms: Long, rate: Double): Boolean
     external fun pause(id: Long, ms: Long): Boolean

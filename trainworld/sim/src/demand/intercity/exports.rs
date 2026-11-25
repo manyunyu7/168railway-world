@@ -126,6 +126,25 @@ impl IntercityApi {
         out
     }
 }
+/// Period `q`'s result held apart from the market (`IntercityApi::take_period`): Android's clock
+/// accounts for its periods one after the other, each with the market holding the periods up to it
+/// as when they were solved in turn.
+pub struct MarketSlot {
+    q: usize,
+    st: Option<Period>,
+}
+impl IntercityApi {
+    /// Period `q`'s result taken out of the market (none where `q` is not a period).
+    pub fn take_period(&mut self, q: usize) -> MarketSlot {
+        MarketSlot { q, st: self.per.get_mut(q).and_then(Option::take) }
+    }
+    /// A slot `take_period` gave back in its place.
+    pub fn put_period(&mut self, slot: MarketSlot) {
+        if let Some(p) = self.per.get_mut(slot.q) {
+            *p = slot.st;
+        }
+    }
+}
 impl IntercityApi {
     /// `solve`, at free flow or (T-1735) at the crowding the loads `crowd` give.
     pub(super) fn solve_at(&mut self, q: usize, crowd: Option<&[f32]>) -> bool {

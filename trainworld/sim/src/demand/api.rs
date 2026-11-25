@@ -605,7 +605,7 @@ pub struct DemandApi {
     /// T-1543 (`set_part`): the part of the origins `solve` covers, part k of n; (0, 1) all.
     pub(crate) part: (u32, u32),
     /// T-2365: the day's commutes by length (`len_base`), worked out on first use.
-    len_base: std::cell::OnceCell<LenBase>,
+    len_base: std::sync::OnceLock<LenBase>,
 }
 
 /// T-2496: heap bytes by structure (`demand::mem`).
@@ -823,6 +823,55 @@ impl DemandApi {
     }
 }
 
+/// A period's state held apart from its population (`DemandApi::take_period`), so that the
+/// periods of one population can advance on threads of their own: each thread owns its period's
+/// slot and they all read the population (Android's clock, which solves the five periods at once).
+/// The results are those of `solve`, `crowd_with_external` and `cap_with_external` to the bit.
+pub struct CommuteSlot {
+    q: usize,
+    st: Option<Period>,
+}
+
+impl CommuteSlot {
+    /// The period's riders on the segment leaving, boarding at and leaving the train at each route
+    /// node (`seg`, `board`, `alight`); None before it is solved.
+    pub fn loads(&self) -> Option<[&[f32]; 3]> {
+        self.st.as_ref().map(|st| [&st.avg.seg[..], &st.avg.rn_board[..], &st.avg.rn_alight[..]])
+    }
+}
+
+impl DemandApi {
+    /// Runs `f` on period `q`'s state taken out of `per` and puts it back; false for no such period.
+    fn with_period(&mut self, q: usize, f: impl FnOnce(&Self, &mut Option<Period>) -> bool) -> bool {
+        let Some(mut slot) = self.per.get_mut(q).map(Option::take) else { return false };
+        let ok = f(self, &mut slot);
+        self.per[q] = slot;
+        ok
+    }
+    /// Period `q`'s state taken out of this population (none where `q` is not a period).
+    pub fn take_period(&mut self, q: usize) -> CommuteSlot {
+        CommuteSlot { q, st: self.per.get_mut(q).and_then(Option::take) }
+    }
+    /// A slot `take_period` gave back in its place.
+    pub fn put_period(&mut self, slot: CommuteSlot) {
+        if let Some(p) = self.per.get_mut(slot.q) {
+            *p = slot.st;
+        }
+    }
+    /// `solve` of the slot's period.
+    pub fn solve_slot(&self, slot: &mut CommuteSlot) -> bool {
+        slot.q < PERIODS && self.solve_into(slot.q, &mut slot.st)
+    }
+    /// `crowd_with_external` of the slot's period.
+    pub fn crowd_slot(&self, slot: &mut CommuteSlot, total: &[f32]) -> bool {
+        self.crowd_into(slot.q, &mut slot.st, total)
+    }
+    /// `cap_with_external` of the slot's period.
+    pub fn cap_slot(&self, slot: &mut CommuteSlot, total: &[f32]) -> bool {
+        self.cap_into(slot.q, &mut slot.st, total)
+    }
+}
+
 /// Readers of a solved period for tests and the bins; not exported to the app.
 impl DemandApi {
     pub(crate) fn period(&self, q: usize) -> Option<&Period> {
@@ -1005,7 +1054,7 @@ impl DemandApi {
         self.unr_work = ns.unr_work;
         self.gr = Arc::new(gr);
         self.reusable = false;
-        self.len_base = std::cell::OnceCell::new();
+        self.len_base = std::sync::OnceLock::new();
     }
     /// Commutes with no rail between zones within `WALK_FINE_R` squares, by the straight-line
     /// distance of six cell pairs a zone pair (`walk_points`; bands `WALK_BANDS_KM`, then beyond):
@@ -1098,7 +1147,7 @@ impl DemandApi {
             reusable: false,
             lod: self.lod,
             part: (0, 1),
-            len_base: std::cell::OnceCell::new(),
+            len_base: std::sync::OnceLock::new(),
         }
     }
     /// The home weights access and subzones are built on (`with_weights`).
@@ -1240,7 +1289,7 @@ impl DemandApi {
         let (home_k, work_k) = zone_trip_factors(&city, &z, &gr, gravity_from_pack);
         // read only above; z and gr hold what the solves need of it (T-1611)
         city.gravity = None;
-        Ok(DemandApi { city: Arc::new(city), z: Arc::new(z), gr: Arc::new(gr), weights: None, base, nr, walk_all, walk_home_zone: ns.walk_home, walk_work_zone: ns.walk_work, unr_all, unr_home: ns.unr_home, unr_work: ns.unr_work, home_k, work_k, svc: None, sz: None, want: vec![], od_st: vec![], od_at: vec![], per: (0..PERIODS).map(|_| None).collect(), fare_per_km: 0.0, fare_km: vec![], fare_mul: vec![], base_mul: vec![], fare_curve: vec![], open_ms: now_ms() - t0, complex_in: vec![], ups_in: vec![], passages_in: vec![], span_in: vec![], bus_in: (vec![], vec![]), tram_in: vec![], back_in: vec![], terms_in: Terms::default(), same: 0, layout_same: false, reusable: false, lod: Lod::of(lod::FINE)?, part: (0, 1), len_base: std::cell::OnceCell::new() })
+        Ok(DemandApi { city: Arc::new(city), z: Arc::new(z), gr: Arc::new(gr), weights: None, base, nr, walk_all, walk_home_zone: ns.walk_home, walk_work_zone: ns.walk_work, unr_all, unr_home: ns.unr_home, unr_work: ns.unr_work, home_k, work_k, svc: None, sz: None, want: vec![], od_st: vec![], od_at: vec![], per: (0..PERIODS).map(|_| None).collect(), fare_per_km: 0.0, fare_km: vec![], fare_mul: vec![], base_mul: vec![], fare_curve: vec![], open_ms: now_ms() - t0, complex_in: vec![], ups_in: vec![], passages_in: vec![], span_in: vec![], bus_in: (vec![], vec![]), tram_in: vec![], back_in: vec![], terms_in: Terms::default(), same: 0, layout_same: false, reusable: false, lod: Lod::of(lod::FINE)?, part: (0, 1), len_base: std::sync::OnceLock::new() })
     }
 
     /// `new` at a level of detail (T-1222, `lod::FINE` or `lod::COARSE`): the commute chunks
@@ -1548,6 +1597,11 @@ impl DemandApi {
 
     /// The free-flow first estimate for period `q` (SPEC 4.4). False if there is no network.
     pub fn solve(&mut self, q: usize) -> bool {
+        self.with_period(q, |s, slot| s.solve_into(q, slot))
+    }
+
+    /// `solve` into `slot`, period `q`'s state held apart (`CommuteSlot`).
+    fn solve_into(&self, q: usize, slot: &mut Option<Period>) -> bool {
         let t0 = now_ms();
         let Some(svc) = &self.svc else { return false };
         if q >= PERIODS {
@@ -1571,7 +1625,7 @@ impl DemandApi {
         let walk0 = if self.part.0 == 0 { walk0 } else { 0.0 };
         let unr0 = if self.part.0 == 0 { self.unr_all * p.period_share as f64 } else { 0.0 };
         let unr = unr0 - sub.unr_rail();
-        self.per[q] = Some(Period { net, p, g, avg, rail, rail_d, len, walk: walk0 - rail_walk, unr, trips, round: 0, ms: now_ms() - t0, pairs, sub, fac: no_crowding, uniform: true, seen: vec![], xi, xfer, part: self.part });
+        *slot = Some(Period { net, p, g, avg, rail, rail_d, len, walk: walk0 - rail_walk, unr, trips, round: 0, ms: now_ms() - t0, pairs, sub, fac: no_crowding, uniform: true, seen: vec![], xi, xfer, part: self.part });
         true
     }
 
@@ -1635,17 +1689,22 @@ impl DemandApi {
     /// per route node, then the boardings and then the alightings per route node (riders left
     /// behind, T-188, `kernel::round_costs`); the segment loads alone price crowding only.
     pub fn crowd_with_external(&mut self, q: usize, total: &[f32]) -> bool {
-        let Some(Some(st)) = self.per.get(q) else { return false };
+        self.with_period(q, |s, slot| s.crowd_into(q, slot, total))
+    }
+
+    /// `crowd_with_external` on `slot`, period `q`'s state held apart (`CommuteSlot`).
+    fn crowd_into(&self, q: usize, slot: &mut Option<Period>, total: &[f32]) -> bool {
+        let Some(st) = slot.as_ref() else { return false };
         let Some((fac, left)) = round_costs(&st.g, &st.net, &st.p, total) else { return false };
         let t0 = now_ms();
-        let Some(mut st) = self.per.get_mut(q).and_then(|p| p.take()) else { return false };
+        let Some(mut st) = slot.take() else { return false };
         if self.sz.is_some() {
             if settled(&mut st.seen, &total[..st.g.rn_line.len()]) || (st.uniform && fac == st.fac && left == st.g.rn_left) {
                 // The period's loads have settled (T-434), or nothing is crowded enough to change a
                 // cost, so this round would solve what the round before did (T-119).
                 st.round += 1;
                 st.ms = now_ms() - t0;
-                self.per[q] = Some(st);
+                *slot = Some(st);
                 return true;
             }
             set_crowding(&mut st.g, &fac);
@@ -1680,7 +1739,7 @@ impl DemandApi {
             st.round += 1;
         }
         st.ms = now_ms() - t0;
-        self.per[q] = Some(st);
+        *slot = Some(st);
         true
     }
 
@@ -1690,7 +1749,12 @@ impl DemandApi {
     /// the riders coming to each platform; those turned away go by car or on foot as the pair's
     /// other riders do. False if `q` has no solve or `total` another layout.
     pub fn cap_with_external(&mut self, q: usize, total: &[f32]) -> bool {
-        let Some(Some(st)) = self.per.get_mut(q) else { return false };
+        self.with_period(q, |s, slot| s.cap_into(q, slot, total))
+    }
+
+    /// `cap_with_external` on `slot`, period `q`'s state held apart (`CommuteSlot`).
+    fn cap_into(&self, q: usize, slot: &mut Option<Period>, total: &[f32]) -> bool {
+        let Some(st) = slot.as_mut() else { return false };
         let Some(fit) = capacity_fit(&st.g, &st.net, &st.p, total) else { return false };
         let Some(sz) = self.sz.as_ref() else { return true };
         if !fit.any {
