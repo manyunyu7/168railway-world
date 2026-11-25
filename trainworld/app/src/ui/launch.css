@@ -19,6 +19,11 @@
 .launch-stage-thumb .save-thumb { width: auto; height: min(480px, calc(100% - 400px)); min-height: 160px; aspect-ratio: 3 / 2; max-width: calc(100% - 64px);
   border: 6px solid #fff; border-radius: 20px; box-shadow: 0 12px 40px rgb(16 62 50 / 22%); }
 .launch-stage-thumb .save-thumb img { object-fit: contain; }
+/* a city with a base map: the map fills the stage, the game's card sits on it at about its own size (crisp) */
+.launch-stage-thumb.on-base { background: var(--map-land, #e6eee2); }
+.launch-stage-base { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.launch-stage-thumb .save-thumb { position: relative; }
+.launch-stage-thumb.on-base .save-thumb { height: min(330px, calc(100% - 430px)); border-width: 8px; box-shadow: 0 18px 50px rgb(16 62 50 / 32%); }
 
 /* brand row */
 .launch-brand { display: flex; align-items: center; gap: 10px; min-height: 44px; }
@@ -73,12 +78,12 @@
 .launch-games-head h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -.5px; }
 .launch-new-btn svg { width: 15px; height: 15px; stroke-width: 2.6; }
 .launch-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; margin: 0 -10px; padding: 2px 10px; }
-.launch-games.start-saves { gap: 4px; }
-.launch .launch-game { align-items: center; gap: 12px; padding: 7px; border: 2px solid transparent; border-radius: 16px; background: transparent; }
-.launch .launch-game:hover { background: var(--tint); border-color: transparent; }
+.launch-games.start-saves { gap: 10px; }
+.launch .launch-game { align-items: center; gap: 14px; padding: 8px; border: 2px solid var(--rule); border-radius: 18px; background: var(--bg); box-shadow: 0 2px 0 var(--rule); }
+.launch .launch-game:hover { background: var(--tint); border-color: color-mix(in srgb, var(--rail-green) 45%, var(--rule)); }
 .launch .launch-game.on { background: color-mix(in srgb, var(--rail-green) 10%, var(--bg)); border-color: var(--rail-green); }
 .launch .launch-game { flex-direction: row; }
-.launch .launch-game .save-thumb { width: 76px; height: 58px; aspect-ratio: auto; border-radius: 10px; border: 0; }
+.launch .launch-game .save-thumb { width: 96px; height: 64px; aspect-ratio: auto; border-radius: 12px; border: 0; }
 .launch .launch-game .save-info { padding-right: 0; }
 .launch .launch-game .save-thumb .thumb-label { display: none; }
 .launch .launch-game .save-thumb.empty { font-size: 10px; }
@@ -95,6 +100,11 @@
 .launch-panel-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .launch-panel-title { margin: 0; font-size: 32px; line-height: 1.1; font-weight: 900; letter-spacing: -1px; color: #fff; overflow-wrap: anywhere; }
 .launch-panel-title .save-sandbox { font-size: 12px; vertical-align: middle; margin-left: 10px; }
+.launch-where { margin: 2px 0 0; font-size: 14px; }
+.launch-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; }
+.launch-stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 14px; background: var(--stage-card); min-width: 0; }
+.launch-stat span { font-size: 12px; font-weight: 700; color: var(--stage-muted); }
+.launch-stat strong { font-size: 21px; font-weight: 900; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .launch-facts { display: flex; flex-direction: column; gap: 2px; }
 .launch-facts .muted, .launch-panel .muted { color: var(--stage-muted); }
 .launch-facts .small { font-size: 14px; }
@@ -160,6 +170,10 @@
   .launch-panel-top { flex-direction: column; align-items: stretch; gap: 14px; }
   .launch-panel-title { font-size: 24px; }
   .launch .launch-play { width: 100%; }
+  .launch-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .launch-stat { padding: 8px 10px; }
+  .launch-stat strong { font-size: 16px; }
+  .launch-stage-thumb.on-base .save-thumb { height: 150px; border-width: 4px; }
   .launch .start-update { left: 12px; top: 12px; max-width: calc(100% - 24px); font-size: 12px; }
   .launch-new .launch-stage { height: 200px; min-height: 0; }
   .launch-new .launch-stage-img { height: 220px; }

@@ -119,6 +119,22 @@ export function SlotFacts({ slot, now, autosaved, mark, unsaved }: { slot: SaveS
 /** A saved game's name, with a mark when it is a sandbox (T-728) or a copy of a shared network (T-3115); also the
  * start menu's. While the account keeps games (T-988), a cloud marks a game only on the account and a crossed cloud
  * one only in this browser. `panel`: the saves panel's, where that crossed cloud adds the game to the account. */
+/** 168Railway launcher: a saved game's figures as tiles, and where and when it was saved (StartMenu.tsx) */
+export function SlotStats({ slot }: { slot: SaveSlot }) {
+  if (slot.unreadable) return null;
+  const played = slot.key ? gameSeconds(slot.key) : undefined;
+  const tiles: [string, ComponentChildren][] = [[t("launch.statDay"), String(slot.day)]];
+  if (slot.lines !== undefined) tiles.push([t("launch.statLines"), String(slot.lines)]);
+  if (slot.stations !== undefined) tiles.push([t("launch.statStations"), String(slot.stations)]);
+  if (slot.mode !== "sandbox" && slot.cash !== undefined) tiles.push([t("launch.statCash"), <Money dollars={slot.cash * 1e6} />]);
+  if (played !== undefined) tiles.push([t("launch.statPlayed"), playedText(played)]);
+  return <div class="launch-stats">{tiles.map(([k, v]) => <div class="launch-stat"><span>{k}</span><strong class="num">{v}</strong></div>)}</div>;
+}
+export function SlotWhere({ slot, now }: { slot: SaveSlot; now: number }) {
+  const cities = cityList(slot.cities ?? []);
+  return <span>{savedWhen(slot.at, now)}{cities ? <> · {cities}</> : null}</span>;
+}
+
 export function SlotTitle({ slot, panel }: { slot: SaveSlot; panel?: boolean }) {
   return <strong>{slot.name}{slot.mode === "sandbox" && <span class="save-sandbox small" data-tip={t("savesPanel.sandboxTip")}>{t("savesPanel.sandbox")}</span>}
     {slot.copy && <span class="save-sandbox small" data-tip={t("savesPanel.copyMarkTip")}>{t("savesPanel.copyMark")}</span>}<CloudMark slot={slot} panel={panel} /></strong>;

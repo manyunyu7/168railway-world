@@ -28,7 +28,7 @@ import { newGameEnd, setStartAt } from "./locate";
 
 import { AccountButton, startAccountUi } from "./AccountPanel";
 import { LanguageSelect } from "./LanguageSelect";
-import { DeleteAsk, pickSaveFile, savedWhen, SlotFacts, SlotThumb, SlotTitle, useBackups, VersionsLine, type VersionActions } from "./SavesPanel";
+import { DeleteAsk, pickSaveFile, savedWhen, SlotFacts, SlotStats, SlotWhere, SlotThumb, SlotTitle, useBackups, VersionsLine, type VersionActions } from "./SavesPanel";
 import { Icon } from "./widgets";
 import { Changelog } from "./Changelog";
 import { CommunityButton } from "./Community";
@@ -182,7 +182,7 @@ function GuestGate({ first, onIn }: { first: { current: HTMLButtonElement | null
     </div>
     </section>
     <div class="launch-stage">
-      <img class="launch-stage-img" src="./snapshots/jak.jpg" width={600} height={350} alt={t("startMenu.guestSnapAlt")} />
+      <StageSnap id="jak" alt={t("startMenu.guestSnapAlt")} eager />
       <ul class="launch-chips">
         <li class="krl">KRL · GAPEKA 2026</li><li class="mrt">MRT</li><li class="lrt">LRT</li><li class="tj">TransJakarta</li>
       </ul>
@@ -203,10 +203,29 @@ function LaunchBrand({ children }: { children?: ComponentChildren }) {
   </div>;
 }
 
-/** The stage behind the launcher's panel: a saved game's own picture, else a snapshot */
-function StageImage({ slot, src }: { slot?: ReturnType<typeof cardOf> | SaveSlot | null; src?: string }) {
-  if (slot?.thumb) return <div class="launch-stage-img launch-stage-thumb"><SlotThumb slot={slot} /></div>;
-  return <img class="launch-stage-img" src={src ?? "./snapshots/jak.jpg"} width={600} height={350} alt="" />;
+/** the stage's pictures in two sizes (`snapshots/hd/<id>-1200.webp`, `-2100.webp`); the 600 px card picture
+ * (`snapshots/<id>.jpg`, cached already for the cards) is the phone's and the fallback */
+const HD_SNAPS = new Set(["jak", "jak_mulai", "jak_2019", "jak_krl", "jak_tj", "jak_bogor", "base-jak"]);
+const STAGE_SIZES = "(max-width: 860px) 100vw, calc(100vw - 440px)";
+function StageSnap({ id, alt = "", eager = false, class: cls = "launch-stage-img" }: { id: string; alt?: string; eager?: boolean; class?: string }) {
+  const card = id.startsWith("base-") ? null : `./snapshots/${id}.jpg`;
+  const hd = HD_SNAPS.has(id);
+  const srcSet = hd ? [card && `${card} 600w`, `./snapshots/hd/${id}-1200.webp 1200w`, `./snapshots/hd/${id}-2100.webp 2100w`].filter(Boolean).join(", ") : undefined;
+  return <img class={cls} src={card ?? `./snapshots/hd/${id}-1200.webp`} srcset={srcSet} sizes={hd ? STAGE_SIZES : undefined}
+    width={2100} height={1500} alt={alt} decoding="async" {...{ fetchpriority: eager ? "high" : "auto" }} />;
+}
+
+/** cities with a plain base map for the stage (`snapshots/hd/base-<city>.jpg`, no network on it) */
+const STAGE_BASES = new Set(["jak"]);
+/** The stage behind the launcher's panel: a saved game's own picture as a framed card, over its city's base map
+ * when there is one; else the Jabodetabek snapshot */
+function StageImage({ slot }: { slot?: ReturnType<typeof cardOf> | SaveSlot | null }) {
+  if (!slot?.thumb) return <StageSnap id="jak" eager />;
+  const base = slot.cities?.find((c) => STAGE_BASES.has(c));
+  return <div class={"launch-stage-img launch-stage-thumb" + (base ? " on-base" : "")}>
+    {base && <StageSnap id={`base-${base}`} class="launch-stage-base" eager />}
+    <SlotThumb slot={slot} />
+  </div>;
 }
 
 function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest: guest0 = false }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void>; guest?: boolean }) {
@@ -353,7 +372,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
         <NewGameSheet heading={false} back={false} tab={sheetTab} onView={setView} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
       </section>
       <div class="launch-stage">
-        <img class="launch-stage-img" src={view.tab === "real" ? `./snapshots/${view.jabo}.jpg` : "./snapshots/indo.jpg"} width={600} height={350} alt="" />
+        <StageSnap id={view.tab === "real" ? view.jabo : "base-jak"} />
         <div class="launch-panel launch-scenario">
           <span class="launch-kicker">{view.tab === "real" ? t("newGame.tabReal") : t("newGame.tabBlank")}</span>
           <strong class="launch-panel-title">{view.tab === "real" ? t(`newGame.jabo.${view.jabo}` as MessageKey) : t("newGame.tabBlank")}</strong>
@@ -409,10 +428,13 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
             <div class="launch-panel-text">
               <span class="launch-kicker">{shown === resume ? t("launch.lastPlayed") : t("launch.games")}</span>
               <h2 class="launch-panel-title"><SlotTitle slot={shownCard} /></h2>
-              <div class="launch-facts"><SlotFacts slot={shownCard} now={now} /></div>
+              <p class="launch-where muted"><SlotWhere slot={shownCard} now={now} /></p>
             </div>
             <button class="btn start-new launch-play railway-resume" onClick={() => openCard(shownCard)}><Icon.play1 />{t("railway.continue")}</button>
           </div>
+          <SlotStats slot={shownCard} />
+          {/* a damaged or refused copy says so, as the saves panel does */}
+          {(shownCard.damaged || shownCard.unreadable || shownCard.cloud?.error) && <div class="launch-facts"><SlotFacts slot={shownCard} now={now} /></div>}
           {memWarn?.key === shownCard.key && <MemoryWarn stations={memWarn.stations} onGo={() => { setMemWarn(null); void open(shownCard.key); }} onCancel={() => setMemWarn(null)} />}
           <div class="launch-panel-actions">
             <VersionsLine group={shown} now={now} act={actions(shown)} />
