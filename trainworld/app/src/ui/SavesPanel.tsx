@@ -40,7 +40,7 @@ import { tPlace } from "../i18n/places";
 export const savesOpen = signal(false);
 
 /** "Saved just now", "Saved 4 min ago", "Saved today at 14:05", "Saved Oct 12 at 14:05"; "Autosaved" for the game being played. */
-function savedWhen(at: number, now: number, auto = false): string {
+export function savedWhen(at: number, now: number, auto = false): string {
   const min = Math.floor((now - at) / 60000);
   if (min < 1) return t("savesPanel.savedNow", { auto });
   if (min < 60) return t("savesPanel.savedMinutes", { auto, count: min });

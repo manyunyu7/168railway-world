@@ -11,6 +11,8 @@ const worldQuery = requested && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 export const HOST_LOGIN = "/api/web/studio/login" + (worldQuery ? "?" + worldQuery : "");
 
 export async function checkHostAuth(waitMs = 4000): Promise<HostAuth> {
+  // dev server: `?guest=1` shows the guest gate, for checking its layout
+  if (import.meta.env.DEV && new URLSearchParams(location.search).get("guest") === "1") return "out";
   if (!PUBLISHED || typeof fetch === "undefined") return "in";
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), waitMs);

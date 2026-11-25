@@ -32,7 +32,9 @@ const REAL_NETWORKS = new Set<string>(realNetworks);
  * the Red (Bogor) and Brown (Tangerang) KRL lines with TransJakarta, then `jak`, the whole network (KRL from GAPEKA 2026,
  * MRT, LRT, Kalayang, TransJakarta BRT 1-14). */
 const JABO_SCENARIOS = ["jak_mulai", "indo", "jak", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
-type JaboScenario = (typeof JABO_SCENARIOS)[number];
+export type JaboScenario = (typeof JABO_SCENARIOS)[number];
+/** 168Railway launcher: which start the sheet shows, for the map stage beside it (StartMenu.tsx) */
+export type NewGameView = { tab: "real" | "blank"; jabo: JaboScenario };
 const MAX_HITS = 8;
 
 function countryOf(c: City): string {
@@ -146,7 +148,9 @@ async function realNetwork(id: string): Promise<ArrayBuffer> {
 }
 
 /** The sheet. `onStart` gets the new game, with its real network downloaded when chosen. */
-export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (spec: NewGameSpec) => void; onBack: () => void; heading?: boolean }) {
+export function NewGameSheet({ onStart, onBack, heading = true, tab: tab0 = "real", onView, back = true }: { onStart: (spec: NewGameSpec) => void; onBack: () => void; heading?: boolean; tab?: NewGameView["tab"]; onView?: (v: NewGameView) => void; back?: boolean }) {
+  // 168Railway launcher: the real networks and the empty map on two tabs
+  const [tab, setTab] = useState<NewGameView["tab"]>(tab0);
   const [mode, setMode] = useState<GameMode>("normal");
   // T-2123: New York is lit to begin with (the first suggestion); Choose on map is the world start
   const [start, setStart] = useState<string | null>(START_CITIES[0]);
@@ -172,6 +176,7 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
   const city = startId ? cityById(startId) : null;
   const realOffered = mode === "sandbox" && !!startId && REAL_NETWORKS.has(startId);
   const [jabo, setJabo] = useState<JaboScenario>("jak_mulai");
+  useEffect(() => { onView?.({ tab, jabo }); }, [tab, jabo]);
   // T-3225: the real networks by name, for the sandbox's list
   const realCities = useMemo(() => [...REAL_NETWORKS].filter((id) => isCity(id)).map((id) => cityById(id))
     .sort((a, b) => shown(a).localeCompare(shown(b))), []);
@@ -233,21 +238,27 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
         {modeBtn("normal", t("newGame.normal"), undefined, first)}
         {modeBtn("sandbox", t("newGame.sandbox"), t("newGame.sandboxTip"))}
       </div>
-      {/* 168Railway: carry on Jabodetabek's network as it runs, the lead offer */}
-      <div class="new-game-jabo">
+      <div class="new-game-tabs" role="tablist">
+        <button role="tab" class={"btn" + (tab === "real" ? " on" : "")} aria-selected={tab === "real"} onClick={() => setTab("real")}>{t("newGame.tabReal")}</button>
+        <button role="tab" class={"btn" + (tab === "blank" ? " on" : "")} aria-selected={tab === "blank"} onClick={() => setTab("blank")}>{t("newGame.tabBlank")}</button>
+      </div>
+      {/* 168Railway: carry on Jabodetabek's network as it runs, the lead offer: one card per scenario */}
+      {tab === "real" && <div class="new-game-jabo">
         <div class="new-game-jabo-head">
           <strong>{t("newGame.jaboTitle")}</strong>
           <span class="muted small">{t("newGame.jaboNote")}</span>
         </div>
-        <img class="new-game-jabo-snap" src={`./snapshots/${jabo}.jpg`} width={600} height={350} alt={t(`newGame.jabo.${jabo}` as MessageKey)} />
-        <label class="purpose-filter">
-          <select aria-label={t("newGame.jaboScenario")} value={jabo} onChange={(e) => setJabo((e.target as HTMLSelectElement).value as JaboScenario)}>
-            {JABO_SCENARIOS.map((id) => <option value={id}>{t(`newGame.jabo.${id}` as MessageKey)}</option>)}
-          </select>
-        </label>
-        <span class="muted small">{t(`newGame.jaboTip.${jabo}` as MessageKey)}</span>
+        <div class="new-game-scenarios" role="radiogroup" aria-label={t("newGame.jaboScenario")}>
+          {JABO_SCENARIOS.map((id) => (
+            <button type="button" role="radio" aria-checked={jabo === id} class={"new-game-scenario" + (jabo === id ? " on" : "")} data-scenario={id} onClick={() => setJabo(id)}>
+              <img src={`./snapshots/${id}.jpg`} width={600} height={350} alt="" loading="lazy" />
+              <span>{t(`newGame.jabo.${id}` as MessageKey)}</span>
+            </button>
+          ))}
+        </div>
+        <span class="muted small new-game-jabo-tip">{t(`newGame.jaboTip.${jabo}` as MessageKey)}</span>
         <button class="btn text start-new new-game-jabo-start" disabled={busy} onClick={() => void go(jabo)}>{t("newGame.jaboStart")}</button>
-      </div>
+      </div>}
       {/* 168Railway: the money's currency, Rupiah first (display only, as the setting: the game counts US$) */}
       <div class="new-game-real new-game-currency">
         <span>{t("settingsTab.currency")}</span>
@@ -258,7 +269,7 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
           </select>
         </label>
       </div>
-      <div class="new-game-where">
+      {tab === "blank" && <div class="new-game-where">
         <span class="start-head">{t("newGame.orBuild")}</span>
         <div class="new-game-cities">
           {START_CITIES.map((id) => (
@@ -286,9 +297,9 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
         </ul>}
         <span class="new-game-or muted small">{t("newGame.or")}</span>
         <button class={"btn text new-game-map" + (!startId && !located ? " on" : "")} aria-pressed={!startId && !located} onClick={() => pick(null)}>{t("newGame.chooseOnMap")}</button>
-      </div>
+      </div>}
       {/* T-3225: one list of every city with a real network; picking one makes it the start */}
-      {mode === "sandbox" && realCities.length > 0 && <div class="new-game-real" data-tip={realOffered && real ? t("newGame.realTip", { city: shown(city!) }) : undefined}>
+      {tab === "blank" && mode === "sandbox" && realCities.length > 0 && <div class="new-game-real" data-tip={realOffered && real ? t("newGame.realTip", { city: shown(city!) }) : undefined}>
         <span>{t("newGame.realNetwork")}</span>
         <label class={"purpose-filter" + (realOffered && real ? " on" : "")}>
           <select aria-label={t("newGame.realNetwork")} value={realOffered && real ? startId! : ""} onChange={(e) => {
@@ -304,8 +315,8 @@ export function NewGameSheet({ onStart, onBack, heading = true }: { onStart: (sp
       </div>}
       {error && <p class="callout bad">{error}</p>}
       <div class="pane-foot new-game-foot">
-        <button class="btn text start-new new-game-start" disabled={busy} onClick={() => void go()}>{city ? t("newGame.startInCity", { city: shown(city) }) : t("newGame.start")}</button>
-        <button class="btn text" onClick={onBack}>{t("newGame.back")}</button>
+        {tab === "blank" && <button class="btn text start-new new-game-start" disabled={busy} onClick={() => void go()}>{city ? t("newGame.startInCity", { city: shown(city) }) : t("newGame.start")}</button>}
+        {back && <button class="btn text" onClick={onBack}>{t("newGame.back")}</button>}
       </div>
     </div>
   );

@@ -1,0 +1,173 @@
+/* 168Railway World launcher (2026-11 redesign, option A): a panel on the left, a map as the stage on the
+   right, a dark panel over the map with the picked game. StartMenu.tsx GuestGate and Menu. On a phone the
+   stage goes on top and the page scrolls. */
+.start-menu.launch-menu { display: block; padding: 0; background: var(--bg); overflow: hidden; }
+.start-menu.launch-menu > .launch { position: absolute; inset: 0; z-index: 1; }
+.launch { --stage-ink: #103e32; --stage-card: #164c3d; --stage-edge: #2f6352; --stage-text: #e2f2e9; --stage-muted: #b9d4c7;
+  position: absolute; inset: 0; display: flex; color: var(--text); font-size: 15px; }
+.launch-side { box-sizing: border-box; width: 440px; flex: none; display: flex; flex-direction: column; gap: 16px;
+  padding: max(26px, env(safe-area-inset-top)) 30px max(20px, env(safe-area-inset-bottom)); background: var(--bg);
+  border-right: 1px solid var(--rule); overflow-y: auto; zoom: var(--ui, 1); }
+.launch-guest .launch-side { width: 500px; padding-inline: 52px; gap: 22px; }
+.launch-new .launch-side { width: 500px; }
+.launch-stage { position: relative; flex: 1; min-width: 0; overflow: hidden; background: var(--map-land, #e6eee2); }
+.launch-stage-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+/* a saved game's picture is small (480 x 320): a framed postcard on the dotted ground, above the panel */
+.launch-stage-thumb { display: flex; justify-content: center; align-items: flex-start; padding-top: 84px; box-sizing: border-box;
+  background-color: color-mix(in srgb, var(--bg) 90%, var(--accent));
+  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 22%, transparent) 1px, transparent 1.5px); background-size: 18px 18px; }
+.launch-stage-thumb .save-thumb { width: auto; height: min(480px, calc(100% - 400px)); min-height: 160px; aspect-ratio: 3 / 2; max-width: calc(100% - 64px);
+  border: 6px solid #fff; border-radius: 20px; box-shadow: 0 12px 40px rgb(16 62 50 / 22%); }
+.launch-stage-thumb .save-thumb img { object-fit: contain; }
+
+/* brand row */
+.launch-brand { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.launch-brand-name { font-size: 21px; font-weight: 900; letter-spacing: -.4px; color: var(--text); white-space: nowrap; }
+.launch-brand-name strong { color: var(--accent); font-weight: inherit; }
+.launch-brand .railway-mark { width: 38px; height: 38px; border-radius: 11px; }
+.launch-brand .start-top { margin-left: auto; }
+
+/* buttons inside the launcher, as the start box's */
+.launch .btn { height: auto; min-height: 42px; padding-inline: 14px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.launch .btn svg { width: 16px; height: 16px; }
+.launch .start-new { color: var(--rail-ink); background: var(--rail-green); border: 1px solid var(--rail-green-edge);
+  border-bottom-width: 4px; font-weight: 900; font-size: 16px; min-height: 48px; align-self: auto; }
+.launch .start-new:hover:not(:disabled) { background: #72da23; }
+.launch .start-new:active:not(:disabled) { transform: translateY(2px); border-bottom-width: 2px; }
+.launch .btn:disabled { background: var(--shade); border-color: var(--rule); color: var(--muted); }
+
+/* guest: the sign-in */
+.launch-intro { display: flex; flex-direction: column; gap: 10px; margin-top: 4vh; }
+.launch-headline { margin: 0; font-size: clamp(32px, 3.4vw, 46px); line-height: 1.05; font-weight: 900; letter-spacing: -1.4px; color: var(--text); }
+.launch-sub { margin: 0; font-size: 16px; line-height: 1.5; color: var(--muted); }
+.launch .guest-gate-form { gap: 12px; }
+.launch-field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 800; }
+.launch .guest-gate-form input { min-height: 48px; border-width: 1.5px; border-radius: 12px; font-weight: 600; }
+.launch .guest-gate-login { min-height: 52px; margin-top: 4px; }
+.launch .guest-gate-google { width: 100%; background: var(--bg); border: 1.5px solid var(--rule); font-weight: 800; }
+.launch-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.launch-foot-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.launch-foot-row a { color: var(--rail-blue); font-size: 13px; font-weight: 700; text-underline-offset: 3px; }
+.launch-foot-row .start-top { margin-left: auto; }
+.launch-foot .start-version { position: static; zoom: 1; }
+.launch-sync { display: flex; align-items: center; gap: 8px; margin: 0; }
+.launch-sync svg { width: 15px; height: 15px; flex: none; color: var(--accent); }
+
+/* guest: the stage's chips and two cards */
+.launch-chips { position: absolute; left: 36px; top: 32px; right: 36px; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.launch-chips li { padding: 8px 14px; border-radius: 999px; background: #fff; box-shadow: 0 2px 10px rgb(16 62 50 / 16%); font-size: 14px; font-weight: 800; }
+.launch-chips .krl { color: #9a1a3c; } .launch-chips .mrt { color: #0a5a8a; } .launch-chips .lrt { color: #3a6d12; } .launch-chips .tj { color: #6b3fa0; }
+.launch-cards { position: absolute; left: 36px; right: 36px; bottom: 36px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.launch-card { display: flex; flex-direction: column; gap: 6px; padding: 20px 24px; border-radius: 20px; }
+.launch-card strong { font-size: 21px; font-weight: 900; }
+.launch-card.dark { background: var(--stage-ink); color: var(--stage-muted); }
+.launch-card.dark strong { color: #fff; }
+.launch-card.dark .launch-kicker { color: #94e74e; }
+.launch-card.light { background: #fff; color: #4a5e55; box-shadow: 0 8px 30px rgb(16 62 50 / 18%); }
+.launch-card.light strong { color: #163b12; }
+.launch-card.light .launch-kicker { color: #0a6f99; }
+.launch-kicker { font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #94e74e; }
+
+/* home: the games list */
+.launch-games-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.launch-games-head h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -.5px; }
+.launch-new-btn svg { width: 15px; height: 15px; stroke-width: 2.6; }
+.launch-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; margin: 0 -10px; padding: 2px 10px; }
+.launch-games.start-saves { gap: 4px; }
+.launch .launch-game { align-items: center; gap: 12px; padding: 7px; border: 2px solid transparent; border-radius: 16px; background: transparent; }
+.launch .launch-game:hover { background: var(--tint); border-color: transparent; }
+.launch .launch-game.on { background: color-mix(in srgb, var(--rail-green) 10%, var(--bg)); border-color: var(--rail-green); }
+.launch .launch-game { flex-direction: row; }
+.launch .launch-game .save-thumb { width: 76px; height: 58px; aspect-ratio: auto; border-radius: 10px; border: 0; }
+.launch .launch-game .save-info { padding-right: 0; }
+.launch .launch-game .save-thumb .thumb-label { display: none; }
+.launch .launch-game .save-thumb.empty { font-size: 10px; }
+.launch .launch-game .save-info { gap: 2px; }
+.launch .launch-game .save-info strong { font-size: 16px; font-weight: 900; }
+.launch .host-worlds { background: color-mix(in srgb, var(--rail-blue) 7%, var(--bg)); border-color: color-mix(in srgb, var(--rail-blue) 22%, var(--bg)); border-radius: 16px; }
+.launch .start-refused { margin: 0; }
+
+/* the dark panel over the stage */
+.launch-panel { position: absolute; left: 32px; right: 32px; bottom: 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px;
+  padding: 22px 26px; border-radius: 24px; background: var(--stage-ink); color: var(--stage-text); box-shadow: 0 10px 40px rgb(16 62 50 / 30%);
+  max-height: calc(100% - 110px); overflow-y: auto; zoom: var(--ui, 1); }
+.launch-panel-top { display: flex; align-items: flex-end; gap: 24px; }
+.launch-panel-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.launch-panel-title { margin: 0; font-size: 32px; line-height: 1.1; font-weight: 900; letter-spacing: -1px; color: #fff; overflow-wrap: anywhere; }
+.launch-panel-title .save-sandbox { font-size: 12px; vertical-align: middle; margin-left: 10px; }
+.launch-facts { display: flex; flex-direction: column; gap: 2px; }
+.launch-facts .muted, .launch-panel .muted { color: var(--stage-muted); }
+.launch-facts .small { font-size: 14px; }
+.launch .launch-play { min-height: 58px; padding-inline: 28px; font-size: 18px; border-radius: 16px; flex: none; }
+.launch .launch-play svg { width: 18px; height: 18px; }
+.launch-panel-actions { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+.launch-panel-actions .save-versions { flex: 1; min-width: 220px; margin: 0; color: var(--stage-text); }
+.launch-panel .btn:not(.start-new) { background: var(--stage-card); border: 1px solid var(--stage-edge); color: var(--stage-text); }
+.launch-panel .launch-delete { position: static; margin-left: auto; background: transparent; border-color: #6b3340; color: #ffb3c0; }
+.launch-panel .callout.bad { background: #4a1622; border-color: #7a2a3a; color: #ffe3e8; }
+.launch-panel .callout.bad .btn.start-delete-yes { background: #e0475f; border-color: #a8283e; color: #fff; }
+.launch-panel p { margin: 0; color: var(--stage-muted); line-height: 1.5; }
+.launch-scenario .launch-panel-title { font-size: 28px; }
+.launch-welcome-picks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.launch-welcome-picks .btn { flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px 20px; min-height: 0; text-align: left; border-radius: 18px; }
+.launch-welcome-picks strong { font-size: 19px; }
+.launch-welcome-picks .btn span { font-weight: 700; font-size: 14px; }
+
+/* the update, a pill at the stage's top */
+.launch .start-update { position: absolute; left: 32px; top: 26px; right: auto; bottom: auto; max-width: calc(100% - 64px);
+  padding: 6px 6px 6px 16px; gap: 10px; border: 0; border-radius: 999px; background: #fff; color: #243b33; font-size: 14px; font-weight: 700;
+  box-shadow: 0 4px 16px rgb(16 62 50 / 16%); zoom: var(--ui, 1); }
+.launch .start-update .btn { height: 32px; min-height: 32px; padding: 0 10px; border-radius: 999px; color: #0a6f99; font-weight: 800; }
+.launch .start-update .btn.icon { width: 32px; min-width: 32px; padding: 0; background: #f1f5f2; color: #4a5e55; }
+
+/* new game: the sheet in the panel */
+.launch-titlebar { display: flex; align-items: center; gap: 12px; }
+.launch-titlebar h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -.7px; }
+.launch .launch-back { width: 44px; min-width: 44px; padding: 0; background: var(--bg); border: 1.5px solid var(--rule); }
+.launch .new-game { gap: 14px; }
+.launch .new-game-mode { align-self: stretch; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.launch .new-game-mode .btn { min-height: 44px; font-weight: 900; }
+.new-game-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: var(--shade); }
+.new-game-tabs .btn { border: 1px solid transparent; background: transparent; font-weight: 900; color: var(--text); }
+.new-game-tabs .btn.on { background: var(--bg); border-color: var(--rule); box-shadow: 0 2px 0 var(--rule); color: var(--text); }
+.new-game-scenarios { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.new-game-scenario { display: flex; flex-direction: column; padding: 0; overflow: hidden; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  background: var(--bg); border: 1px solid var(--rule); border-radius: 14px; box-shadow: 0 2px 0 var(--rule); }
+.new-game-scenario img { display: block; width: 100%; height: 72px; object-fit: cover; }
+.new-game-scenario span { padding: 8px 10px 10px; font-size: 13px; font-weight: 800; line-height: 1.25; }
+.new-game-scenario:hover { border-color: var(--accent); }
+.new-game-scenario.on { border: 2px solid var(--rail-green); box-shadow: 0 3px 0 var(--rail-green-edge); }
+.new-game-scenario:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.launch .new-game-jabo { border: 0; padding: 0; background: transparent; }
+
+/* phones and narrow windows: the stage on top, everything in one scroll */
+@media (max-width: 860px) {
+  .start-menu.launch-menu { overflow-y: auto; }
+  .start-menu.launch-menu > .launch { position: relative; inset: auto; width: 100%; min-height: 100%; flex-direction: column; }
+  .launch-stage { order: -1; flex: none; min-height: 220px; overflow: visible; background: var(--bg); }
+  .launch-stage-img, .launch-stage-thumb { position: absolute; left: 0; right: 0; top: 0; height: 240px; }
+  .launch-stage-thumb { padding-top: 16px; }
+  .launch-stage-thumb .save-thumb { height: 150px; min-height: 0; border-width: 4px; border-radius: 14px; }
+  .launch-side, .launch-guest .launch-side, .launch-new .launch-side { width: auto; border-right: 0; overflow: visible; padding: 18px 16px max(18px, env(safe-area-inset-bottom)); }
+  .launch-guest .launch-stage { height: 230px; }
+  .launch-guest .launch-side { margin-top: -22px; border-radius: 22px 22px 0 0; position: relative; gap: 14px; }
+  .launch-chips { left: 14px; right: 14px; top: auto; bottom: 34px; gap: 6px; }
+  .launch-chips li { padding: 5px 10px; font-size: 12px; }
+  .launch-cards { display: none; }
+  .launch-intro { margin-top: 0; }
+  .launch-headline { font-size: 30px; }
+  .launch-panel { position: relative; left: auto; right: auto; bottom: auto; margin: 170px 12px 0; padding: 16px; max-height: none; border-radius: 20px; }
+  .launch-panel-top { flex-direction: column; align-items: stretch; gap: 14px; }
+  .launch-panel-title { font-size: 24px; }
+  .launch .launch-play { width: 100%; }
+  .launch .start-update { left: 12px; top: 12px; max-width: calc(100% - 24px); font-size: 12px; }
+  .launch-new .launch-stage { height: 200px; min-height: 0; }
+  .launch-new .launch-stage-img { height: 220px; }
+  .launch-new .launch-side { margin-top: -20px; border-radius: 22px 22px 0 0; position: relative; }
+  .launch-scenario { display: none; }
+  .launch-scroll { overflow: visible; }
+  .launch-welcome-picks { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .launch .start-new:active:not(:disabled) { transform: none; }
+}
