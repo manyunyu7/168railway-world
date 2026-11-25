@@ -322,6 +322,7 @@ internal object StudioCityStart {
                 progress.dismiss()
                 if (owner(activity) != account) return@runOnUiThread
                 result.mapCatching { WorldDocuments.import(activity, it, title, city.id, account) }
+                    .onSuccess { WorldVisit.started(activity, it.id, city.id, sandbox, scenario) }
                     .mapCatching(onWorldReady)
                     .onFailure { error ->
                         StudioDialogBuilder(activity).setTitle("Dunia belum bisa dibuka").setMessage(error.localizedMessage)

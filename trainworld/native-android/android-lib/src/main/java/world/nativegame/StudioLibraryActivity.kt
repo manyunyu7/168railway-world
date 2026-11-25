@@ -31,6 +31,7 @@ class StudioLibraryActivity : Activity() {
     private fun dp(n: Int) = (resources.displayMetrics.density * n).toInt()
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        if (state == null) WorldVisit.open(this)
         owner = state?.getString("owner") ?: user().orEmpty()
         body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -330,6 +331,7 @@ class StudioLibraryActivity : Activity() {
         check(links.edit().putString(slot,link.toString()).commit())
     }
     private fun open(slot: WorldDocuments.Slot) {
+        WorldVisit.continued(this, slot.id)
         startActivityForResult(Intent(this,NativeWorldActivity::class.java).putExtra("archiveSlot",slot.id).putExtra("hostLibrary",true),168)
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
