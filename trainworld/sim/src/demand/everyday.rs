@@ -1028,7 +1028,9 @@ pub struct EverydayApi {
     /// samples keep the total equal shares gave them (T-1874).
     norm: Vec<Vec<f32>>,
     /// The last `owner` answer: the sample loops go in order, so the next is that one or close.
-    at: std::cell::Cell<(usize, usize)>,
+    /// (packed: the kind in the high half, the cell in the low; atomic so the periods of a
+    /// population can advance on threads of their own, `EverydaySlot`)
+    at: std::sync::atomic::AtomicU64,
     /// `Params::everyday_rate` as at opening: the samples and totals were drawn with it.
     rate: [f32; KIND_COUNT],
     /// T-1175: per purpose, each zone's share of its outings that stay in the pack (the pack's
@@ -1248,7 +1250,8 @@ impl EverydayApi {
     }
     /// Sample `k`'s purpose and its fixed cell's index in `live`.
     fn owner(&self, k: usize) -> (usize, usize) {
-        let (mut kind, mut i) = self.at.get();
+        let at = self.at.load(std::sync::atomic::Ordering::Relaxed);
+        let (mut kind, mut i) = ((at >> 32) as usize, at as u32 as usize);
         if k < self.first[kind][i] as usize {
             (kind, i) = (0, 0);
         }
@@ -1263,7 +1266,7 @@ impl EverydayApi {
                 i = f.partition_point(|&x| x as usize <= k) - 1;
             }
         }
-        self.at.set((kind, i));
+        self.at.store((kind as u64) << 32 | i as u64, std::sync::atomic::Ordering::Relaxed);
         (kind, i)
     }
     /// A sample's trips and walking share with no rail, from its ends, their distance and its
@@ -1681,6 +1684,51 @@ impl EverydayApi {
     }
 }
 
+/// `DemandApi::CommuteSlot` for the everyday layer (`EverydayApi::take_period`).
+pub struct EverydaySlot {
+    q: usize,
+    st: Option<Period>,
+}
+
+impl EverydaySlot {
+    /// As `CommuteSlot::loads`.
+    pub fn loads(&self) -> Option<[&[f32]; 3]> {
+        self.st.as_ref().map(|st| [&st.loads.seg[..], &st.loads.rn_board[..], &st.loads.rn_alight[..]])
+    }
+}
+
+impl EverydayApi {
+    /// Runs `f` on period `q`'s state taken out of `per` and puts it back; false for no such period.
+    fn with_period(&mut self, q: usize, f: impl FnOnce(&Self, &mut Option<Period>) -> bool) -> bool {
+        let Some(mut slot) = self.per.get_mut(q).map(Option::take) else { return false };
+        let ok = f(self, &mut slot);
+        self.per[q] = slot;
+        ok
+    }
+    /// As `DemandApi::take_period`.
+    pub fn take_period(&mut self, q: usize) -> EverydaySlot {
+        EverydaySlot { q, st: self.per.get_mut(q).and_then(Option::take) }
+    }
+    /// As `DemandApi::put_period`.
+    pub fn put_period(&mut self, slot: EverydaySlot) {
+        if let Some(p) = self.per.get_mut(slot.q) {
+            *p = slot.st;
+        }
+    }
+    /// `solve` of the slot's period.
+    pub fn solve_slot(&self, slot: &mut EverydaySlot) -> bool {
+        self.solve_into(slot.q, &mut slot.st)
+    }
+    /// `crowd_with_external` of the slot's period.
+    pub fn crowd_slot(&self, slot: &mut EverydaySlot, total: &[f32]) -> bool {
+        self.crowd_into(slot.q, &mut slot.st, total)
+    }
+    /// `cap_with_external` of the slot's period.
+    pub fn cap_slot(&self, slot: &mut EverydaySlot, total: &[f32]) -> bool {
+        self.cap_into(slot.q, &mut slot.st, total)
+    }
+}
+
 /// T-2496: heap bytes by structure (`demand::mem`).
 impl EverydayApi {
     pub(crate) fn mem_into(&self, r: &mut super::mem::Report, at: &str) {
@@ -1989,7 +2037,7 @@ impl EverydayApi {
             live,
             first,
             norm,
-            at: std::cell::Cell::new((0, 0)),
+            at: std::sync::atomic::AtomicU64::new(0),
             rate,
             kept,
         };
@@ -2158,6 +2206,10 @@ impl EverydayApi {
         Ok(())
     }
     pub fn solve(&mut self, q: usize) -> bool {
+        self.with_period(q, |s, slot| s.solve_into(q, slot))
+    }
+    /// `solve` into `slot`, period `q`'s state held apart (`EverydaySlot`).
+    fn solve_into(&self, q: usize, slot: &mut Option<Period>) -> bool {
         if q >= PERIODS {
             return false;
         }
@@ -2183,7 +2235,7 @@ impl EverydayApi {
         let part = self.engine.part;
         let (trips, rail, walk) = self.mode_totals(q, &probability, &walk_lost, part);
         let unr = self.unr_total(q, &unr_lost, part);
-        self.per[q] = Some(Period {
+        *slot = Some(Period {
             part,
             rail_d,
             walk_lost,
@@ -2280,7 +2332,11 @@ impl EverydayApi {
         }
     }
     pub fn crowd_with_external(&mut self, q: usize, total: &[f32]) -> bool {
-        let Some(Some(st)) = self.per.get(q) else {
+        self.with_period(q, |s, slot| s.crowd_into(q, slot, total))
+    }
+    /// `crowd_with_external` on `slot`, period `q`'s state held apart (`EverydaySlot`).
+    fn crowd_into(&self, q: usize, slot: &mut Option<Period>, total: &[f32]) -> bool {
+        let Some(st) = slot.as_ref() else {
             return false;
         };
         // the crowding and the waits for full trains (T-188) from every population's loads
@@ -2288,7 +2344,7 @@ impl EverydayApi {
             return false;
         };
         let t = now_ms();
-        let mut st = self.per[q].take().unwrap();
+        let mut st = slot.take().unwrap();
         st.round += 1;
         if !settled(&mut st.seen, &total[..st.g.rn_line.len()]) && (!st.uniform || fac != st.fac || left != st.g.rn_left) {
             st.uniform = false;
@@ -2327,19 +2383,23 @@ impl EverydayApi {
             st.unr = self.unr_total(q, &st.unr_lost, st.part);
         }
         st.ms = now_ms() - t;
-        self.per[q] = Some(st);
+        *slot = Some(st);
         true
     }
     /// `DemandApi::cap_with_external` (T-1070): each pair's rail share falls by the share of the
     /// entries at the end it sets out from that still fit, those stations weighed as its access
     /// costs weigh them.
     pub fn cap_with_external(&mut self, q: usize, total: &[f32]) -> bool {
-        let Some(Some(st)) = self.per.get(q) else { return false };
+        self.with_period(q, |s, slot| s.cap_into(q, slot, total))
+    }
+    /// `cap_with_external` on `slot`, period `q`'s state held apart (`EverydaySlot`).
+    fn cap_into(&self, q: usize, slot: &mut Option<Period>, total: &[f32]) -> bool {
+        let Some(st) = slot.as_ref() else { return false };
         let Some(fit) = capacity_fit(&st.g, &st.net, &st.p, total) else { return false };
         if !fit.any || self.engine.sz.is_none() {
             return true;
         }
-        let mut st = self.per[q].take().unwrap();
+        let mut st = slot.take().unwrap();
         let sz = self.engine.sz.as_ref().unwrap();
         let (keep, all) = cap_loads(&st.g, &fit, &st.xi, &mut st.loads, &mut st.xfer);
         for part in st.parts.iter_mut() {
@@ -2417,7 +2477,7 @@ impl EverydayApi {
         st.rail = rail;
         st.walk = walk;
         st.unr = self.unr_total(q, &st.unr_lost, st.part);
-        self.per[q] = Some(st);
+        *slot = Some(st);
         true
     }
     /// As `DemandApi::summary`, without the crowding figures (0); its 14th number the trips no way

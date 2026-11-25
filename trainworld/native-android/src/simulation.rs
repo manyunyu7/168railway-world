@@ -138,7 +138,9 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_openNetwork(
         let files: crate::demand::DemandFiles =
             serde_json::from_str(&text).map_err(|e| e.to_string())?;
         let mut world = World::open(&archive).ok_or("Simpanan tidak dapat dibaca")?;
-        let (account, forecast) = files.read()?.account_and_forecast(&archive, &mut world)?;
+        let (account, forecast) = crate::demand::reporting_open(|| {
+            files.read()?.account_and_forecast(&archive, &mut world)
+        })?;
         let mut session = Session::new(world, ms).ok_or("Jam simpanan tidak valid")?;
         session.passengers = Some(account);
         session.forecast = Some(forecast);
@@ -151,6 +153,17 @@ pub extern "system" fn Java_world_nativegame_SimulationEngine_openNetwork(
             0
         }
     }
+}
+
+/// How far the `openNetwork` running now (or the last one) has come, 0 to 1: its forecast's rounds
+/// done over all of them (`demand::open_progress`), for the clock's "Menyiapkan penumpang" percent.
+/// Any thread may ask while the open works on its own.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_SimulationEngine_openProgress(
+    _: JNIEnv,
+    _: JClass,
+) -> jni::sys::jfloat {
+    crate::demand::open_progress()
 }
 
 #[no_mangle]

@@ -29,6 +29,7 @@ fn normalized(map: &Regions) -> Regions {
         .collect()
 }
 #[derive(Default)]
+#[cfg_attr(test, derive(Debug))]
 struct Period {
     board: Vec<f32>,
     alight: Vec<f32>,
@@ -42,6 +43,7 @@ struct Period {
     base_extra: f64,
 }
 #[derive(Default)]
+#[cfg_attr(test, derive(Debug))]
 struct Line {
     days: [[Period; 5]; 7],
     segments: Vec<f64>,
@@ -62,6 +64,7 @@ struct Line {
 }
 
 #[derive(Default)]
+#[cfg_attr(test, derive(Debug))]
 pub(super) struct Forecast {
     lines: BTreeMap<u32, Line>,
     trips: [f64; 7],
