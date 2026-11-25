@@ -259,8 +259,7 @@ internal object TrackInspector {
                 val id = line.getInt("id")
                 val name = line.getString("name")
                 val row = StudioUi.row(activity, null, 0, name) { dialog.dismiss(); openLine(id) }
-                row.addView(StudioUi.badge(activity, name, Color.BLACK or line.getInt("color"), 32), 0,
-                    LinearLayout.LayoutParams(dp(32), dp(32)))
+                row.addView(LineLook.badge(activity, id, name, Color.BLACK or line.getInt("color"), 32), 0, LineLook.params(activity, 32))
                 content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             }
             extra?.let { content.addView(it(dialog), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }) }

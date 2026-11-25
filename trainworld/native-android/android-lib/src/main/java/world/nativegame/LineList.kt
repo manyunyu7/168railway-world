@@ -227,7 +227,7 @@ internal class LineList(
                 else pick(first.getInt("id"))
             }
         }
-        head.addView(StudioUi.badge(host, ServicePanel.code(title), color, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
+        head.addView(LineLook.badge(host, first.getInt("id"), title, color, 36), LineLook.params(host, 36))
         val body = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
         body.addView(StudioUi.text(host, title, 14f, color = StudioUi.INK).apply {
             typeface = StudioUi.heavy(host); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
@@ -354,7 +354,7 @@ internal class LineList(
                 contentDescription = "$name, ${s.riders?.let { StudioFormat.count(it) } ?: "—"} penumpang, laba ${if (s.money) usd(s.profit) else "—"}"
             }
             val nameCell = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-            nameCell.addView(StudioUi.badge(host, ServicePanel.code(name), ServicePanel.color(looks[first.getInt("id")]), 22), LinearLayout.LayoutParams(dp(22), dp(22)))
+            nameCell.addView(LineLook.badge(host, first.getInt("id"), name, ServicePanel.color(looks[first.getInt("id")]), 22), LineLook.params(host, 22))
             nameCell.addView(StudioUi.text(host, short(name) + if (g.size > 1) " (${g.size})" else "", 12.5f, true, StudioUi.INK).apply {
                 // long names wrap to a second line instead of "…" (owner: "ganti baris aja")
                 maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, dp(4), 0, dp(4))

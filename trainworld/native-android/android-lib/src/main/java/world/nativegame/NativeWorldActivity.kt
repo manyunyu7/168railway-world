@@ -732,18 +732,20 @@ class NativeWorldActivity : Activity() {
     }
 
     private fun openServiceDetails(id: Int) {
+        LineLook.redraw = { map.invalidate() }
         LineStops.riders = { line, done -> (reference ?: handover.ghost ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
         ServicePanel.details(this,handle,id,clock,true,::editPanel) { recordPanelChange(ServicePanel.editLabel); lineStopsChanged(); lastStatus = -1; troubleKey = ""; refresh() }
     }
 
     /** A line's stops edited from its panel (LineStops.kt): the map's stops and the balance follow. */
     private fun lineStopsChanged() {
-        if (ServicePanel.editLabel != LineStops.LABEL) return
+        if (ServicePanel.editLabel != LineStops.LABEL && ServicePanel.editLabel != LineLook.LABEL) return
         map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
         showBalance(NativeFinance.balance(handle, clock))
     }
 
     private fun openServices() {
+        LineLook.redraw = { map.invalidate() }
         LineStops.riders = { line, done -> (reference ?: handover.ghost ?: parked)?.lineRiders(line, map.trainTime(), done) ?: done(null) }
         ServicePanel.summary = { done -> (reference ?: handover.ghost ?: parked)?.lineSummary(map.trainTime(), done) ?: done(null) }
         ServicePanel.open(this, handle, clock, true, ::editPanel) { name ->
@@ -1355,8 +1357,7 @@ class NativeWorldActivity : Activity() {
                     val junction = if (item.optInt("kind") == 4 && item.has("x")) JunctionInspector.at(handle, item.optDouble("x"), item.optDouble("y"), 0.0) else -1
                     withCommittedWorld(pause = false) { if (junction >= 0) openJunction(junction) else openServiceDetails(item.optInt("line")) }
                 }
-                row.addView(StudioUi.badge(this, item.optString("name").split(' ').lastOrNull()?.take(1)?.uppercase() ?: "?", color, 34), 0,
-                    LinearLayout.LayoutParams(dp(34), dp(34)))
+                row.addView(LineLook.badge(this, item.optInt("line", -1), item.optString("name"), color, 34), 0, LineLook.params(this, 34))
                 body.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             }
             if (troubles.length() == 0) body.addView(StudioUi.text(this, "Tidak ada masalah saat ini.", 15f, true, StudioUi.GOOD))

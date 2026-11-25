@@ -136,8 +136,8 @@ internal object JunctionInspector {
         val lines = m.getJSONArray("lines").objects()
         val bullets = LinearLayout(c).apply { gravity = Gravity.CENTER_VERTICAL }
         lines.take(3).forEachIndexed { i, l ->
-            bullets.addView(StudioUi.badge(c, ServicePanel.code(l.optString("name")), colour(l.optDouble("color")), 26),
-                LinearLayout.LayoutParams(dp(26), dp(26)).apply { if (i > 0) marginStart = dp(3) })
+            bullets.addView(LineLook.badge(c, l.optInt("id", -1), l.optString("name"), colour(l.optDouble("color")), 26),
+                LineLook.params(c, 26).apply { if (i > 0) marginStart = dp(3) })
         }
         row.addView(bullets)
         val texts = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }

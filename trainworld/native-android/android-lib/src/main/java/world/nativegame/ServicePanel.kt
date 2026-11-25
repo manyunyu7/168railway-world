@@ -263,8 +263,15 @@ internal object ServicePanel {
         lateinit var footer: LinearLayout
         StudioUi.sheet(host, service.getString("name"), .75f, pinnedAction = { footer }) { column, dialog ->
             fun dp(n: Int) = StudioUi.dp(host, n)
+            fun look() = LineLook.edit(host, handle, id, service, transaction) {
+                dialog.dismiss(); changed(service.getString("name")); details(host, handle, id, clock, editable, transaction, changed)
+            }
             val head = LinearLayout(host).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-            head.addView(StudioUi.badge(host, code(service.getString("name")), color, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
+            LineLook.remember(service)
+            // web LineTitle: the badge opens the look editor
+            head.addView(LineLook.badge(host, id, service.getString("name"), color, 36).apply {
+                if (editable) { isClickable = true; contentDescription = "Ubah tampilan line"; setOnClickListener { look() } }
+            }, LineLook.params(host, 36))
             val copy = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
             copy.addView(StudioUi.text(host, if (route.names.isEmpty()) "Belum ada pemberhentian" else route.endpoints, 14f, color = StudioUi.INK).apply {
                 typeface = StudioUi.heavy(host); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
@@ -315,6 +322,7 @@ internal object ServicePanel {
                         dialog.dismiss(); changed(it); details(host, handle, id, clock, editable, transaction, changed)
                     }
                 }
+                action("Tampilan", StudioUi.Icon.EYE, description = "Tampilan: simbol, bentuk, dan warna line") { look() }
                 action("Hapus line", StudioUi.Icon.DELETE, StudioUi.BAD) {
                     dialog.dismiss(); (host as? NativeWorldActivity)?.removeLine(id, service.getString("name"))
                 }

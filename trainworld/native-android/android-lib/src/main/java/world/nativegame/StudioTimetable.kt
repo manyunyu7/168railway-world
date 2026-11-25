@@ -47,8 +47,7 @@ internal object StudioTimetable {
         var selectedStop = 0
         StudioUi.sheet(host,"Grafik perjalanan") { column, dialog ->
             val head = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-            head.addView(StudioUi.badge(host, ServicePanel.code(service.getString("name")), ServicePanel.color(service), 44),
-                LinearLayout.LayoutParams(StudioUi.dp(host,44), StudioUi.dp(host,44)))
+            head.addView(LineLook.badge(host, id, service.getString("name"), ServicePanel.color(service), 44), LineLook.params(host, 44))
             val copy = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
             copy.addView(StudioUi.text(host,service.getString("name"),14f,color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) })
             copy.addView(StudioUi.text(host,route.endpoints,13f,true,StudioUi.MUTED))

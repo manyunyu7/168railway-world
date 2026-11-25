@@ -162,7 +162,7 @@ internal object StopEditMode {
             elevation = dp(12).toFloat()
         }
         val head = LinearLayout(a).apply { gravity = Gravity.CENTER_VERTICAL }
-        head.addView(StudioUi.badge(a, ServicePanel.code(s.name), s.color, 36), LinearLayout.LayoutParams(dp(36), dp(36)))
+        head.addView(LineLook.badge(a, s.id, s.name, s.color, 36), LineLook.params(a, 36))
         val words = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
         words.addView(StudioUi.text(a, s.name, 14f, true, StudioUi.INK).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
         words.addView(StudioUi.text(a, "Ubah perhentian", 12f, true, StudioUi.MUTED))

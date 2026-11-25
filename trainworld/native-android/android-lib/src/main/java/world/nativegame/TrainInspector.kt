@@ -56,8 +56,7 @@ internal object TrainInspector {
         fun dp(n: Int) = StudioUi.dp(activity, n)
         StudioUi.sheet(activity, first.optString("name")) { body, sheet ->
             val head = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
-            head.addView(StudioUi.badge(activity, first.optString("name").split(' ').lastOrNull()?.take(1)?.uppercase() ?: "?", color, 36),
-                LinearLayout.LayoutParams(dp(36), dp(36)))
+            head.addView(LineLook.badge(activity, first.optInt("line", -1), first.optString("name"), color, 36), LineLook.params(activity, 36))
             val towards = StudioUi.text(activity, "", 14f, true, StudioUi.INK)
             head.addView(towards, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(10) })
             body.addView(head)

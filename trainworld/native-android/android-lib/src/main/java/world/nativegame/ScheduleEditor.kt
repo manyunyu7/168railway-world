@@ -134,7 +134,7 @@ internal class ScheduleEditor(
         lateinit var footer: LinearLayout
         StudioUi.sheet(host, "Jadwal", .94f, pinnedAction = { footer }) { body, dialog ->
             val titleRow = LinearLayout(host).apply { gravity = Gravity.CENTER_VERTICAL }
-            titleRow.addView(StudioUi.badge(host, ServicePanel.code(service.getString("name")), colour, 46), LinearLayout.LayoutParams(dp(46), dp(46)))
+            titleRow.addView(LineLook.badge(host, service.optInt("id", -1), service.getString("name"), colour, 46), LineLook.params(host, 46))
             val heading = group()
             val routeTitle = StudioUi.text(host, service.getString("name"), 15f, color = StudioUi.INK).apply { typeface = StudioUi.heavy(host) }
             heading.addView(routeTitle)
