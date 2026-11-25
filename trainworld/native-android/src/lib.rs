@@ -73,6 +73,11 @@ struct World {
 
 impl World {
     fn open(input: &[u8]) -> Option<Self> {
+        Self::open_with(input, TrackApi::new(-74., 40.7, true))
+    }
+    /// `open` into `api`, which may already hold the opened cities' terrain and water
+    /// (`city_surface::open`): the network is then derived once, with them.
+    fn open_with(input: &[u8], mut api: TrackApi) -> Option<Self> {
         let mut raw = Vec::new();
         GzDecoder::new(input)
             .take((32 << 20) + 1)
@@ -94,7 +99,6 @@ impl World {
             // Re-encoding these bytes with the current engine would discard newer network data.
             return None;
         }
-        let mut api = TrackApi::new(-74., 40.7, true);
         local_time::install(&mut api);
         if !api.load(track) {
             return None;

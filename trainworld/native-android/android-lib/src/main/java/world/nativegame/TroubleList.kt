@@ -6,8 +6,14 @@ import org.json.JSONArray
 /** Web TroubleList (T-1433): what is wrong on the network, worst first. */
 internal object TroubleList {
     @JvmStatic private external fun query(handle: Long, now: Double): String
-    fun read(handle: Long, now: Double): JSONArray {
-        val engine = if (handle == 0L) JSONArray() else runCatching { JSONArray(query(handle, now)) }.getOrDefault(JSONArray())
+    fun read(handle: Long, now: Double): JSONArray = merge(engine(handle, now))
+
+    /** The engine's own rows (broken lines, reversals, track holding trains back), worst first. */
+    fun engine(handle: Long, now: Double): JSONArray =
+        if (handle == 0L) JSONArray() else runCatching { JSONArray(query(handle, now)) }.getOrDefault(JSONArray())
+
+    /** [engine]'s rows with the running simulation's report merged in. */
+    fun merge(engine: JSONArray): JSONArray {
         // web tiers 3 (riders left behind) and 5 (full trains) from the running simulation's report
         // (Crowding.kt), placed among the engine's rows by tier
         val crowd = Crowding.troubles()

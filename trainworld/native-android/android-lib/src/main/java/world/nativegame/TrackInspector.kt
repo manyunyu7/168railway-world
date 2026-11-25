@@ -70,7 +70,8 @@ internal object TrackInspector {
      * (the host's `editPanel`); [changed] records the undo step under its label and redraws.
      */
     fun show(activity: Activity, handle: Long, edge: Int, transaction: PanelEdit, changed: (String) -> Unit,
-             openLine: (Int) -> Unit, remove: (Int) -> Unit, extra: ((Dialog) -> View)? = null) {
+             openLine: (Int) -> Unit, remove: (Int) -> Unit, extra: ((Dialog) -> View)? = null, signalFirst: Boolean = false) {
+        var signalFirst = signalFirst
         val first = read(handle, edge)
         if (first == "null") {
             Toast.makeText(activity, "Rel ini sudah tidak ada.", Toast.LENGTH_SHORT).show()
@@ -245,7 +246,11 @@ internal object TrackInspector {
                 TrackSignal.section(activity, handle, edge, transaction, changed) {
                     read(handle, edge).takeIf { it != "null" }?.let { piece = JSONObject(it) }
                     render()
-                }?.let { content.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }) }
+                }?.let {
+                    content.addView(it, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+                    // opened from the Signals lens: the section is what the player came for
+                    if (signalFirst) { signalFirst = false; it.post { it.requestRectangleOnScreen(android.graphics.Rect(0, 0, it.width, it.height), true) } }
+                }
             }
 
             // Lini di sini

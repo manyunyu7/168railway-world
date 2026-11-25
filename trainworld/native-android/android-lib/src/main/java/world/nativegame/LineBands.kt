@@ -35,7 +35,7 @@ internal class LineBands {
 
     fun load(data: JSONObject) {
         LineLook.load(data)
-        routes.clear(); order.clear(); edgeClass.clear(); lineKey = Float.NaN; trafficKey = ""
+        routes.clear(); order.clear(); edgeClass.clear(); layout = emptyList(); lineKey = Float.NaN; trafficKey = ""
         data.optJSONArray("tracks")?.let { t -> for (i in 0 until t.length()) t.getJSONObject(i).let { edgeClass[it.getInt("id")] = RailLayer.lineClass(it) } }
         val rows = data.optJSONArray("bands")
         for (i in 0 until (rows?.length() ?: 0)) {
@@ -89,9 +89,35 @@ internal class LineBands {
         return into
     }
 
+    /**
+     * A line's stroke as short paths of at most [CHUNK] points, each point at least `tol` from the one
+     * before: the map draws its network on the UI thread in software, where stroking a whole intercity
+     * route (thousands of points, mostly off screen) took over a second for the 199 lines of Seluruh
+     * Indonesia (ANR while panning). Off-screen pieces are now skipped by the canvas' bounds check and a
+     * zoomed-out line keeps only the points a pixel or so apart. Opaque round-capped pieces meet seamlessly.
+     */
+    private class Pieces {
+        val paths = ArrayList<Path>()
+        private var count = 0
+        private var lastX = Float.NaN; private var lastY = Float.NaN
+        fun add(xy: FloatArray, from: Int, to: Int, tol: Float) {
+            var path = Path().also { paths.add(it) }
+            count = 0
+            for (j in from..to) {
+                val x = xy[j*2]; val y = xy[j*2+1]
+                if (j == from) { path.moveTo(x, y); count = 1; lastX = x; lastY = y; continue }
+                // keep the run's last point always, so a piece ends where the next begins
+                if (j < to && abs(x - lastX) + abs(y - lastY) < tol) continue
+                path.lineTo(x, y); count++; lastX = x; lastY = y
+                if (count >= CHUNK && j < to) { path = Path().also { paths.add(it) }; path.moveTo(x, y); count = 1 }
+            }
+        }
+        fun draw(c: Canvas, paint: Paint) { for (p in paths) c.drawPath(p, paint) }
+    }
+
     // ---- the Line view
     /** per track class (`RailLayer.LINE_*`): the casing, the line on its own and in a band */
-    private class Drawn(val id: Int, val color: Int, val whole: HashMap<Int, Path>, val solo: HashMap<Int, Path>, val banded: HashMap<Int, Path>)
+    private class Drawn(val id: Int, val color: Int, val whole: HashMap<Int, Pieces>, val solo: HashMap<Int, Pieces>, val banded: HashMap<Int, Pieces>)
     private val drawn = mutableListOf<Drawn>()
     private var lineKey = Float.NaN
 
@@ -102,32 +128,70 @@ internal class LineBands {
         if (near(lineKey, width)) return
         lineKey = width
         drawn.clear()
-        for (r in routes) {
+        if (layout.size != routes.size) {
+            slotIndex.clear()
+            for ((edge, slots) in order) slots.forEachIndexed { s, ids -> for (id in ids) slotIndex.putIfAbsent((edge.toLong() shl 32) or (id.toLong() and 0xffffffffL), s) }
+            layout = routes.map(::layoutOf)
+        }
+        for ((r, l) in routes.zip(layout)) {
             val n = r.xy.size / 2
-            val shift = FloatArray(n)
-            val shared = BooleanArray(n)
-            for (j in 0 until n) {
-                val (s, slots) = slotAt(r, j) ?: continue
-                val ab = BAND_SHARE * ((slots.size - 1) / 2f - s)
-                shift[j] = (if (r.at[j] and 1 == 0) ab else -ab) * width
-                shared[j] = true
+            // the bands' shifts are line widths: the offsets for a width of 1, scaled
+            val xy = FloatArray(r.xy.size) { r.xy[it] + l.unit[it] * width }
+            val whole = HashMap<Int, Pieces>(); val solo = HashMap<Int, Pieces>(); val banded = HashMap<Int, Pieces>()
+            // a quarter of a line's width: about 1,5 px zoomed out, far below what shows close in
+            val tol = width / 4f
+            var i = 0
+            while (i < l.runs.size) {
+                val j = l.runs[i]; val k = l.runs[i+1]; val c = l.runs[i+2]; val b = l.runs[i+3] == 1
+                (if (b) banded else solo).getOrPut(c) { Pieces() }.add(xy, j, k, tol)
+                whole.getOrPut(c) { Pieces() }.add(xy, j, k, tol)
+                i += 4
             }
-            val xy = shifted(r.xy, shift)
-            val whole = HashMap<Int, Path>(); val solo = HashMap<Int, Path>(); val banded = HashMap<Int, Path>()
-            // a segment is a band's where either end is on a shared edge; its width by the track under it (web T-3136)
-            fun cls(j: Int) = if (r.at.isEmpty()) RailLayer.LINE_SINGLE else edgeClass[r.at[j+1] shr 1] ?: RailLayer.LINE_SINGLE
-            var j = 0
-            while (j < n - 1) {
-                val b = shared[j] || shared[j+1]
-                val c = cls(j)
-                var k = j + 1
-                while (k < n - 1 && (shared[k] || shared[k+1]) == b && cls(k) == c) k++
-                path(xy, j, k, (if (b) banded else solo).getOrPut(c) { Path() })
-                path(xy, j, k, whole.getOrPut(c) { Path() })
-                j = k
-            }
+            if (n < 2) continue
             drawn.add(Drawn(r.id, r.color, whole, solo, banded))
         }
+    }
+
+    /** What of a route's drawing does not depend on the width, worked out once per load. */
+    private class Layout(val unit: FloatArray, val runs: IntArray)
+    private var layout: List<Layout> = emptyList()
+    /** per shared edge and line (edge shl 32 or id): the line's slot there */
+    private val slotIndex = HashMap<Long, Int>()
+    private fun layoutOf(r: Route): Layout {
+        val n = r.xy.size / 2
+        val shift = FloatArray(n)
+        val shared = BooleanArray(n)
+        if (r.at.isNotEmpty()) {
+            // line `r.id`'s slot per edge and the edge's band count, asked once per run of points on one edge
+            var lastEdge = Int.MIN_VALUE; var ab = 0f; var has = false
+            for (j in 0 until n) {
+                val edge = r.at[j] shr 1
+                if (edge != lastEdge) {
+                    lastEdge = edge
+                    val s = slotIndex[(edge.toLong() shl 32) or (r.id.toLong() and 0xffffffffL)]
+                    has = s != null
+                    if (s != null) ab = BAND_SHARE * ((order[edge]!!.size - 1) / 2f - s)
+                }
+                if (!has) continue
+                shift[j] = if (r.at[j] and 1 == 0) ab else -ab
+                shared[j] = true
+            }
+        }
+        val moved = shifted(r.xy, shift)
+        val unit = FloatArray(r.xy.size) { moved[it] - r.xy[it] }
+        // a segment is a band's where either end is on a shared edge; its width by the track under it (web T-3136)
+        fun cls(j: Int) = if (r.at.isEmpty()) RailLayer.LINE_SINGLE else edgeClass[r.at[j+1] shr 1] ?: RailLayer.LINE_SINGLE
+        val runs = ArrayList<Int>()
+        var j = 0
+        while (j < n - 1) {
+            val b = shared[j] || shared[j+1]
+            val c = cls(j)
+            var k = j + 1
+            while (k < n - 1 && (shared[k] || shared[k+1]) == b && cls(k) == c) k++
+            runs.add(j); runs.add(k); runs.add(c); runs.add(if (b) 1 else 0)
+            j = k
+        }
+        return Layout(unit, runs.toIntArray())
     }
 
     /** The Line view's lines, casing first (`NetworkView` line mode). `px`: one screen pixel in world units. */
@@ -136,12 +200,12 @@ internal class LineBands {
         paint.color = 0xfffaf6e9.toInt()
         // lines hidden on the map (LineVisibility.kt) leave their band empty, as the web's alpha 0
         val off = LineVisibility.off
-        for (d in drawn) if (d.id !in off) for ((k, p) in d.whole) { paint.strokeWidth = width * RailLayer.lineShare(k) + casing; c.drawPath(p, paint) }
+        for (d in drawn) if (d.id !in off) for ((k, p) in d.whole) { paint.strokeWidth = width * RailLayer.lineShare(k) + casing; p.draw(c, paint) }
         for (d in drawn) {
             if (d.id in off) continue
             paint.color = LineLook.tint(d.id) ?: d.color
-            for ((k, p) in d.solo) { paint.strokeWidth = max(px, width * RailLayer.lineShare(k)); c.drawPath(p, paint) }
-            for ((k, p) in d.banded) { paint.strokeWidth = max(px, width * RailLayer.lineShare(k) * BAND_SHARE - BAND_GAP_PX * px); c.drawPath(p, paint) }
+            for ((k, p) in d.solo) { paint.strokeWidth = max(px, width * RailLayer.lineShare(k)); p.draw(c, paint) }
+            for ((k, p) in d.banded) { paint.strokeWidth = max(px, width * RailLayer.lineShare(k) * BAND_SHARE - BAND_GAP_PX * px); p.draw(c, paint) }
         }
     }
 
@@ -206,5 +270,7 @@ internal class LineBands {
         const val BAND_SHARE = .8f
         /** px of casing between two bands side by side (web `BAND_GAP_PX`) */
         const val BAND_GAP_PX = 1f
+        /** points per piece of a drawn line ([Pieces]) */
+        const val CHUNK = 64
     }
 }

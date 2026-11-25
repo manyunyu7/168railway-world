@@ -88,6 +88,37 @@ thread_local! {
     /// Whether this thread's solve is the clock's open, which reports into `OPEN_PROGRESS`.
     static REPORT_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
+/// Whether a clock's open waits for the solve cache. The solve it needs is often already running for
+/// something else opened with the world (the map's layers, a train preview, the achievements), which
+/// holds the cache while the open waits and then reads its result: that solve reports too then, or
+/// the percent stood still for minutes (Seluruh Indonesia).
+static OPEN_WAITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Whether a solve holding the cache (`Inputs::solved`) runs now: the one an open can wait for.
+static CACHE_SOLVING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Whether the open waits for the solve running now (see `OPEN_WAITING`).
+fn followed() -> bool {
+    use std::sync::atomic::Ordering::Relaxed;
+    CACHE_SOLVING.load(Relaxed) && OPEN_WAITING.load(Relaxed)
+}
+/// Whether a solve here reports into `OPEN_PROGRESS`.
+fn reports() -> bool {
+    REPORT_OPEN.get() || followed()
+}
+/// Sets a flag for as long as it lives.
+struct Raised(&'static std::sync::atomic::AtomicBool);
+impl Raised {
+    fn new(flag: &'static std::sync::atomic::AtomicBool, on: bool) -> Option<Self> {
+        on.then(|| {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            Self(flag)
+        })
+    }
+}
+impl Drop for Raised {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 /// Runs `f` (the clock's open on this thread) with its solve reporting into `OPEN_PROGRESS`,
 /// from 0 to 1.
 pub(super) fn reporting_open<R>(f: impl FnOnce() -> R) -> R {
@@ -104,6 +135,19 @@ pub(super) fn reporting_open<R>(f: impl FnOnce() -> R) -> R {
     set_open_progress(1.);
     r
 }
+/// A step of the clock's open before its rounds (files read, streets in, the solvers built), so the
+/// percent moves while a big world (Seluruh Indonesia: ±1 min) sets up rather than standing still;
+/// only on the open's own thread and never backwards.
+pub(super) fn open_stage(f: f32) {
+    if reports() {
+        raise_open_progress(f);
+    }
+}
+/// `OPEN_PROGRESS` up to `f`, never down: the populations' passes tick from several threads at once.
+fn raise_open_progress(f: f32) {
+    // non-negative f32s order as their bits do
+    OPEN_PROGRESS.fetch_max(f.clamp(0., 1.).to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
 pub(super) fn open_progress() -> f32 {
     f32::from_bits(OPEN_PROGRESS.load(std::sync::atomic::Ordering::Relaxed))
 }
@@ -119,9 +163,9 @@ struct Rounds {
 impl Rounds {
     fn tick(&self) {
         let done = self.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        if self.report && self.total > 0 {
+        if (self.report || followed()) && self.total > 0 {
             let f = done.min(self.total) as f32 / self.total as f32;
-            set_open_progress(SETUP_SHARE + (1. - SETUP_SHARE - ACCOUNT_SHARE) * f);
+            raise_open_progress(SETUP_SHARE + (1. - SETUP_SHARE - ACCOUNT_SHARE) * f);
         }
     }
 }
@@ -177,6 +221,7 @@ fn advance(
     slots: &mut Slots,
     market: Option<&std::sync::mpsc::Sender<MarketAsk>>,
     gate: &Gate,
+    rounds: &Rounds,
     period: usize,
     round: usize,
     load: &[f32],
@@ -190,18 +235,26 @@ fn advance(
     let (a, b) = std::thread::scope(|scope| {
         let everyday = scope.spawn(|| {
             gate.run(|| {
-                cities.iter().zip(outings).all(|((_, e), s)| match round {
-                    0 => e.solve_slot(s),
-                    4 => e.cap_slot(s, load),
-                    _ => e.crowd_slot(s, load),
+                cities.iter().zip(outings).all(|((_, e), s)| {
+                    let ok = match round {
+                        0 => e.solve_slot(s),
+                        4 => e.cap_slot(s, load),
+                        _ => e.crowd_slot(s, load),
+                    };
+                    rounds.tick();
+                    ok
                 })
             })
         });
         let a = gate.run(|| {
-            cities.iter().zip(work).all(|((c, _), s)| match round {
-                0 => c.solve_slot(s),
-                4 => c.cap_slot(s, load),
-                _ => c.crowd_slot(s, load),
+            cities.iter().zip(work).all(|((c, _), s)| {
+                let ok = match round {
+                    0 => c.solve_slot(s),
+                    4 => c.cap_slot(s, load),
+                    _ => c.crowd_slot(s, load),
+                };
+                rounds.tick();
+                ok
             })
         });
         (a, everyday.join().unwrap_or(false))
@@ -231,10 +284,9 @@ fn run_period(
     rounds: &Rounds,
     period: usize,
 ) -> Result<PeriodRun, String> {
-    let Some(mut regional) = advance(cities, slots, market, gate, period, 0, &[]) else {
+    let Some(mut regional) = advance(cities, slots, market, gate, rounds, period, 0, &[]) else {
         return Err("Periode perjalanan tidak tersedia".into());
     };
-    rounds.tick();
     // Match the web worker's three rounds: freeze the combined loads before advancing
     // either population, since each shares the same seats and boarding capacity.
     let mut free_board = Vec::new();
@@ -278,16 +330,14 @@ fn run_period(
             rounds_board.extend_from_slice(board);
             free_board = arrivals;
             frozen.extend(&free_board);
-            if advance(cities, slots, market, gate, period, 4, &frozen).is_none() {
+            if advance(cities, slots, market, gate, rounds, period, 4, &frozen).is_none() {
                 return Err("Susunan kapasitas akhir berbeda".into());
             }
-            rounds.tick();
             break;
         }
-        let Some(next) = advance(cities, slots, market, gate, period, round + 1, &frozen) else {
+        let Some(next) = advance(cities, slots, market, gate, rounds, period, round + 1, &frozen) else {
             return Err("Perhitungan kapasitas tidak tersedia".into());
         };
-        rounds.tick();
         regional = next;
     }
     Ok(PeriodRun { free_board, rounds_board })
@@ -304,9 +354,12 @@ fn run_periods(
     report: bool,
 ) -> Vec<(Result<PeriodRun, String>, Slots)> {
     let gate = Gate::new(solve_threads());
+    // Progress per population pass (each city's commuters and outings) and per market round, not
+    // per whole round: a big world's first round (the free-flow solve of every city and the
+    // intercity market) took a minute with the clock's percent standing at 10%.
     let rounds = Rounds {
         done: 0.into(),
-        total: 5 * periods.len(),
+        total: 5 * periods.len() * (2 * cities.len() + usize::from(market.is_some())),
         report,
     };
     let mut held: Vec<Slots> = periods
@@ -343,6 +396,7 @@ fn run_periods(
                     _ => m.crowd_with_external(q, &load),
                 };
                 let loads = if ok && round < 4 { [m.seg(q), m.board(q), m.alight(q)].concat() } else { vec![] };
+                rounds.tick();
                 let _ = answer.send((ok, loads));
             }
         }
@@ -714,6 +768,7 @@ fn solve(
         span.clear();
     }
     prof::mark("solve: network arrays");
+    open_stage(0.07);
     let header = &world.header;
     // each city's two populations, built on a thread of its own while this one opens the market
     let build = |pack: &LocalPack, id: String, frame: Frame| -> Result<(DemandApi, Everyday), String> {
@@ -818,6 +873,7 @@ fn solve(
     let mut cities = cities?;
     let mut market = market?;
     prof::mark("solve: city solvers and market (parallel)");
+    open_stage(0.09);
     if let Some(account) = account.as_deref_mut() {
         account.set_layout(
             &packs
@@ -845,10 +901,8 @@ fn solve(
         }
     }
     prof::mark("solve: account layout");
-    if REPORT_OPEN.get() {
-        set_open_progress(SETUP_SHARE);
-    }
-    let runs = run_periods(&mut cities, market.as_mut(), periods, REPORT_OPEN.get());
+    open_stage(SETUP_SHARE);
+    let runs = run_periods(&mut cities, market.as_mut(), periods, reports());
     prof::mark("solve: periods' rounds (parallel)");
     // Each period is accounted for as when the periods were solved in turn: the populations hold
     // it and the periods before it that were kept, none after it (`transfers_day` reads them all).
@@ -1030,6 +1084,7 @@ impl DemandFiles {
             .map(|s| crate::demand_zones::Geography::read(std::path::Path::new(s), &ids))
             .transpose()?
             .unwrap_or_default();
+        open_stage(0.03);
         Ok(Inputs {
             files: DemandFiles {
                 bare: vec![],
@@ -1205,6 +1260,7 @@ impl Inputs {
             super::city_surface::install_streets(&mut world.api, &header, &pack.cells);
         }
         prof::mark("solved: install streets (editor world)");
+        open_stage(0.05);
         let running = world.api.world().svc.lines.iter().any(|s| s.running);
         if !running && !cells {
             return Ok(None);
@@ -1217,6 +1273,7 @@ impl Inputs {
                 if cells {
                     lens_stage(2);
                 }
+                let _waiting = Raised::new(&OPEN_WAITING, REPORT_OPEN.get());
                 FORECAST
                     .lock()
                     .map_err(|_| "Perhitungan perjalanan terputus")?
@@ -1237,6 +1294,7 @@ impl Inputs {
         if cells {
             lens_stage(3);
         }
+        open_stage(0.06);
         let mut forecast = running.then(crate::passenger_account::Forecast::default);
         // the car parks' room reads the cars of the last solve of this network
         if let (Some(f), Some(Some(last))) = (
@@ -1252,6 +1310,7 @@ impl Inputs {
             self.drives.as_slice(),
             zones.as_slice(),
         ));
+        let solving = Raised::new(&CACHE_SOLVING, true);
         solve(
             save,
             &self.packs,
@@ -1261,6 +1320,7 @@ impl Inputs {
             Some(&self.geo),
             Some(TripRows::Later(rows.clone())),
         )?;
+        drop(solving);
         let forecast = forecast.map(std::sync::Arc::new);
         cache.insert(
             0,

@@ -11,6 +11,10 @@ internal object CitySurface {
     @JvmStatic external fun fork(handle: Long): Long
     @JvmStatic external fun visitViewport(handle: Long, home: String, zone: String): Boolean
     @JvmStatic external fun copy(source: Long, destination: Long)
+    /** A save opened with world [surface]'s city terrain and water, derived once (Engine.open then [copy] derive twice). */
+    @JvmStatic external fun open(bytes: ByteArray, surface: Long): Long
+    /** `{"key","clock","cash"}`: what the map draws of the world as a short key (Engine.geometry without its clock and cash). */
+    @JvmStatic external fun geometryKey(handle: Long): String
     @JvmStatic external fun empty(id: String, header: String): Long
     @JvmStatic external fun attach(handle: Long, header: String, cells: ByteArray, terrain: ByteArray): IntArray?
     @JvmStatic external fun lonLat(handle:Long,x:Float,y:Float):DoubleArray

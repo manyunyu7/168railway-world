@@ -203,6 +203,45 @@ pub extern "system" fn Java_world_nativegame_CitySurface_worldHome(
     (world.header["home"].as_str() == Some("world")) as _
 }
 
+/// A save opened with the terrain and water of world `surface`'s opened cities, as `Engine.open` then
+/// `copy` give it but derived once instead of twice: each derive of Seluruh Indonesia's 199 lines
+/// took seconds on a phone, and the checkpoint behind every panel waited for both (20 s).
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_open(
+    env: JNIEnv, _: JClass, bytes: jni::objects::JByteArray, surface: jlong,
+) -> jlong {
+    let Ok(input) = env.convert_byte_array(bytes) else { return 0 };
+    let mut api = trainworld_sim::track::wasm::TrackApi::new(-74., 40.7, true);
+    if surface != 0 {
+        api.copy_city_surface_from(&unsafe { &*(surface as *const World) }.api);
+    }
+    World::open_with(&input, api).map_or(0, |w| Box::into_raw(Box::new(w)) as jlong)
+}
+
+/// What the map draws of world `handle` (`Engine.geometry`) as a short key, its clock and cash left
+/// out, with them: `{"key","clock","cash"}`. A checkpoint whose world draws the same as the last one
+/// skips the 19 MB geometry of Seluruh Indonesia and the map's reload (seconds, on the UI thread).
+pub(crate) fn geometry_key(world: &World) -> Value {
+    use std::hash::{Hash, Hasher};
+    let mut g = world.geometry();
+    let clock = g["clock"].take();
+    let cash = g["cash"].take();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    g.to_string().hash(&mut h);
+    serde_json::json!({"key": format!("{:016x}", h.finish()), "clock": clock, "cash": cash})
+}
+
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_geometryKey(
+    env: JNIEnv, _: JClass, handle: jlong,
+) -> jni::sys::jstring {
+    if handle == 0 {
+        return std::ptr::null_mut();
+    }
+    let value = geometry_key(unsafe { &*(handle as *const World) });
+    env.new_string(value.to_string()).map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
+
 // Checkpoints serialize the network; the downloaded terrain and water masks stay local.
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_CitySurface_copy(
@@ -333,6 +372,31 @@ mod tests {
         assert_eq!(after["markets"], before["markets"]);
         assert_eq!(after["viewed"], serde_json::json!(["bad"]));
         assert_eq!(World::open(&bytes).unwrap().header["opened"], serde_json::json!(["jak","bad"]));
+    }
+
+    /// `open` with a surface world reads the same world as `World::open` (a sandbox has no water
+    /// rasters; with them the masks are set before the one derive, as `TrackApi::load` does).
+    #[test]
+    fn opening_onto_a_surface_reads_the_same_world() {
+        let mut world = World::sandbox("jak", 106.82, -6.2);
+        let time = world.header["clock"].as_f64().unwrap();
+        let p = world.api.from_lonlat(106.82, -6.2);
+        world.build_service([p[0], p[1]], [p[0] + 3000., p[1]], "Uji", time).unwrap();
+        let archive = world.save(time).unwrap();
+        let plain = World::open(&archive).unwrap();
+        let mut api = trainworld_sim::track::wasm::TrackApi::new(-74., 40.7, true);
+        api.copy_city_surface_from(&world.api);
+        let onto = World::open_with(&archive, api).unwrap();
+        assert_eq!(plain.save(time), onto.save(time));
+        assert_eq!(plain.geometry(), onto.geometry());
+        // the same drawing whatever the clock and cash; another line changes it
+        let key = geometry_key(&plain);
+        let mut later = World::open(&world.save(time + 3600.).unwrap()).unwrap();
+        later.api.set_cash(1.);
+        assert_eq!(geometry_key(&later)["key"], key["key"]);
+        assert_eq!(geometry_key(&later)["clock"].as_f64(), Some(time + 3600.));
+        world.build_service([p[0], p[1] + 3000.], [p[0] + 3000., p[1] + 3000.], "Dua", time).unwrap();
+        assert_ne!(geometry_key(&world)["key"], key["key"]);
     }
 
     #[test]

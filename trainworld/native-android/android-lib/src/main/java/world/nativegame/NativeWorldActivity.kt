@@ -1093,7 +1093,7 @@ class NativeWorldActivity : Activity() {
             map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
             showBalance(NativeFinance.balance(handle,clock))
             updateControls()
-        }, { id -> withCommittedWorld(pause = false) { openServiceDetails(id) } }, { e -> stopClock(); confirmTrackRemoval(e) }, extra)
+        }, { id -> withCommittedWorld(pause = false) { openServiceDetails(id) } }, { e -> stopClock(); confirmTrackRemoval(e) }, extra, currentLens() == Lens.SIGNAL)
     }
 
     private fun startTrackRemoval() {
@@ -1334,19 +1334,29 @@ class NativeWorldActivity : Activity() {
     private var troubles = org.json.JSONArray()
     private var troubleKey = ""
     private var troubleAt = 0L
-    /** Asked again each game hour, after a change to the world, and every half minute. */
-    private fun updateTroubles() {
+    /** The engine's rows of [troubleKey]: kept while that holds, since asking costs most of a second on a big network. */
+    private var troubleEngine: org.json.JSONArray? = null
+    /**
+     * Asked again each game hour and after a change to the world (which clears [troubleKey]); every
+     * half minute and when the crowding report lands only the report's rows are merged in again: the
+     * engine's rows (TroubleList.query, ~0,85 s for the 199 lines of Seluruh Indonesia on the UI thread)
+     * stand until the hour or the world changes.
+     */
+    private fun updateTroubles(crowdOnly: Boolean = false) {
         if (!::troubleButton.isInitialized) return
         if (handle == 0L || drawing) { troubleButton.visibility = View.GONE; return }
         val now = referenceTime ?: clock
-        val key = "$handle:${(now / 3600).toLong()}"
+        // the map is loaded again after every change to the network: its version stands for the world's
+        val key = "$handle:${(now / 3600).toLong()}:${map.trainNetworkVersion}"
         val wall = SystemClock.elapsedRealtime()
-        if (key == troubleKey && wall - troubleAt < 30_000) return
-        troubleKey = key; troubleAt = wall
-        troubles = TroubleList.read(handle, now)
+        val same = key == troubleKey && troubleEngine != null
+        if (same && !crowdOnly && wall - troubleAt < 30_000) return
+        if (!crowdOnly) troubleAt = wall
+        if (!same) { troubleKey = key; troubleEngine = TroubleList.engine(handle, now) }
+        troubles = TroubleList.merge(troubleEngine!!)
         // the crowding report (Crowding.kt) and the map's capacity tags (CrowdLens.kt) with the list
         CrowdLens.refresh(handle, when (Math.floorMod(now.toLong() + localClockShift, 86400L) / 3600) { in 6..19L -> 0; in 20..23L -> 1; else -> 2 })
-        Crowding.refresh { troubleKey = ""; updateTroubles(); map.invalidate() }
+        Crowding.refresh { updateTroubles(crowdOnly = true); map.invalidate() }
         val n = troubles.length()
         troubleButton.visibility = if (n > 0) View.VISIBLE else View.GONE
         troubleButton.text = n.toString()
@@ -2064,13 +2074,16 @@ class NativeWorldActivity : Activity() {
         restoringEdit = true
         updateControls()
         status.text = "Memulihkan ${target.label}…"
+        val surface = CitySurface.fork(handle)
+        val surfaceAt = surfaceVersion
         executor.execute {
             var candidate = 0L
             val result = runCatching {
-                candidate = Engine.open(target.bytes)
+                candidate = CitySurface.open(target.bytes, surface)
                 check(candidate != 0L) { "Cadangan edit tidak dapat dibuka." }
                 JSONObject(Engine.geometry(candidate))
             }
+            Engine.close(surface)
             runOnUiThread {
                 try {
                     if (closed || isFinishing || isChangingConfigurations) return@runOnUiThread
@@ -2078,10 +2091,10 @@ class NativeWorldActivity : Activity() {
                         val changed = restoreMapPreferences(candidate)
                         if (!persistBytes(if (changed) Engine.save(candidate,geometry.getDouble("clock")) else target.bytes)) return@onSuccess
                         val previous = handle
-                        CitySurface.copy(previous,candidate)
+                        if (surfaceVersion != surfaceAt) CitySurface.copy(previous,candidate)
                         handle = candidate
                         candidate = 0L
-                        Engine.close(previous)
+                        closeLater(previous)
                         history.moved(backwards, current)
                         // the clock goes back with the world: no ghost or old runtime carries it forward
                         handover.forget()
@@ -2101,7 +2114,7 @@ class NativeWorldActivity : Activity() {
                     updateControls()
                     refresh()
                 } finally {
-                    if (candidate != 0L) Engine.close(candidate)
+                    closeLater(candidate)
                 }
             }
         }
@@ -2195,7 +2208,9 @@ class NativeWorldActivity : Activity() {
             action?.invoke()
             return
         }
-        if (checkpointInFlight) return
+        // a panel tapped while the last checkpoint is still out opens once it is in (it was dropped:
+        // on a big world the checkpoint takes seconds, and taps seemed to do nothing)
+        if (checkpointInFlight) { if (action != null && !pause) afterCheckpoint = action; return }
         if (pause && foreground) resumeOnPanelClose = false
         checkpointInFlight = true
         if (pause) {
@@ -2208,6 +2223,16 @@ class NativeWorldActivity : Activity() {
         pendingWrites[key] = completed
         fun done(error: String? = null) {
             checkpointInFlight = false
+            if (error != null && runtime !== reference) {
+                // closed or replaced while its snapshot was out: nothing to commit, only the controls to free
+                if (reference == null && referenceState == ReferenceState.SAVING) referenceState = null
+                completed.countDown()
+                pendingWrites.remove(key, completed)
+                afterCheckpoint = null
+                if (closed) executor.shutdown()
+                else if (handle != 0L) { lastStatus = -1; updateControls(); refresh() }
+                return
+            }
             when {
                 error != null || closed || !foreground || isFinishing -> finishReference(runtime)
                 pause -> parkReference(runtime)
@@ -2224,40 +2249,74 @@ class NativeWorldActivity : Activity() {
             else if (foreground && !isFinishing) action?.invoke()
             val queued = afterCheckpoint
             afterCheckpoint = null
-            if (queued != null && action == null && error == null && !closed && foreground && !isFinishing && !drawing && !removingTrack && !restoringEdit)
-                withCommittedWorld(pause = false, queued)
+            if (queued != null && error == null && !closed && foreground && !isFinishing && !drawing && !removingTrack && !restoringEdit) {
+                // after a checkpoint with its own action the world is as fresh: no second one
+                if (action == null) withCommittedWorld(pause = false, queued) else queued()
+            }
         }
         runtime.snapshot(pause) { result ->
             result.onFailure { done(it.localizedMessage ?: "Snapshot simulasi tidak tersedia.") }
                 .onSuccess { bytes ->
+                    // the opened cities' terrain and water go to the new world on the worker: copying
+                    // them rebuilds its network, seconds for Seluruh Indonesia (ANR on the UI thread)
+                    val surface = CitySurface.fork(handle)
+                    val surfaceAt = surfaceVersion
+                    // the map still draws the last checkpoint's world when nothing loaded it since
+                    val drawn = committedDrawing.takeIf { committedVersion == map.trainNetworkVersion }
                     executor.execute {
                         var candidate = 0L
                         val restored = runCatching {
-                            candidate = Engine.open(bytes)
+                            candidate = CitySurface.open(bytes, surface)
                             check(candidate != 0L) { "Hasil simulasi tidak dapat dibuka." }
-                            JSONObject(Engine.geometry(candidate))
+                            // the simulation moves the clock and the cash, rarely what the map draws:
+                            // its geometry (19 MB for Seluruh Indonesia) is read only when that changed
+                            val key = JSONObject(CitySurface.geometryKey(candidate))
+                            val g = if (key.getString("key") == drawn) null else JSONObject(Engine.geometry(candidate))
+                            key to g
                         }
+                        Engine.close(surface)
                         runOnUiThread {
                             try {
                                 restored.onFailure { done(it.localizedMessage ?: "Hasil simulasi belum dapat dibaca.") }
-                                    .onSuccess { geometry ->
+                                    .onSuccess { (key, geometry) ->
+                                        val time = key.getDouble("clock")
                                         val changed = restoreMapPreferences(candidate)
-                                        val merged = if (changed) Engine.save(candidate,geometry.getDouble("clock")) else bytes
+                                        val merged = if (changed) Engine.save(candidate,time) else bytes
                                         if (!persistBytes(merged)) { done("Hasil simulasi belum tersimpan di perangkat."); return@onSuccess }
                                         if (!closed) {
-                                            CitySurface.copy(handle,candidate)
+                                            // a city opened meanwhile: its surface is only in the world in hand
+                                            if (surfaceVersion != surfaceAt) CitySurface.copy(handle,candidate)
                                             Engine.swapWorlds(handle, candidate)
-                                            clock = geometry.getDouble("clock")
-                                            map.load(geometry, refit = false, keepTrainLoads = true)
-                                            updateSummary()
+                                            clock = time
+                                            if (geometry != null || committedVersion != map.trainNetworkVersion) {
+                                                map.load(geometry ?: JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
+                                                committedDrawing = key.getString("key")
+                                                committedVersion = map.trainNetworkVersion
+                                                updateSummary()
+                                            } else {
+                                                key.optDouble("cash").takeIf { it.isFinite() }?.let { map.balance = it }
+                                                updateSummary()
+                                            }
                                         }
                                         done()
                                     }
-                            } finally { if (candidate != 0L) Engine.close(candidate) }
+                            } finally { closeLater(candidate) }
                         }
                     }
                 }
         }
+    }
+
+    /** What the map drew at the last checkpoint (CitySurface.geometryKey) and the map's load then. */
+    private var committedDrawing: String? = null
+    private var committedVersion = -1
+
+    /** Bumped whenever a city's surface is copied into the world in hand ([loadViewedZone]). */
+    private var surfaceVersion = 0
+    /** A world no longer in use dropped on the worker: freeing a big one took seconds on the UI thread. */
+    private fun closeLater(world: Long) {
+        if (world == 0L) return
+        runCatching { executor.execute { Engine.close(world) } }.onFailure { Engine.close(world) }
     }
 
     private var parked: SimulationClock? = null
@@ -2412,28 +2471,65 @@ class NativeWorldActivity : Activity() {
                         map.invalidate()
                         updateViewportSummary()
                         if (installed == null) {
-                            CitySurface.copy(candidate,handle)
-                            val before = if (parked != null || warming != null) Engine.save(handle,clock) else null
-                            if (!CitySurface.visitViewport(handle,homeCity,id)) return@onSuccess
-                            visitedThisSession.add(id)
-                            openedCities = openedCities + id
-                            worldChanged = true
-                            val after = Engine.save(handle,clock)
-                            if (before != null) {
-                                if (parkedBytes?.contentEquals(before) == true) parkedBytes = after
-                                if (warmBytes?.contentEquals(before) == true) warmBytes = after
-                            }
-                            if (reference == null && !drawing) persistBytes(after)
-                            map.overlay.zoneAdded()
+                            adopting = true
+                            adoptSurface(id, candidate)
                         }
                         android.util.Log.i("WorldViewport","Kota terbuka: $id (${surfaces.size} paket)")
                     }.onFailure {
                         Toast.makeText(this,"Peta ${cityStore.city(id).name} belum tersedia. Geser untuk mencoba lagi.",Toast.LENGTH_SHORT).show()
                     }
                 } finally {
-                    Engine.close(candidate)
-                    loadingSurface = false
-                    if (!closed && !isFinishing && (id != wantedZone || id in detailedSurfaces)) loadViewedZone()
+                    if (!adopting) surfaceLoaded(id, candidate)
+                    adopting = false
+                }
+            }
+        }
+    }
+    private var adopting = false
+
+    private fun surfaceLoaded(id: String, candidate: Long) {
+        Engine.close(candidate)
+        loadingSurface = false
+        if (!closed && !isFinishing && (id != wantedZone || id in detailedSurfaces)) loadViewedZone()
+    }
+
+    /**
+     * A newly opened city's terrain and water into the world in hand. Copying them rebuilds the
+     * network (`copy_city_surface_from`: water under the track), seconds for Seluruh Indonesia: on
+     * the UI thread every city panned into froze the map until "isn't responding". The world is
+     * opened again from its own bytes on the worker, given every surface there ([candidate] holds
+     * them all) and swapped in, unless it changed meanwhile (then copied here, as before).
+     */
+    private fun adoptSurface(id: String, candidate: Long) {
+        val bytes = Engine.save(handle, clock)
+        val source = handle
+        executor.execute {
+            var world = 0L
+            runCatching {
+                world = CitySurface.open(bytes, candidate)
+                check(world != 0L)
+            }.onFailure { if (world != 0L) { Engine.close(world); world = 0L } }
+            runOnUiThread {
+                try {
+                    if (closed || isFinishing || handle == 0L) return@runOnUiThread
+                    if (world != 0L && handle == source && Engine.save(handle, clock).contentEquals(bytes)) Engine.swapWorlds(handle, world)
+                    else CitySurface.copy(candidate, handle)
+                    surfaceVersion++
+                    val before = if (parked != null || warming != null) Engine.save(handle,clock) else null
+                    if (!CitySurface.visitViewport(handle,homeCity,id)) return@runOnUiThread
+                    visitedThisSession.add(id)
+                    openedCities = openedCities + id
+                    worldChanged = true
+                    val after = Engine.save(handle,clock)
+                    if (before != null) {
+                        if (parkedBytes?.contentEquals(before) == true) parkedBytes = after
+                        if (warmBytes?.contentEquals(before) == true) warmBytes = after
+                    }
+                    if (reference == null && !drawing) persistBytes(after)
+                    map.overlay.zoneAdded()
+                } finally {
+                    closeLater(world)
+                    surfaceLoaded(id, candidate)
                 }
             }
         }
@@ -2505,6 +2601,8 @@ class NativeWorldActivity : Activity() {
         if (drawing) { cancelDrawing(); return }
         if (map.followed != null) { followChip?.performClick(); return }
         if (removingTrack || selectingInfrastructure) { leaveWorld(); return }
+        // a lens on the map is a mode too: the first Back puts the map back to Normal
+        if (currentLens() != Lens.NORMAL) { applyLens(Lens.NORMAL); return }
         StudioDialogBuilder(this).setTitle("Keluar dari dunia?")
             .setMessage("Progresmu disimpan di HP ini. Kamu bisa lanjut kapan saja dari Duniaku.")
             .setPositiveButton("Simpan & keluar") { _, _ -> leaveWorld() }
@@ -2734,7 +2832,8 @@ class NativeWorldActivity : Activity() {
         if (!computing()) return 1f
         val real = if (warming != null) runCatching { SimulationEngine.openProgress() }.getOrDefault(0f) else 0f
         if (real > 0f) return real.coerceIn(0f, .99f)
-        return (0.95f * warmElapsed() / warmEstimate()).coerceIn(0f, if (warming != null) .1f else .95f)
+        // the open reports its own steps from 3% (demand.rs open_stage): the guess only bridges the first seconds
+        return (0.95f * warmElapsed() / warmEstimate()).coerceIn(0f, if (warming != null) .02f else .95f)
     }
 
     private fun scheduleWarm(delay: Long = 2500) {
@@ -3246,8 +3345,8 @@ internal class NetworkView(context: Context):View(context) {
     private var vw=0; private var vh=0
     private fun sx(x:Float)=(x-centerX)*scale+vw/2f
     private fun sy(y:Float)=(centerY-y)*scale+vh/2f
+    /** The cash of the world last loaded, or of the last checkpoint that left the drawing as it was. */
     var balance = Double.NaN
-        private set
 
     fun load(data:JSONObject, refit:Boolean = true,keepTrainLoads:Boolean = false) {
         overlay.reset(keep = !refit)
@@ -3882,21 +3981,24 @@ internal class NetworkView(context: Context):View(context) {
     private fun selectAt(x: Float, y: Float) {
         if (StopEditMode.tapAway(this)) return
         if (!isDrafting) {
+            // The Signals lens is for picking track (web PieceSignal): a tap goes to the piece under it,
+            // not to the trains crowding it at speed nor to the line drawn along it.
+            val pickTrack = overlay.track == "signal"
             // A station beats the lens discs drawn over it (station riders up to 42 dp, homes and
             // destinations up to 24 dp): those used to swallow the tap with a ridership sheet.
             // A train right under the finger wins over the station it stands at (web: trains are drawn above stops).
-            if (displaySettings.trains) trainPainter.trainAt(x,y,scale,width,height,12*density)?.let { (profile,dep,fill) ->
+            if (displaySettings.trains && !pickTrack) trainPainter.trainAt(x,y,scale,width,height,12*density)?.let { (profile,dep,fill) ->
                 onTrainTap?.invoke(profile,dep,fill,trainPainter.engine(),trainPainter.time); return
             }
             val station = stationAt(x, y)
             if (station != null && onStationTap?.invoke(station.id) == true) return
             if (overlay.inspect(x,y,stops){ id -> onStationTap?.invoke(id) }) return
             // web: a click on a train opens the train inspector
-            if (displaySettings.trains) trainPainter.trainAt(x,y,scale,width,height,22*density)?.let { (profile,dep,fill) ->
+            if (displaySettings.trains && !pickTrack) trainPainter.trainAt(x,y,scale,width,height,22*density)?.let { (profile,dep,fill) ->
                 onTrainTap?.invoke(profile,dep,fill,trainPainter.engine(),trainPainter.time); return
             }
             // web: a click on a line selects it and opens its panel
-            if (onLineTap != null) lineAt(x,y,14*density)?.let { onLineTap?.invoke(it); return }
+            if (onLineTap != null && !pickTrack) lineAt(x,y,14*density)?.let { onLineTap?.invoke(it); return }
             if (onJunctionTap?.invoke((centerX + (x-width/2f)/scale).toDouble(), (centerY - (y-height/2f)/scale).toDouble(), (14*density/scale).toDouble()) == true) return
         }
         onLocation?.invoke(PointF(centerX + (x-width/2f)/scale, centerY - (y-height/2f)/scale))

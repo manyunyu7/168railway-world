@@ -135,13 +135,19 @@ internal class NativeSimulationClock(
             playing=false
             main.removeCallbacks(tick)
         }
-        submit {
-            val result=runCatching {
-                if (pause) check(SimulationEngine.pause(id,now))
-                checkNotNull(SimulationEngine.snapshot(id,now)) { "Simpanan simulasi tidak tersedia." }
+        // `done` always comes, a failure once closed: the activity holds every other checkpoint until
+        // it does, and a dropped answer left "Menyimpan hasil simulasi…" up with every tap ignored
+        val gone = { Result.failure<ByteArray>(IllegalStateException("Simulasi sudah ditutup.")) }
+        val asked = !closed && runCatching {
+            worker.execute {
+                val result = if (closed) gone() else runCatching {
+                    if (pause) check(SimulationEngine.pause(id,now))
+                    checkNotNull(SimulationEngine.snapshot(id,now)) { "Simpanan simulasi tidak tersedia." }
+                }
+                main.post { done(if (closed) gone() else result) }
             }
-            main.post { if (!closed) done(result) }
-        }
+        }.isSuccess
+        if (!asked) main.post { done(gone()) }
     }
     private fun ask(read: () -> String?, done: (String?) -> Unit) {
         if (!isReady || closed) { done(null); return }
