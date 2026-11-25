@@ -1,0 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only. Matches Studio web StationUpgrades. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="28dp" android:height="28dp" android:viewportWidth="16" android:viewportHeight="16">
+    <path android:strokeColor="#103d3b" android:strokeWidth="1.25" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M2,6l6,-3.5L14,6M3.5,10.5h9M4.5,10.5v3M11.5,10.5v3M4.5,8h7" />
+</vector>

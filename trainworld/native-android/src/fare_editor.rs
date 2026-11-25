@@ -54,6 +54,7 @@ fn update(raw: &Value, patch: &Value) -> Result<Value, String> {
     Ok(next)
 }
 fn editor(w: &mut World, clock: f64, patch: &Value) -> Result<Value, String> {
+    let clock = w.native_clock(clock);
     let raw = update(&w.header["fares"], patch)?;
     if !patch.as_object().unwrap().is_empty() {
         w.header["fares"] = raw.clone()

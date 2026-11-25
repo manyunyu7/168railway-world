@@ -2072,6 +2072,11 @@ impl TrackApi {
         self.rasters.iter().find_map(|r| r.seen.0.covers(x,y).then(|| r.seen.0.is_water(x,y)))
     }
 
+    /// Purchase value of the entire fleet in US$M, for booking a batch of native edits.
+    pub fn fleet_value(&self) -> f64 {
+        self.fleet.iter().zip(CAR_PRICES).map(|(&count, price)| f64::from(count) * price).sum()
+    }
+
     /// Install the same immutable zone data on a native transactional edit candidate.
     pub fn copy_city_surface_from(&mut self, source: &Self) {
         self.w.net.terrain = source.w.net.terrain.clone();

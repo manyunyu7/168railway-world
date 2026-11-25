@@ -8,6 +8,7 @@ internal object CitySurface {
     init { System.loadLibrary("world_native") }
     @JvmStatic external fun empty(id: String, header: String): Long
     @JvmStatic external fun attach(handle: Long, header: String, cells: ByteArray, terrain: ByteArray): IntArray?
+    @JvmStatic external fun lonLat(handle:Long,x:Float,y:Float):DoubleArray
     @JvmStatic external fun project(handle: Long, lonlat: DoubleArray): FloatArray
     data class Place(val name: String, val kind: Int, val x: Float, val y: Float)
     data class Layer(val bitmap: Bitmap, val bounds: FloatArray, val places: List<Place>)

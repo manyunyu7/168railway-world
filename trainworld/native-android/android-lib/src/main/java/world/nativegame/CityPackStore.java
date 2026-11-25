@@ -10,6 +10,8 @@ import java.util.*;
 public final class CityPackStore {
     public static final String RELEASE = "2026-11-18";
     public static final String ORIGIN = "https://168railway.com/studio-data/" + RELEASE + "/";
+    private static final java.util.regex.Pattern CITY_ID = java.util.regex.Pattern.compile("[a-z0-9]{2,12}");
+    private static final java.util.regex.Pattern DIGEST = java.util.regex.Pattern.compile("[a-f0-9]{64}");
     private static final Object LOCK = new Object();
     public interface Progress { void downloaded(long bytes, long total); }
     interface Transport { InputStream open(String path) throws IOException; }
@@ -52,7 +54,7 @@ public final class CityPackStore {
             while ((line=rows.readLine())!=null) {
                 if(line.isEmpty()||line.startsWith("#"))continue;
                 String[] v=line.split("\t",-1);
-                if((v.length!=12 && v.length!=14) || !v[0].matches("[a-z0-9]{2,12}") || v[1].isEmpty() || cities.containsKey(v[0]))throw new IOException("Invalid city catalog");
+                if((v.length!=12 && v.length!=14) || !CITY_ID.matcher(v[0]).matches() || v[1].isEmpty() || cities.containsKey(v[0]))throw new IOException("Invalid city catalog");
                 String id=v[0];
                 String[] rem={id+".json",id+".bin",id+".market.json","terrain/"+id+".terrain","real/"+id+".save",id+".places.json"};
                 String[] loc={"header.json","cells.bin","market.json","zone.terrain","network.save","places.json"};
@@ -60,7 +62,7 @@ public final class CityPackStore {
                 for(int i=0;i<(v.length-2)/2;i++){
                     long size=Long.parseLong(v[2+2*i]);String sha=v[3+2*i];
                     if(i==4 && size==0 && sha.equals("-")) continue;
-                    if(size<=0||size>256L*1024*1024||!sha.matches("[a-f0-9]{64}"))throw new IOException("Invalid asset catalog");
+                    if(size<=0||size>256L*1024*1024||!DIGEST.matcher(sha).matches())throw new IOException("Invalid asset catalog");
                     parts.add(new Asset(rem[i],loc[i],sha,size));
                 }
                 cities.put(id,new City(id,v[1],parts));

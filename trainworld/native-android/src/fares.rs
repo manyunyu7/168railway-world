@@ -49,6 +49,12 @@ fn start_nodes(s: f64) -> [[f64; 2]; 3] {
     let k = 2.5 / (START[0][1] * scale("US")) * s;
     START.map(|[x, y]| [x, fare_round(y * k)])
 }
+pub(super) fn starting_fares(country: &str) -> Value {
+    let income_scale = scale(country);
+    let nodes = start_nodes(income_scale);
+    json!({"base":nodes[0][1],"perKm":(nodes[1][1]-nodes[0][1])/nodes[1][0],
+        "nodes":nodes,"scales":{"@":income_scale},"baseline":"IN","basis":"usd","income":0.5})
+}
 fn same(a: &[[f64; 2]; 3], b: &[[f64; 2]; 3]) -> bool {
     a.iter()
         .zip(b)

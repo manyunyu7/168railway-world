@@ -117,6 +117,7 @@ pub(super) fn attach(
             pixels.push(color as i32);
         }
     }
+    world.operating = None;
     Some(pixels)
 }
 
@@ -124,11 +125,7 @@ fn empty_city(id: &str, header: &str) -> Option<World> {
     let h: Value = serde_json::from_str(header).ok()?;
     let lon = h["origin"]["lon"].as_f64()?;
     let lat = h["origin"]["lat"].as_f64()?;
-    let mut world = World::workshop();
-    world.api = trainworld_sim::track::wasm::TrackApi::new(lon, lat, true);
-    world.api.set_unlimited(true);
-    world.header["city"] = serde_json::json!(id);
-    Some(world)
+    Some(World::sandbox(id, lon, lat))
 }
 
 #[no_mangle]
@@ -161,6 +158,18 @@ pub extern "system" fn Java_world_nativegame_CitySurface_project(
         Some(result.into_raw())
     };
     project().unwrap_or(std::ptr::null_mut())
+}
+
+/// The renderer uses the same CRS as the loaded TWG1, including legacy LCC city saves.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_CitySurface_lonLat(
+    env:JNIEnv,_:JClass,handle:jlong,x:f32,y:f32
+) -> jni::sys::jdoubleArray {
+    let Some(world) = (unsafe { (handle as *const World).as_ref() }) else { return std::ptr::null_mut(); };
+    let ll=world.api.to_lonlat(x.into(),y.into());
+    let Ok(array)=env.new_double_array(2) else {return std::ptr::null_mut();};
+    if env.set_double_array_region(&array,0,&ll).is_err(){return std::ptr::null_mut();}
+    array.into_raw()
 }
 
 #[no_mangle]
@@ -313,7 +322,8 @@ mod tests {
             .unwrap();
         let t = result["departure"].as_f64().unwrap() + 20.;
         let mut restored = World::open(&world.save(t).unwrap()).unwrap();
-        assert_eq!(restored.header["city"], "jak");
+        assert_eq!(restored.header["city"], "nyc");
+        assert_eq!(restored.header["home"], "jak");
         assert_eq!(restored.positions(t), world.positions(t));
         assert!(!restored.positions(t).is_empty());
         let geo = restored.geometry();

@@ -30,33 +30,64 @@ fn clear(h: &mut Value) {
         }
     }
 }
-fn record(h: &mut Value, key: &str, field: &str, id: i64, amount: f64, limit: usize) {
-    if !h[key].is_array() {
-        h[key] = json!([])
+// Keep rows sorted even when an imported save already has entries after its clock.
+fn entry<'a>(header: &'a mut Value, key: &str, index: &str, at: i64) -> &'a mut Value {
+    if !header[key].is_array() {
+        header[key] = json!([]);
     }
-    let a = h[key].as_array_mut().unwrap();
-    if a.last().and_then(|x| x[field].as_i64()) != Some(id) {
+    let rows = header[key].as_array_mut().unwrap();
+    let mut i = rows.partition_point(|row| row[index].as_i64().unwrap_or(i64::MIN) < at);
+    if rows.get(i).and_then(|row| row[index].as_i64()) != Some(at) {
         let mut row = json!({"fares":0,"running":0,"trains":0,"build":0,"rides":0});
-        row[field] = id.into();
-        a.push(row);
-        if a.len() > limit {
-            a.drain(..a.len() - limit);
+        row[index] = at.into();
+        rows.insert(i, row);
+    }
+    if key == "hours" && rows.len() > 48 {
+        // Leave the current row accessible when a save carries future ledger entries.
+        let trim = (rows.len() - 48).min(i);
+        rows.drain(..trim);
+        i -= trim;
+    }
+    &mut rows[i]
+}
+
+fn add(row: &mut Value, field: &str, v: f64) {
+    row[field] = (row[field].as_f64().unwrap_or(0.) + v).into();
+}
+
+fn book(header: &mut Value, key: &str, index: &str, at: i64, charge: f64, trains: f64) {
+    let row = entry(header, key, index, at);
+    add(row, "build", charge - trains);
+    add(row, "trains", trains);
+}
+
+pub(super) fn book_charge(header: &mut Value, clock: f64, charge: f64, trains: f64) {
+    if charge > 0. {
+        let day = ((clock + super::local_time::day_shift(header)) / 86400.).floor() as i64;
+        let hour = (clock / 3600.).floor() as i64;
+        for (key, index, at) in [("ledger", "day", day), ("hours", "hour", hour)] {
+            book(header, key, index, at, charge, trains);
+            book(&mut header["regions"][""], key, index, at, charge, trains);
         }
     }
-    let row = a.last_mut().unwrap();
-    row["loan"] = json!(row["loan"].as_f64().unwrap_or(0.) + amount);
 }
 pub(super) fn tick(w: &mut World, now: f64) {
     let start = w.header["clock"].as_f64().unwrap_or(now);
-    if !now.is_finite() || now <= start || loan(&w.header).is_none() {
+    if !now.is_finite() || now <= start {
         return;
     }
-    let shift = w.header["dayShift"].as_f64().unwrap_or(0.);
-    let mut t = start;
+    let shift = super::local_time::day_shift(&w.header);
+    let daily_upkeep = w.api.upkeep()[0];
+    let costs = w
+        .operating
+        .get_or_insert_with(|| super::operating::Costs::new(&mut w.api));
+    let mut t = if now - start > 366. * 86400. {
+        ((now - 366. * 86400.) / 3600.).floor() * 3600.
+    } else {
+        start
+    };
+    let mut cash = w.header["cash"].as_f64().unwrap_or(w.api.cash());
     while t < now {
-        let Some((_, pay, days)) = loan(&w.header) else {
-            break;
-        };
         let hour = (t / 3600.).floor() as i64;
         let day = ((t + shift) / 86400.).floor() as i64;
         let end = now
@@ -65,21 +96,39 @@ pub(super) fn tick(w: &mut World, now: f64) {
         if end <= t {
             break;
         }
-        let d = ((end - t) / 86400.).min(days);
-        let owed = pay * d;
-        let cash = w.header["cash"].as_f64().unwrap_or(w.api.cash()) - owed;
-        w.header["cash"] = cash.into();
-        w.api.set_cash(cash);
-        record(&mut w.header, "ledger", "day", day, owed, usize::MAX);
-        record(&mut w.header, "hours", "hour", hour, owed, 48);
-        if days - d < 1e-9 {
-            clear(&mut w.header)
-        } else {
-            w.header["loanDays"] = (days - d).into();
-            w.header["loanPay"] = pay.into();
+        let elapsed_days = (end - t) / 86400.;
+        let upkeep = elapsed_days * daily_upkeep;
+        let running = costs.per_hour(hour as f64 * 3600.) * (end - t) / 3600.;
+        let mut owed = 0.;
+        if let Some((_, pay, days)) = loan(&w.header) {
+            let d = elapsed_days.min(days);
+            owed = pay * d;
+            if days - d < 1e-9 {
+                clear(&mut w.header);
+            } else {
+                w.header["loanDays"] = (days - d).into();
+                w.header["loanPay"] = pay.into();
+            }
+        }
+        cash -= owed + upkeep + running;
+        for (key, index, at) in [("ledger", "day", day), ("hours", "hour", hour)] {
+            let row = entry(&mut w.header, key, index, at);
+            add(row, "upkeep", upkeep);
+            add(row, "running", running);
+            if owed > 0. {
+                add(row, "loan", owed);
+            }
+            if upkeep > 0. || running > 0. {
+                // Same unallocated bucket as Studio until geographic shares are available.
+                let regional = entry(&mut w.header["regions"][""], key, index, at);
+                add(regional, "upkeep", upkeep);
+                add(regional, "running", running);
+            }
         }
         t = end;
     }
+    w.header["cash"] = cash.into();
+    w.api.set_cash(cash);
     w.header["clock"] = now.into();
 }
 pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String> {
@@ -105,7 +154,7 @@ pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String>
             if ![1000, 5000, 10000].contains(&op) || loan(h).is_some() {
                 return Err("Pilihan pinjaman tidak tersedia".into());
             }
-            let today = ((clock + h["dayShift"].as_f64().unwrap_or(0.)) / 86400.).floor() as i64;
+            let today = ((clock + super::local_time::day_shift(h)) / 86400.).floor() as i64;
             let days: Vec<_> = h["ledger"]
                 .as_array()
                 .into_iter()
@@ -138,7 +187,7 @@ pub(super) fn apply(w: &mut World, clock: f64, op: i32) -> Result<Value, String>
     }
     let (_, pay, days) = loan(h).unwrap_or((0., 0., 0.));
     Ok(
-        json!({"cash":cash,"upkeep":w.api.upkeep()[0],"operating":[w.api.running_cost(0),w.api.running_cost(1),w.api.running_cost(2)],"dailyPayment":pay,"remainingDays":days,"outstanding":pay*(1.-(1.+RATE).powf(-days))/RATE,"sandbox":h["mode"]=="sandbox"}),
+        json!({"cash":cash,"ledger":h.get("ledger"),"upkeep":w.api.upkeep()[0],"operating":[w.api.running_cost(0),w.api.running_cost(1),w.api.running_cost(2)],"dailyPayment":pay,"remainingDays":days,"outstanding":pay*(1.-(1.+RATE).powf(-days))/RATE,"sandbox":h["mode"]=="sandbox"}),
     )
 }
 #[no_mangle]
@@ -153,7 +202,7 @@ pub extern "system" fn Java_world_nativegame_NativeFinance_query(
         return std::ptr::null_mut();
     }
     let w = unsafe { &mut *(ptr as *mut World) };
-    let r = apply(w, now, op).unwrap_or_else(|e| json!({"error":e}));
+    let r = apply(w, w.native_clock(now), op).unwrap_or_else(|e| json!({"error":e}));
     env.new_string(r.to_string())
         .map_or(std::ptr::null_mut(), |x| x.into_raw())
 }
@@ -171,12 +220,19 @@ mod tests {
         assert!(apply(&mut w, now, 1000).is_ok());
         assert!(apply(&mut w, now, 1000).is_err());
         let later = now + 86400.;
-        let mut candidate = w.edit_candidate(later).unwrap();
+        assert_eq!(w.edit_candidate(later).unwrap().header["clock"], now);
+        let mut candidate = World::open(&w.save(now).unwrap()).unwrap();
         let from_edit = apply(&mut candidate, later, 0).unwrap();
         let r = apply(&mut w, later, 0).unwrap();
         assert_eq!(from_edit, r);
         assert_eq!(candidate.header["ledger"], w.header["ledger"]);
-        let paid = payment(1000.);
+        let running: f64 = w.header["ledger"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["running"].as_f64().unwrap())
+            .sum();
+        let paid = payment(1000.) + w.api.upkeep()[0] + running;
         assert!((r["cash"].as_f64().unwrap() - (7000. - paid)).abs() < 1e-8);
         assert_eq!(w.header["ledger"].as_array().unwrap().len(), 2);
         let saved = w.save(later).unwrap();

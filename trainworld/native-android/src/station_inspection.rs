@@ -57,7 +57,7 @@ fn station(w: &World, node: u32, now: f64) -> Value {
             {
                 departures.push((
                     dep[2],
-                    json!({"at":dep[2],"run":dep[0] as u32,"line":id_u,"node":n}),
+                    json!({"at":dep[2],"shift":line.shift,"run":dep[0] as u32,"line":id_u,"node":n}),
                 ));
             }
         }
@@ -67,7 +67,7 @@ fn station(w: &World, node: u32, now: f64) -> Value {
         "facilities":super::station_facilities::offered(w,id),"id":id, "name":w.api.node_name(id), "meters":net.node_platform[id as usize], "level":net.node_level[id as usize]
     })).collect();
     json!({"id":node,"name":w.api.node_name(node),"platforms":platforms,"lines":lines,
-        "departures":departures.into_iter().take(12).map(|(_,d)|d).collect::<Vec<_>>()})
+        "departures":departures.into_iter().map(|(_,d)|d).collect::<Vec<_>>()})
 }
 
 fn route(w: &World, id: u32, run: usize, now: f64) -> Value {
@@ -98,7 +98,7 @@ fn route(w: &World, id: u32, run: usize, now: f64) -> Value {
             json!({"node":node,"name":w.api.node_name(node),"arrival":arrival,"departure":depart})
         })
         .collect();
-    json!({"id":id,"name":w.api.line_name(id),"color":w.api.world().net.line_colour[id as usize],"run":run,
+    json!({"id":id,"shift":line.shift,"name":w.api.line_name(id),"color":w.api.world().net.line_colour[id as usize],"run":run,
         "base":next.map(|r|r[1]),"stops":stops})
 }
 

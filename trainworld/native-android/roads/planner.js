@@ -19,14 +19,15 @@ var Roads = (() => {
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
-  // trainworld/native-android/roads/planner.ts
+  // roads/planner.ts
   var planner_exports = {};
   __export(planner_exports, {
     addTile: () => addTile,
+    follow: () => follow,
     plan: () => plan
   });
 
-  // trainworld/app/src/map/roadGraph.ts
+  // ../app/src/map/roadGraph.ts
   var EXTENT = 4096;
   var ZOOM = 14;
   var WORLD = EXTENT * 2 ** ZOOM;
@@ -824,7 +825,7 @@ var Roads = (() => {
     return keep;
   }
 
-  // trainworld/app/src/map/roadTiles.ts
+  // ../app/src/map/roadTiles.ts
   var BUS_CLASSES = /* @__PURE__ */ new Set(["trunk", "primary", "secondary", "tertiary", "minor", "busway"]);
   var DRIVE_CLASSES = /* @__PURE__ */ new Set([...BUS_CLASSES, "service", "track", "bus_guideway"]);
   var PEDESTRIAN = "pedestrian";
@@ -980,11 +981,11 @@ var Roads = (() => {
     return { extent: 4096, lines: [], weights: [] };
   }
 
-  // trainworld/native-android/roads/planner.ts
+  // roads/planner.ts
   var graph = new RoadGraph();
   graph.oneWay = true;
-  function addTile(x, y, bytes) {
-    const streets = decodeRoads(bytes, (kind, _brunnel, _service, _access, subclass) => kind === "trunk" ? TRUNK : DRIVE_CLASSES.has(kind) || kind === "path" && subclass === PEDESTRIAN ? 1 : kind === "motorway" ? MOTORWAY : 0);
+  function addTile(x, y, bytes, rail = false) {
+    const streets = decodeRoads(bytes, (kind, _brunnel, _service, _access, subclass) => rail ? kind === "motorway" ? MOTORWAY : kind === "trunk" ? TRUNK : ["primary", "secondary", "tertiary"].includes(kind) ? 1 : 0 : kind === "trunk" ? TRUNK : DRIVE_CLASSES.has(kind) || kind === "path" && subclass === PEDESTRIAN ? 1 : kind === "motorway" ? MOTORWAY : 0);
     graph.addTile(x, y, joinRoads(streets, metresPerUnit((y + 0.5) * EXTENT)));
   }
   function plan(input) {
@@ -1004,6 +1005,54 @@ var Roads = (() => {
       }
     }
     return JSON.stringify({ points: out });
+  }
+  function follow(input, rail, designSpeed) {
+    graph.oneWay = false;
+    const points = JSON.parse(input), out = [];
+    let previous = null;
+    for (let i = 1; i < points.length; i++) {
+      let near = function(x, y) {
+        const result = [], seen = /* @__PURE__ */ new Set();
+        for (const s of graph.snapsWithin(x, y, 100 / m, !rail)) {
+          const a2 = graph.ea[s.edge], b2 = graph.eb[s.edge], skip = seen.has(a2) || seen.has(b2);
+          seen.add(a2).add(b2);
+          if (!skip) result.push(s);
+          if (result.length === 12) break;
+        }
+        return result;
+      };
+      const [ax, ay] = previous ?? [gxOf(points[i - 1][0]), gyOf(points[i - 1][1])];
+      const bx = gxOf(points[i][0]), by = gyOf(points[i][1]), m = metresPerUnit((ay + by) / 2);
+      const a = near(ax, ay), b = near(bx, by);
+      if (!a.length || !b.length) return JSON.stringify({ error: "Pilih titik maksimal 100 meter dari jalan yang sesuai." });
+      const direct = Math.hypot(a[0].x - b[0].x, a[0].y - b[0].y) * m;
+      const turn = rail ? Math.min(600, Math.max(10, Math.max(0, designSpeed / 3.6 - 12.2) ** 2)) : 200;
+      let direction = null;
+      if (out.length >= 4) {
+        const dx = ax - gxOf(out[out.length - 4]), dy = ay - gyOf(out[out.length - 3]), len = Math.hypot(dx, dy);
+        if (len > 0) direction = [dx / len, dy / len];
+      }
+      const path = graph.turnPath(
+        a,
+        b,
+        (s) => 3 * s.d * m,
+        Math.max(direct * 3, direct + 1e3) + 20 * turn,
+        turn,
+        Math.PI / 6,
+        3 * Math.PI / 4,
+        60,
+        direction,
+        11 * Math.PI / 12,
+        rail
+      );
+      if (!path) return JSON.stringify({ error: "Tidak ada jalan tersambung dengan radius belok yang sesuai." });
+      const pts = thin(path.pts, 1 / m);
+      if (pts.length < 4 || previous && Math.hypot(pts[0] - previous[0], pts[1] - previous[1]) * m > 2)
+        return JSON.stringify({ error: "Sambungan jalan terputus di titik perantara." });
+      for (let j = i === 1 ? 0 : 2; j < pts.length; j += 2) out.push(lngOf(pts[j]), latOf(pts[j + 1]));
+      previous = [pts[pts.length - 2], pts[pts.length - 1]];
+    }
+    return JSON.stringify({ line: out });
   }
   return __toCommonJS(planner_exports);
 })();

@@ -11,7 +11,7 @@ import java.util.zip.GZIPInputStream
 
 /** Immutable OpenFreeMap/OSM release shared between drafts in the application's private cache. */
 internal object RoadTileStore {
-    private const val release = "20261115_080022_pt"
+    private const val release = StudioMapTiles.release
     private const val tileLimit = 2 * 1024 * 1024
     fun directory(context: Context): File = File(context.cacheDir, "world-roads/$release")
     fun prepare(root:File, json:String) {

@@ -1,13 +1,20 @@
 mod bus_plan;
 mod city_surface;
+mod construction;
 mod demand;
+mod demolition;
 mod fare_editor;
 mod fares;
 mod ferry_plan;
 mod finance;
+mod local_time;
+mod new_game;
+mod operating;
 mod regional;
 mod station_facilities;
 mod station_inspection;
+mod station_map;
+mod train_scene;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use jni::{
     objects::{JByteArray, JClass, JString},
@@ -19,12 +26,14 @@ use std::io::{Read, Write};
 use trainworld_sim::track::wasm::TrackApi;
 
 mod service;
+mod native_line;
 
 struct World {
     api: TrackApi,
     header: Value,
     hour: i64,
     trips: Vec<f32>,
+    operating: Option<operating::Costs>,
     roads_dir: Option<std::path::PathBuf>,
 }
 
@@ -39,13 +48,35 @@ impl World {
             return None;
         }
         let n = u32::from_le_bytes(raw.get(4..8)?.try_into().ok()?) as usize;
-        let header: Value = serde_json::from_slice(raw.get(8..8 + n)?).ok()?;
+        let track_start = 8usize.checked_add(n)?;
+        let mut header: Value = serde_json::from_slice(raw.get(8..track_start)?).ok()?;
         if header["game"] != "anitabuilder" || header["format"] != 1 {
             return None;
         }
-        let mut api = TrackApi::new(-74., 40.7, true);
-        if !api.load(raw.get(8 + n..)?) {
+        let track = raw.get(track_start..)?;
+        if header["level"].as_u64().is_some_and(|v| v > u64::from(TrackApi::save_level()))
+            || TrackApi::save_unread(track) > 0
+        {
+            // Re-encoding these bytes with the current engine would discard newer network data.
             return None;
+        }
+        let mut api = TrackApi::new(-74., 40.7, true);
+        local_time::install(&mut api);
+        if !api.load(track) {
+            return None;
+        }
+        let fields = header.as_object_mut()?;
+        let old_workshop = fields.remove("nativeWorkshop") == Some(json!(true));
+        let archive_city = fields.remove("nativeArchiveCity");
+        if old_workshop {
+            let city = archive_city.or_else(|| fields.get("city").cloned())?;
+            fields.insert("city".into(), json!("nyc"));
+            fields.entry("start").or_insert_with(|| city.clone());
+            fields.entry("home").or_insert_with(|| city.clone());
+            fields.entry("opened").or_insert_with(|| json!([city]));
+            fields.entry("cities").or_insert_with(|| json!([city]));
+        } else if let Some(city) = archive_city {
+            fields.entry("home").or_insert(city);
         }
         {
             api.set_cash(header["cash"].as_f64().unwrap_or(6000.));
@@ -61,17 +92,30 @@ impl World {
             header,
             hour: i64::MIN,
             trips: vec![],
+            operating: None,
             roads_dir: None,
         })
     }
     fn workshop() -> Self {
-        let mut api = TrackApi::new(-73.985, 40.758, true);
+        Self::sandbox("nyc", -73.985, 40.758)
+    }
+
+    fn sandbox(city: &str, lon: f64, lat: f64) -> Self {
+        let mut api = TrackApi::new(lon, lat, true);
+        api.set_empty_frame(2);
+        local_time::install(&mut api);
         api.set_unlimited(true);
         Self {
             api,
-            header: json!({"game":"anitabuilder","format":1,"city":"nyc","clock":111600,"cash":6000.0,"fleet":0,"mode":"sandbox","fares":{"base":1.5,"perKm":0.1},"ledger":[],"nativeWorkshop":true}),
+            header: json!({
+                "game": "anitabuilder", "format": 1, "level": TrackApi::save_level(),
+                "city": "nyc", "home": city, "start": city, "cities": [city], "opened": [city],
+                "clock": 111600, "cash": 6000.0, "fleet": 0, "mode": "sandbox",
+                "fares": {"base": 1.5, "perKm": 0.1}, "ledger": []
+            }),
             hour: i64::MIN,
             trips: vec![],
+            operating: None,
             roads_dir: None,
         }
     }
@@ -112,6 +156,7 @@ impl World {
         mode: u8,
         bends: &[[f64; 3]],
     ) -> Result<Value, String> {
+        let clock = self.native_clock(clock);
         if bends.len() > 64
             || bends.iter().any(|b| {
                 b.iter().any(|v| !v.is_finite())
@@ -126,7 +171,7 @@ impl World {
             return Err("Jenis rel belum didukung.".into());
         }
 
-        if self.header["nativeWorkshop"] != true || !clock.is_finite() {
+        if !clock.is_finite() {
             return Err("Buka Dunia bangun untuk mengedit.".into());
         }
         if !(2..=24).contains(&points.len()) || points.iter().flatten().any(|v| !v.is_finite()) {
@@ -142,12 +187,9 @@ impl World {
         if name.is_empty() || name.chars().count() > 48 {
             return Err("Nama layanan harus terdiri dari 1–48 karakter.".into());
         }
-        let mut next = Self::open(&self.save(clock).ok_or("Simpanan sementara gagal")?)
-            .ok_or("Jaringan gagal disalin")?;
-        next.api.copy_city_surface_from(&self.api);
+        let mut next = self.edit_candidate(clock).ok_or("Jaringan gagal disalin")?;
         let api = &mut next.api;
         api.set_now(clock);
-        api.set_unlimited(true);
         next.roads_dir = self.roads_dir.clone();
         if mode == 5 {
             let dir = next
@@ -303,31 +345,67 @@ impl World {
             .filter_map(|r| (r[2] > clock).then_some(r[1].max(clock)))
             .min_by(f64::total_cmp)
             .ok_or("Jadwal keberangkatan tidak tersedia.")?;
-        next.header["cash"] = json!(api.cash());
-        next.header["fleet"] = json!(api.fleet());
-        next.header["nativeLastLine"] = json!(line);
+        next.book_service_edit(self, clock);
         *self = next;
         Ok(json!({"line":line,"departure":departure,"name":name}))
     }
 
+    fn book_service_edit(&mut self, original: &World, clock: f64) {
+        // edit_candidate has already settled the previous network through this clock.
+        let cash = self.api.cash();
+        let charge = self.header["cash"].as_f64().unwrap_or(cash) - cash;
+        let trains = self.api.fleet_value() - original.api.fleet_value();
+        finance::book_charge(&mut self.header, clock, charge, trains);
+        self.header["cash"] = json!(cash);
+        self.header["fleet"] = json!(self.api.fleet());
+    }
+
     fn edit_candidate(&self, clock: f64) -> Option<Self> {
+        let clock = self.native_clock(clock);
         // Keep the last accounted time until the clone has booked the intervening interest.
         let accounted = self.header["clock"].as_f64().unwrap_or(clock);
         let mut next = World::open(&self.save(accounted)?)?;
         finance::tick(&mut next, clock);
+        // The transaction may change the network before this candidate becomes the live world.
+        next.operating = None;
         next.header["clock"] = json!(clock);
         next.api.copy_city_surface_from(&self.api);
         Some(next)
     }
 
+    fn requires_studio_clock(&self) -> bool {
+        self.header["mode"] != "sandbox"
+    }
+
+    // TWG1 has no boarding-income tables. Only Studio's full worker can settle a normal
+    // game's elapsed time. Native edits still book their actual costs at the saved clock.
+    fn native_clock(&self, requested: f64) -> f64 {
+        if self.requires_studio_clock() {
+            self.header["clock"].as_f64().unwrap_or(111600.)
+        } else {
+            requested
+        }
+    }
+
+    fn native_save(&mut self, requested: f64) -> Option<Vec<u8>> {
+        let clock = self.native_clock(requested);
+        finance::tick(self, clock);
+        self.save(clock)
+    }
+
     fn save(&self, clock: f64) -> Option<Vec<u8>> {
         let mut header = self.header.clone();
         header["clock"] = json!(clock);
-        if header["nativeWorkshop"] == true {
-            header["fleetFast"] = json!(self.api.fleet_fast());
-            header["fleetBus"] = json!(self.api.fleet_bus());
-            header["fleetFerry"] = json!(self.api.fleet_ferry());
-            header["fleetTram"] = json!(self.api.fleet_tram());
+        // Older Android builds wrote this unused key; Studio treats unknown keys as a newer save.
+        header.as_object_mut()?.remove("nativeLastLine");
+        header["fleetFast"] = json!(self.api.fleet_fast());
+        header["fleetBus"] = json!(self.api.fleet_bus());
+        header["fleetFerry"] = json!(self.api.fleet_ferry());
+        header["fleetTram"] = json!(self.api.fleet_tram());
+        let net = &self.api.world().net;
+        let lines: Vec<_> = (0..net.line_count() as u32).filter(|&id| net.line_ok(id)).collect();
+        if lines.len() != net.line_count() {
+            demolition::remap_header(&mut header, &lines);
         }
         let bytes = serde_json::to_vec(&header).ok()?;
         let mut out = GzEncoder::new(Vec::new(), Compression::fast());
@@ -346,27 +424,43 @@ impl World {
             let points: Vec<i32> = path.iter().map(|v| v.round() as i32).collect();
             routes.push(json!({"id":id,"color":row[1] as u32,"points":points,"name":self.api.line_name(id)}));
         }
+        // Infrastructure belongs to the map even before a passenger service uses it.
+        let tracks: Vec<_> = self.api.edges_info().chunks_exact(10)
+            .filter(|row| row[4] == 1.0)
+            .map(|row| {
+                let id = row[0] as u32;
+                let points: Vec<i32> = self.api.edge_polyline(id, 0.0).into_iter()
+                    .map(|coordinate| coordinate.round() as i32).collect();
+                json!({"id":id,"points": points, "kind": self.api.edge_kind(id),
+                       "level": row[8] as i32, "topLevel": row[9] as i32, "length":row[5], "speed":row[7], "tracks": row[3] as u8})
+            }).collect();
+        let edge_use = station_map::edge_use(&self.api, &lines);
         let mut stops = Vec::new();
-        for row in self
+        for (packed,row) in self
             .api
             .nodes_info()
             .chunks_exact(10)
-            .filter(|r| r[7] > 0. && r[8] > 0.)
+            .enumerate()
+            .filter(|(_,r)| r[7] > 0. && r[8] > 0.)
         {
             stops.push(json!([
                 row[1].round() as i32,
                 row[2].round() as i32,
                 self.api.node_name(row[0] as u32),
-                row[0] as u32
+                row[0] as u32,
+                station_map::shape(&self.api, row[0] as usize, &edge_use),
+                packed
             ]));
         }
         for id in self.api.bus_lines() {
-            for (i, s) in self.api.bus_stops(id).chunks_exact(8).enumerate() {
+            let names = self.service_stop_names(id);
+            let line_name = self.api.line_name(id);
+            for (s, name) in self.api.bus_stops(id).chunks_exact(8).zip(names) {
                 if s[5] < 0. {
                     stops.push(json!([
                         s[1].round() as i32,
                         s[2].round() as i32,
-                        format!("Halte {} · {}", i + 1, self.api.line_name(id)),
+                        format!("{name} · {line_name}"),
                         -1
                     ]));
                 }
@@ -380,15 +474,21 @@ impl World {
         let ne = self
             .api
             .from_lonlat(b[2].as_f64().unwrap(), b[3].as_f64().unwrap());
-        json!({"waterBox":[sw[0],sw[1],ne[0],ne[1]],"routes":routes,"stations":stops,"clock":self.header["clock"],"city":self.header["city"]})
+        let origin = self.api.frame_origin();
+        let home = self.api.from_lonlat(origin[0], origin[1]);
+        json!({"mercatorPerFrame":if self.api.frame_kind() == 2 { 1. } else {1. / origin[1].to_radians().cos().max(0.01)},"cash":self.api.cash(),"requiresStudioClock":self.requires_studio_clock(),"homePoint":home,"waterBox":[sw[0],sw[1],ne[0],ne[1]],"routes":routes,"tracks":tracks,"stations":stops,"clock":self.header["clock"],"city":self.header["city"]})
     }
-    fn positions(&mut self, time: f64) -> Vec<f32> {
+    fn load_trip_hour(&mut self, time: f64) -> f64 {
         let hour = (time / 3600.).floor() as i64;
         let epoch = (hour * 3600) as f64;
         if self.hour != hour {
             self.trips = self.api.trips(epoch);
             self.hour = hour;
         }
+        epoch
+    }
+    fn positions(&mut self, time: f64) -> Vec<f32> {
+        let epoch = self.load_trip_hour(time);
         let mut out = Vec::new();
         for trip in self.trips.chunks_exact(4) {
             let dep = epoch + trip[1] as f64;
@@ -431,6 +531,68 @@ pub extern "system" fn Java_world_nativegame_Engine_geometry(
     env.new_string(world.geometry().to_string())
         .map_or(std::ptr::null_mut(), |v| v.into_raw())
 }
+fn guide_network_progress(world: &World, operating: bool) -> u64 {
+    let lines = world.api.lines_info();
+    let mut mask = 0;
+    if operating {
+        for line in lines.chunks_exact(22) {
+            let trains = &line[13..16];
+            if trains.iter().any(|&n| n > 0.) { mask |= 1 << 5; }
+            if !world.api.is_bus(line[0] as u32) && trains.iter().all(|&n| n > 0.) { mask |= 1 << 8; }
+        }
+        if world.header["stars"].as_object().is_some_and(|s| !s.is_empty()) { mask |= 1 << 12; }
+        return mask;
+    }
+    let mut length = 0.;
+    let mut constructed = 0.;
+    for edge in world.api.edges_info().chunks_exact(10) {
+        length += edge[5];
+        if edge[4] > 0. { constructed += edge[5]; }
+    }
+    let mut stations: Vec<[f64; 2]> = Vec::new();
+    let mut built: Vec<[f64; 2]> = Vec::new();
+    let mut built_count = 0usize;
+    fn spaced(points: &mut Vec<[f64; 2]>, x: f64, y: f64) {
+        if points.len() < 3 && points.iter().all(|p| (p[0] - x).hypot(p[1] - y) >= 500.) {
+            points.push([x,y]);
+        }
+    }
+    for node in world.api.nodes_info().chunks_exact(10).filter(|p| p[7] > 0.) {
+        spaced(&mut stations, node[1], node[2]);
+        if node[8] > 0. { spaced(&mut built,node[1],node[2]); built_count += 1; }
+    }
+    if length >= 5000. { mask |= 1; }
+    if stations.len() >= 3 { mask |= 1 << 1; }
+    if constructed >= 5000. && built.len() >= 3 { mask |= 1 << 2; }
+    if !lines.is_empty() { mask |= 1 << 3; }
+    if lines.chunks_exact(22).any(|l| world.api.line_stops(l[0] as u32).len() >= built_count.clamp(1,3)) {
+        mask |= 1 << 4;
+    }
+    mask
+}
+
+// Tutorial checkpoints use the same bit positions and card numbers as Studio saves.
+#[no_mangle]
+pub extern "system" fn Java_world_nativegame_Engine_guide(
+    env: JNIEnv, _: JClass, handle: jlong, bit: i32, card: i32,
+) -> jstring {
+    let world = unsafe { &mut *(handle as *mut World) };
+    if bit == -2 || (0..=16).contains(&bit) || (1..=2).contains(&card) {
+        let operating = card == 2 || (card == 0 && world.header["guide"]["card"] == 2);
+        let observed = guide_network_progress(world, operating);
+        if !world.header["guide"].is_object() { world.header["guide"] = json!({"done":0}); }
+        let guide = &mut world.header["guide"];
+        let confirmed = if (0..=16).contains(&bit) { 1 << bit } else { 0 };
+        guide["done"] = json!(guide["done"].as_u64().unwrap_or(0) | observed | confirmed);
+        if (1..=2).contains(&card) {
+            let object = guide.as_object_mut().unwrap();
+            object.remove("hidden");
+            object.remove("closed");
+            if card == 2 { object.insert("card".into(), json!(2)); } else { object.remove("card"); }
+        }
+    }
+    env.new_string(world.header["guide"].to_string()).map_or(std::ptr::null_mut(), |s| s.into_raw())
+}
 #[no_mangle]
 pub extern "system" fn Java_world_nativegame_Engine_positions(
     env: JNIEnv,
@@ -439,6 +601,7 @@ pub extern "system" fn Java_world_nativegame_Engine_positions(
     time: jdouble,
 ) -> jfloatArray {
     let world = unsafe { &mut *(handle as *mut World) };
+    // Position sampling never settles money; Studio can supply its authoritative clock.
     let values = world.positions(time);
     let Ok(arr) = env.new_float_array(values.len() as i32) else {
         return std::ptr::null_mut();
@@ -456,9 +619,8 @@ pub extern "system" fn Java_world_nativegame_Engine_save(
     time: jdouble,
 ) -> jbyteArray {
     let world = unsafe { &mut *(handle as *mut World) };
-    finance::tick(world, time);
     world
-        .save(time)
+        .native_save(time)
         .and_then(|v| env.byte_array_from_slice(&v).ok())
         .map_or(std::ptr::null_mut(), |a| a.into_raw())
 }
@@ -599,6 +761,18 @@ mod tests {
         assert_eq!(restored.api.line_stops(0).len(), 3);
     }
     #[test]
+    fn tutorial_detects_construction_goals_from_the_saved_network() {
+        let mut world = World::workshop();
+        assert_eq!(guide_network_progress(&world, false), 0);
+        world.build_path(&[[0., 0.], [3000., 0.], [6000., 0.]], "Utama", 111600.).unwrap();
+        assert_eq!(guide_network_progress(&world, false) & 31, 31);
+        world.header["guide"] = json!({"card": 2, "done": 31});
+        let resumed = World::open(&world.save(111600.).unwrap()).unwrap();
+        assert_eq!(resumed.header["guide"], world.header["guide"]);
+        assert_eq!(guide_network_progress(&resumed, false) & 31, 31);
+    }
+
+    #[test]
     fn build_service_survives_save() {
         let mut w = World::workshop();
         let now = 111600.;
@@ -624,6 +798,114 @@ mod tests {
             "Hudson"
         );
     }
+    #[test]
+    fn web_world_accepts_mobile_edits_and_preserves_web_metadata() {
+        let mut w = World::workshop();
+        w.header.as_object_mut().unwrap().remove("nativeWorkshop");
+        w.header["notes"] = json!({"existing":"catatan dari Studio"});
+        let clock = w.header["clock"].as_f64().unwrap();
+        let added = w.build_service([0.,0.],[2000.,0.],"Lintas baru",clock).unwrap();
+        let reopened = World::open(&w.save(clock).unwrap()).unwrap();
+        assert_eq!(reopened.header["notes"], w.header["notes"]);
+        assert_eq!(reopened.api.line_name(added["line"].as_u64().unwrap() as u32), "Lintas baru");
+    }
+
+    #[test]
+    fn native_normal_edits_and_exports_keep_the_original_settlement_clock() {
+        for legacy in [false, true] {
+            let mut w = World::workshop();
+            if legacy {
+                w.header.as_object_mut().unwrap().remove("mode");
+            } else {
+                w.header["mode"] = json!("normal");
+            }
+            w.header["loan"] = json!(1000.);
+            w.header["loanDays"] = json!(60.);
+            w.header["loanPay"] = json!(20.);
+            let t = w.header["clock"].as_f64().unwrap();
+            let later = t + 4. * 86400.;
+            let mut w = World::open(&w.save(t).unwrap()).unwrap();
+            assert_eq!(w.geometry()["requiresStudioClock"], true);
+            let before = w.header.clone();
+            let untouched = World::open(&w.native_save(later).unwrap()).unwrap();
+            assert_eq!(untouched.header, before);
+            assert_eq!(w.edit_candidate(later).unwrap().header["clock"], t);
+            w.build_service([0., 0.], [2500., 0.], "Jalur dibangun saat jeda", later).unwrap();
+            let v = json!({"name":"Jalur pengganti","mode":"headway","peak":180,"day":360,"night":720,
+                "weekend":65,"cars":5,"dwell":32,"turn":110});
+            w.schedule(0, later, &v).unwrap();
+            let restored = World::open(&w.native_save(later).unwrap()).unwrap();
+            assert_eq!(restored.header["clock"], t);
+            assert_eq!(restored.header["loanDays"], 60.);
+            assert_eq!(restored.api.line_name(0), "Jalur pengganti");
+            let row = &restored.header["ledger"][0];
+            assert!(row["build"].as_f64().unwrap() > 0.);
+            assert_eq!(row["running"], 0);
+            assert!(row["upkeep"].is_null());
+        }
+        let mut sandbox = World::workshop();
+        let later = sandbox.header["clock"].as_f64().unwrap() + 3600.;
+        assert_eq!(sandbox.geometry()["requiresStudioClock"], false);
+        assert_eq!(World::open(&sandbox.native_save(later).unwrap()).unwrap().header["clock"], later);
+    }
+
+    #[test]
+    #[ignore = "driven by check-studio-roundtrip.mjs with a Studio WASM save"]
+    fn edit_studio_fixture() {
+        let directory = std::path::PathBuf::from(std::env::var_os("STUDIO_FIXTURE_DIR").unwrap());
+        let clk = 111600.;
+        for frame in 0..3 {
+            let bytes = std::fs::read(directory.join(format!("web-{frame}.save"))).unwrap();
+            let mut world = World::open(&bytes).expect("Studio save must load in Android");
+            assert_eq!(world.api.frame_kind(), frame);
+            let start = world.api.from_lonlat(-74.27, 40.80);
+            let end = world.api.from_lonlat(-74.24, 40.80);
+            world
+                .build_service([start[0], start[1]], [end[0], end[1]], "Lintas Android", clk)
+                .unwrap();
+            let geometry = world.geometry();
+            assert!(geometry["stations"].as_array().unwrap().len() > 1700);
+            assert_ne!(world.positions(clk + 5.), world.positions(clk + 25.));
+            std::fs::write(directory.join(format!("android-{frame}.save")), world.save(clk).unwrap()).unwrap();
+        }
+        let mut world = World::sandbox("jak", 106.8022, -6.1876);
+        let a = world.api.from_lonlat(106.8236, -6.1861);
+        let b = world.api.from_lonlat(106.8311, -6.1964);
+        world.build_service([a[0], a[1]], [b[0], b[1]], "Lintas Jakarta", clk).unwrap();
+        std::fs::write(directory.join("native-jak.save"), world.save(clk).unwrap()).unwrap();
+        let local_shift = local_time::day_shift(&world.header);
+        // Friday 19:00 Jakarta through Saturday 07:00, crossing all three service bands.
+        let from = 5. * 86400. + 19. * 3600. - local_shift;
+        world.header["clock"] = json!(from);
+        world.header["mode"] = json!("normal");
+        world.header["ledger"] = json!([]);
+        world.header["hours"] = json!([]);
+        world.header["regions"] = json!({});
+        let start_save = world.save(from).unwrap();
+        std::fs::write(directory.join("timetable-web.save"), &start_save).unwrap();
+        let mut budget = World::open(&start_save).unwrap();
+        let until = from + 12. * 3600.;
+        finance::tick(&mut budget, until);
+        std::fs::write(directory.join("timetable-android.save"), budget.save(until).unwrap()).unwrap();
+        let initial = std::fs::read(directory.join("accounting-web.save")).unwrap();
+        let mut budget = World::open(&initial).unwrap();
+        let start = budget.header["clock"].as_f64().unwrap();
+        finance::tick(&mut budget, start + 10.);
+        let middle = budget.save(start + 10.).unwrap();
+        let mut budget = World::open(&middle).unwrap();
+        finance::tick(&mut budget, start + 20.);
+        let settled = budget.header.clone();
+        finance::tick(&mut budget, start + 20.);
+        assert_eq!(budget.header, settled, "same clock must not debit twice");
+        std::fs::write(directory.join("accounting-android.save"), budget.save(start + 20.).unwrap()).unwrap();
+        for fixture in ["future-level.save", "unread-network.save"] {
+            assert!(World::open(&std::fs::read(directory.join(fixture)).unwrap()).is_none());
+        }
+        let old = std::fs::read(directory.join("legacy-jak.save")).unwrap();
+        let migrated = World::open(&old).unwrap().save(clk).unwrap();
+        std::fs::write(directory.join("migrated-jak.save"), migrated).unwrap();
+    }
+
     #[test]
     fn fixture_moves_and_reopens() {
         let mut w = World::open(include_bytes!("../../T-007-real-nyc.save")).unwrap();

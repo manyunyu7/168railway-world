@@ -36,7 +36,9 @@ fn tiles(points: &[[f64; 2]]) -> Result<BTreeSet<(i32, i32)>, String> {
         let (x0, x1) = (a.0.min(b.0) - 1, a.0.max(b.0) + 1);
         let (y0, y1) = (a.1.min(b.1) - 1, a.1.max(b.1) + 1);
         if x0 < 0 || y0 < 0 || x1 >= 16384 || y1 >= 16384 || (x1 - x0 + 1) * (y1 - y0 + 1) > 49 {
-            return Err("Ruas bus terlalu panjang. Tambah titik lintasan yang lebih dekat.".into());
+            return Err(
+                "Ruas jalan terlalu panjang. Tambah titik lintasan yang lebih dekat.".into(),
+            );
         }
         for x in x0..=x1 {
             for y in y0..=y1 {
@@ -44,18 +46,18 @@ fn tiles(points: &[[f64; 2]]) -> Result<BTreeSet<(i32, i32)>, String> {
             }
         }
         if keys.len() > 64 {
-            return Err("Bangun layanan bus yang lebih pendek.".into());
+            return Err("Pilih lintasan jalan yang lebih pendek.".into());
         }
     }
     Ok(keys)
 }
 
-pub fn build(
-    api: &mut TrackApi,
+fn resolve(
+    api: &TrackApi,
     points: &[[f64; 2]],
-    name: &str,
     dir: &Path,
-) -> Result<u32, String> {
+    street: Option<(bool, f64)>,
+) -> Result<Value, String> {
     let geographic = geographic(api, points);
     let want = tiles(&geographic)?;
     let rt = Runtime::new().map_err(|e| e.to_string())?;
@@ -80,18 +82,63 @@ pub fn build(
                 return Err("Data jalan terlalu besar untuk satu layanan.".into());
             }
             if !bytes.is_empty() {
-                load.call::<_, ()>((x, y, ArrayBuffer::new_copy(c.clone(), bytes).map_err(js)?))
-                    .map_err(js)?;
+                load.call::<_, ()>((
+                    x,
+                    y,
+                    ArrayBuffer::new_copy(c.clone(), bytes).map_err(js)?,
+                    street.is_some_and(|(rail, _)| rail),
+                ))
+                .map_err(js)?;
             }
         }
-        let plan: Function = roads.get("plan").map_err(js)?;
-        plan.call::<_, String>((serde_json::to_string(&geographic).unwrap(),))
-            .map_err(js)
+        let coords = serde_json::to_string(&geographic).map_err(|e| e.to_string())?;
+        match street {
+            Some((rail, speed)) => roads
+                .get::<_, Function>("follow")
+                .map_err(js)?
+                .call::<_, String>((coords, rail, speed))
+                .map_err(js),
+            None => roads
+                .get::<_, Function>("plan")
+                .map_err(js)?
+                .call::<_, String>((coords,))
+                .map_err(js),
+        }
     })?;
     let output: Value = serde_json::from_str(&read).map_err(|e| e.to_string())?;
     if let Some(e) = output["error"].as_str() {
         return Err(e.into());
     }
+    Ok(output)
+}
+
+pub(super) fn street_route(
+    api: &TrackApi,
+    coords: &[f64],
+    dir: &Path,
+    rail: bool,
+    speed: f64,
+) -> Result<Vec<f64>, String> {
+    let points = coords
+        .chunks_exact(2)
+        .map(|p| [p[0], p[1]])
+        .collect::<Vec<_>>();
+    let mut output = resolve(api, &points, dir, Some((rail, speed)))?;
+    let line: Vec<f64> = serde_json::from_value(output["line"].take())
+        .map_err(|_| "Lintasan jalan tidak terbaca.")?;
+    if line.len() < 4 || line.len() % 2 != 0 || line.len() > 64_000 {
+        return Err("Pilih ruas jalan yang lebih pendek.".into());
+    }
+    Ok(line)
+}
+
+pub fn build(
+    api: &mut TrackApi,
+    points: &[[f64; 2]],
+    name: &str,
+    dir: &Path,
+) -> Result<u32, String> {
+    let output = resolve(api, points, dir, None)?;
     let pts: Vec<[f64; 3]> =
         serde_json::from_value(output["points"].clone()).map_err(|e| e.to_string())?;
     let route: Vec<_> = pts

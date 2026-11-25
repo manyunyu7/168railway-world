@@ -1,16 +1,8 @@
 package world.nativegame
 
 import android.app.Activity
-import android.app.AlertDialog
-import android.graphics.Typeface
-import android.text.InputType
-import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.TextView
-import android.widget.AdapterView
 import android.view.View
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,95 +15,171 @@ internal object ServicePanel {
 
     fun open(host: Activity, handle: Long, clock: Double, editable: Boolean, changed: (String) -> Unit) {
         val all = JSONArray(services(handle))
-        if (all.length() == 0) {
-            AlertDialog.Builder(host).setTitle("Layanan").setMessage("Bangun jalur pertama untuk mengatur layanannya.")
-                .setPositiveButton("Tutup", null).show()
-            return
+        StudioUi.sheet(host, "Jalur & layanan") { column, dialog ->
+            if (all.length() == 0) {
+                column.addView(StudioUi.text(host, "Bangun jalur pertama untuk mengatur layanannya.", 16f))
+                column.addView(StudioUi.button(host, "Kembali ke peta") { dialog.dismiss() })
+            }
+            val items = List(all.length()) { all.getJSONObject(it) }
+            val rows = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
+            var search: EditText? = null
+            fun render(query: String) {
+                rows.removeAllViews()
+                val found = items.filter { it.getString("name").contains(query.trim(), ignoreCase = true) }
+                if (found.isEmpty() && items.isNotEmpty()) {
+                    rows.addView(StudioUi.text(host,"Jalur tidak ditemukan.",15f))
+                    rows.addView(StudioUi.button(host,"Hapus pencarian") { search?.setText("") })
+                }
+                found.forEach { route ->
+                    val running = route.optBoolean("running")
+                    val card = LinearLayout(host).apply {
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        isFocusable = true
+                        background = StudioUi.panel(host, StudioUi.BACKGROUND, 14)
+                        setPadding(StudioUi.dp(host,12),StudioUi.dp(host,8),StudioUi.dp(host,10),StudioUi.dp(host,8))
+                        minimumHeight = StudioUi.dp(host,56)
+                        setOnClickListener {
+                            dialog.dismiss()
+                            details(host,handle,route.getInt("id"),clock,editable,changed)
+                        }
+                    }
+                    val copy = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL }
+                    copy.addView(StudioUi.text(host,route.getString("name"),17f,true))
+                    copy.addView(StudioUi.text(host,if (running) "Beroperasi" else "Belum beroperasi",13f,
+                        color = if (running) 0xff156444.toInt() else StudioUi.MUTED))
+                    card.addView(copy,LinearLayout.LayoutParams(0,-2,1f))
+                    card.addView(StudioUi.text(host,"›",23f,true,StudioUi.MUTED).apply {
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    })
+                    rows.addView(card, LinearLayout.LayoutParams(-1,-2).apply { topMargin = StudioUi.dp(host,5) })
+                }
+
+            }
+            if (items.size > 6) {
+                search = EditText(host).apply {
+                    hint = "Cari nama jalur"
+                    setSingleLine()
+                    typeface = StudioUi.face(host)
+                    minHeight = StudioUi.dp(host,48)
+                }
+                column.addView(search)
+                search.addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render(s?.toString().orEmpty())
+                    override fun afterTextChanged(s: android.text.Editable?) {}
+                })
+            }
+            column.addView(rows)
+            render("")
         }
-        val names = Array(all.length()) { all.getJSONObject(it).getString("name") }
-        AlertDialog.Builder(host).setTitle("Pilih layanan").setItems(names) { _, index ->
-            val id = all.getJSONObject(index).getInt("id")
-            details(host, handle, id, clock, editable, changed)
-        }.setNegativeButton("Tutup", null).show()
     }
 
-    private fun details(host: Activity, handle: Long, id: Int, clock: Double, editable: Boolean, changed: (String) -> Unit) {
+    fun details(host: Activity, handle: Long, id: Int, clock: Double, editable: Boolean, changed: (String) -> Unit) {
         val service = JSONObject(inspect(handle,id,clock))
-        val stations = service.getJSONArray("stops")
-        val departures = service.getJSONArray("depart")
-        val departureTimes = (0 until departures.length()).joinToString("  ·  ") {
-            val t = departures.getDouble(it).toLong()
-            "%02d:%02d".format(Locale.ROOT,t/3600%24,t/60%60)
-        }
-        val summary = buildString {
-            append(service.getString("vehicle") + "\n")
-            append(String.format(Locale.ROOT,"%.1f km  ·  %d stasiun  ·  %.0f menit per putaran\n",
-                service.getDouble("length")/1000,stations.length(),service.getDouble("cycle")/60))
-            if (stations.length()>0) {
-                append("\nKeberangkatan dari ${stations.getString(0)}\n")
-                append(if (departureTimes.isEmpty()) "Belum ada keberangkatan dalam satu jam." else departureTimes)
-                append("\n\n")
-                append((0 until stations.length()).joinToString("  →  ") { stations.getString(it) })
+        val route = ServiceStops(service)
+        val upcoming = service.optJSONArray("upcoming")
+        val times = service.optJSONArray("depart") ?: JSONArray()
+        val shift = service.optDouble("shift", 0.0)
+        StudioUi.sheet(host, service.getString("name")) { column, dialog ->
+            fun line(text: String, bold: Boolean = false) {
+                column.addView(StudioUi.text(host, text, if (bold) 16f else 15f, bold),
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = StudioUi.dp(host, 5) })
             }
+            val overview = LinearLayout(host).apply {
+                orientation = LinearLayout.VERTICAL
+                background = StudioUi.panel(host, 0xff152c3f.toInt(), 16, 0xff152c3f.toInt())
+                setPadding(StudioUi.dp(host,13), StudioUi.dp(host,10), StudioUi.dp(host,13), StudioUi.dp(host,10))
+            }
+            column.addView(overview,LinearLayout.LayoutParams(-1,-2).apply { topMargin = StudioUi.dp(host,8) })
+            overview.addView(StudioUi.text(host, service.getString("vehicle") + "  ·  " +
+                String.format(Locale.forLanguageTag("id-ID"),"%.1f km", service.getDouble("length") / 1000),
+                13f, true, 0xffbfe5ff.toInt()))
+            if (route.names.isEmpty()) {
+                overview.addView(StudioUi.text(host,"Belum ada pemberhentian pada rute ini.",15f,color = StudioUi.WHITE))
+            } else {
+                overview.addView(StudioUi.text(host,route.endpoints,18f,true,StudioUi.WHITE))
+                val cycle = service.optDouble("cycle", 0.0)
+                val duration = if (cycle > 0) "  ·  ±${Math.round(cycle / 60)} menit per putaran" else ""
+                overview.addView(StudioUi.text(host,"${route.names.size} ${route.stopType}$duration",14f,color = 0xffd5e7ef.toInt()))
+                val itinerary = LinearLayout(host).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+                if (route.unnamedCount > 0) itinerary.addView(StudioUi.text(host,
+                    "Pemberhentian yang belum bernama ditampilkan menurut urutannya di rute.", 14f, color = StudioUi.MUTED))
+                route.names.indices.forEach { index ->
+                    itinerary.addView(StudioUi.text(host, route.numbered(index), 15f).apply {
+                        setPadding(0, StudioUi.dp(host, 3), 0, StudioUi.dp(host, 3))
+                    })
+                }
+                val show = "Lihat urutan ${route.names.size} ${route.stopType}"
+                lateinit var toggle: android.widget.Button
+                toggle = StudioUi.button(host, show) {
+                    val expand = itinerary.visibility != View.VISIBLE
+                    itinerary.visibility = if (expand) View.VISIBLE else View.GONE
+                    toggle.text = if (expand) "Tutup urutan ${route.stopType}" else show
+                }
+                column.addView(toggle)
+                column.addView(itinerary)
+                line("Keberangkatan dari ${route.names.first()}", true)
+                val entries = if (upcoming != null) {
+                    (0 until minOf(3, upcoming.length())).map { i ->
+                        val row = upcoming.getJSONArray(i)
+                        StudioTimetable.time(row.getDouble(1) + shift) to route.destination(row)
+                    }
+                } else {
+                    (0 until minOf(3, times.length())).map { StudioTimetable.time(times.getDouble(it) + shift) to "" }
+                }
+                if (entries.isEmpty()) {
+                    line(if (service.optBoolean("running")) "Belum ada jadwal dari pemberhentian ini dalam satu jam ke depan."
+                        else "Layanan belum beroperasi.")
+                } else entries.forEach { (time, destination) -> column.addView(StudioTimetable.departure(host,time,destination)) }
+                column.addView(StudioUi.button(host,"Grafik perjalanan & keberangkatan",StudioUi.Tone.PRIMARY) {
+                    dialog.dismiss()
+                    val editSchedule: (() -> Unit)? = if (editable) {
+                        { edit(host,handle,id,clock,service,changed) }
+                    } else null
+                    StudioTimetable.show(host,handle,id,clock,service,editSchedule)
+                }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = StudioUi.dp(host, 10) })
+            }
+            if (editable) column.addView(StudioUi.button(host,"Atur jadwal",StudioUi.Tone.BLUE) {
+                dialog.dismiss()
+                edit(host,handle,id,clock,service,changed)
+            }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = StudioUi.dp(host, 5) })
         }
-        val dialog = AlertDialog.Builder(host).setTitle(service.getString("name")).setMessage(summary).setNegativeButton("Tutup", null)
-        if (editable) dialog.setPositiveButton("Atur jadwal") { _,_ -> edit(host,handle,id,clock,service,changed) }
-        dialog.show()
     }
 
     private fun edit(host: Activity, handle: Long, id: Int, clock: Double, service: JSONObject, changed: (String) -> Unit) {
-        val pad=(18 * host.resources.displayMetrics.density).toInt()
-        val body=LinearLayout(host).apply { orientation=LinearLayout.VERTICAL;setPadding(pad,pad/2,pad,pad) }
-        fun label(text: String) { body.addView(TextView(host).apply {this.text=text;setTypeface(typeface,Typeface.BOLD)}) }
-        fun input(title: String, value: String, numeric: Boolean = true):EditText {
-            label(title)
-            return EditText(host).apply {
-                setSingleLine()
-                if(numeric)inputType=InputType.TYPE_CLASS_NUMBER
-                setText(value)
-                body.addView(this)
+        ScheduleEditor(host, service,
+            showTimetable = { StudioTimetable.show(host, handle, id, clock, service, null) },
+            applySchedule = { values -> JSONObject(update(handle, id, clock, values.toString())) },
+            onApplied = { updated ->
+                changed(updated.getString("name"))
+                details(host, handle, id, clock, true, changed)
             }
-        }
-        val name=input("Nama layanan",service.getString("name"),false)
-        label("Jadwal hari kerja")
-        val mode=Spinner(host).apply {
-            adapter=ArrayAdapter(host,android.R.layout.simple_spinner_dropdown_item,
-                listOf("Jumlah kereta", "Selang keberangkatan (detik)"))
-            body.addView(this)
-        }
-        val auto=service.getJSONArray("headway")
-        val counts=service.getJSONArray("count")
-        val values=listOf("Sibuk","Sedang","Sepi").map {input(it,"0")}
-        mode.onItemSelectedListener=object : AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-            override fun onItemSelected(parent: AdapterView<*>?,view: View?,position:Int,itemId:Long) {
-                values.forEachIndexed {i,field ->
-                    val n=if(position==0) counts.optInt(i,0) else auto.optInt(i,listOf(180,360,720)[i])
-                    field.setText(n.toString())
-                }
-            }
-        }
-        mode.setSelection(if(auto.length()==3) 1 else 0)
-        val weekend=input("Akhir pekan (% armada hari kerja)",service.getInt("weekend").toString())
-        val cars=input("Kereta per rangkaian (0 = otomatis)",service.getInt("cars").toString())
-        val dwell=input("Berhenti di stasiun (detik)",service.getInt("dwell").toString())
-        val turn=input("Balik di terminal (detik)",service.getInt("turn").toString())
-        val error=TextView(host).apply {setTextColor(0xffaa342b.toInt());body.addView(this)}
-        val scroll=ScrollView(host).apply{addView(body)}
-        val dialog=AlertDialog.Builder(host).setTitle("Atur jadwal").setView(scroll)
-            .setNegativeButton("Batal",null).setPositiveButton("Terapkan",null).create()
-        dialog.show()
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val params=JSONObject().put("name",name.text.toString()).put("mode",if(mode.selectedItemPosition==0)"count" else "headway")
-            val fields = listOf("peak","day","night","weekend","cars","dwell","turn").zip(values+listOf(weekend,cars,dwell,turn))
-            for ((key,field) in fields) {
-                val n=field.text.toString().toIntOrNull()
-                if (n==null) {field.error="Masukkan angka.";return@setOnClickListener}
-                params.put(key,n)
-            }
-            val result=JSONObject(update(handle,id,clock,params.toString()))
-            if (result.has("error")) {error.text=result.getString("error");scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}
-            else {dialog.dismiss();changed(result.getString("name")); details(host,handle,id,clock,true,changed)}
-        }
+        ).show()
     }
+}
+
+/** The archive can carry unnamed stops. Keep the original order so station indices match the timetable. */
+internal class ServiceStops(service: JSONObject) {
+    val vehicleUnit = when (service.optString("vehicle")) { "Bus" -> "bus"; "Feri" -> "kapal"; else -> "kereta" }
+    val stopType = when (vehicleUnit) { "bus" -> "halte"; "kapal" -> "dermaga"; else -> "stasiun" }
+    private val stops = service.optJSONArray("stops") ?: JSONArray()
+    val names = List(stops.length()) { i ->
+        stops.optString(i).trim().ifEmpty { "${stopType.replaceFirstChar { it.uppercaseChar() }} ${i + 1}" }
+    }
+    val unnamedCount = service.optInt("unnamedStops", (0 until stops.length()).count { stops.optString(it).isBlank() })
+    fun numbered(index: Int): String {
+        val stop = names[index]
+        return if (stop.equals("$stopType ${index + 1}", ignoreCase = true)) stop else "${index + 1}.  $stop"
+    }
+    val endpoints get() = when {
+        names.isEmpty() -> ""
+        names.size == 1 -> names.first()
+        names.first() == names.last() -> "Rute melingkar dari ${names.first()}"
+        else -> "${names.first()} – ${names.last()}"
+    }
+    private val directions = service.optJSONArray("directionNames")
+    fun terminus(direction: Int): String = directions?.optString(direction)?.trim().orEmpty().ifEmpty {
+        if (direction == 0) names.last() else names.first()
+    }
+    fun destination(row: JSONArray): String = row.optString(2).trim().ifEmpty { terminus(row.getInt(0)) }
 }

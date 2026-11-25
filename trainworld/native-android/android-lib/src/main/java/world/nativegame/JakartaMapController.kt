@@ -33,6 +33,7 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
     private var availablePack: CityPackStore.CityPack?=null
 
     init {
+        viewMap.trainEngine = { handle }
         viewMap.workshop=true
         viewMap.onStationTap={ id ->
             val inspect = !drawing && !busy && !disposed && handle!=0L
@@ -58,7 +59,7 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
     private fun snapshot(): Map<String,Any?> = mapOf("ready" to (handle!=0L && !disposed),"busy" to busy,
         "city" to "Jakarta","clock" to clock,"running" to running,"drawing" to drawing,
         "points" to viewMap.draft.size,"curves" to viewMap.bends.size,"lines" to viewMap.routeCount,
-        "stations" to viewMap.stationCount,"trains" to (viewMap.trains.size/3),"message" to message,
+        "stations" to viewMap.stationCount,"trains" to viewMap.trainCount,"message" to message,
         "hasSave" to slot.baseFile.exists())
 
     private fun publish(){if(!disposed)onState(snapshot())}
@@ -70,7 +71,7 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
         worker.execute {
             var loaded=0L
             try {
-                val pack=cached ?: CityPackStore(app.filesDir,app.assets.open("world-native/cities.tsv").bufferedReader()).load("jak")
+                val pack=cached ?: StudioCatalog.get(app).load("jak")
                 val saved=try {slot.readFully()}catch(e:FileNotFoundException){if(requireSave)throw e else null}
                 loaded=if(saved!=null)Engine.open(saved) else CitySurface.empty("jak",pack.header.readText())
                 check(loaded!=0L){"Format simpanan Jakarta tidak dikenali."}
@@ -214,7 +215,7 @@ class JakartaMapController(context: Context, private val onState: (Map<String,An
     }
     private fun clearDraft(){drawing=false;viewMap.draft.clear();viewMap.bends.clear();viewMap.invalidate()}
     private fun pause(){running=false;ui.removeCallbacks(tick)}
-    private fun refresh(){viewMap.trains=Engine.positions(handle,clock);viewMap.invalidate()}
+    private fun refresh(){viewMap.updateTrains(clock)}
     private val tick=object:Runnable{
         override fun run(){
             if(!running || disposed || handle==0L)return

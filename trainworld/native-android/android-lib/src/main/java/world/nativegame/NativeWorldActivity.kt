@@ -1,10 +1,15 @@
 package world.nativegame
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.PointF
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.Toast
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import android.text.TextUtils
 import android.text.InputFilter
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -26,6 +31,9 @@ import android.widget.TextView
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
 
@@ -36,11 +44,16 @@ internal object Engine {
     @JvmStatic external fun workshop(): Long
     @JvmStatic external fun build(handle: Long, points: DoubleArray, name: String, clock: Double, mode: Int, bends: DoubleArray): String
     @JvmStatic external fun open(bytes: ByteArray): Long
+    @JvmStatic external fun guide(handle: Long, bit: Int, card: Int): String
     @JvmStatic external fun geometry(handle: Long): String
+    @JvmStatic external fun previewArchive(handle:Long,time:Double):ByteArray?
+    @JvmStatic external fun trainScene(handle:Long,time:Double,x:Float,y:Float,halfWidth:Float,halfHeight:Float,detail:Int):FloatArray
     @JvmStatic external fun positions(handle: Long, time: Double): FloatArray
     @JvmStatic external fun save(handle: Long, time: Double): ByteArray
     @JvmStatic external fun close(handle: Long)
 }
+
+private val DOCK_GREEN = 0xff173e37.toInt()
 
 class NativeWorldActivity : Activity() {
     private var handle = 0L
@@ -49,19 +62,23 @@ class NativeWorldActivity : Activity() {
         intent.getStringExtra("archiveSlot")?.let { id -> WorldDocuments.list(this).firstOrNull { it.id == id } }
     }
     private val legacyWorkshop by lazy { archiveSlot == null && intent.getBooleanExtra("workshop", false) }
-    private val workshop get() = archiveSlot?.workshop ?: (legacyWorkshop || !city.hasNetwork)
-    private val cityStore by lazy { CityPackStore(filesDir,assets.open("world-native/cities.tsv").bufferedReader()) }
+    private val workshop get() = archiveSlot != null || legacyWorkshop || !city.hasNetwork
+    private val cityStore by lazy { StudioCatalog.get(this) }
     private val city by lazy {
-        val selected = archiveSlot?.city ?: if(legacyWorkshop) "nyc" else intent.getStringExtra("city") ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
+        val selected = archiveSlot?.let { slot -> intent.getStringExtra("viewCity") ?: slot.city } ?: if(legacyWorkshop) "nyc" else intent.getStringExtra("city") ?: getSharedPreferences("world-native",0).getString("last-city","nyc") ?: "nyc"
         cityStore.city(selected)
     }
+    private val localClockShift by lazy { StudioNewGame.localShift(city.id) }
+    private val hostLibrary get() = intent.getBooleanExtra("hostLibrary", false)
     private var activePack: CityPackStore.CityPack? = null
     private val local by lazy {
         AtomicFile(archiveSlot?.let { WorldDocuments.path(this,it.id) } ?: File(filesDir, if (legacyWorkshop) "world-native-workshop.save" else "world-native-${city.id}.save"))
     }
     private lateinit var build: Button
-    private var draftMode = 0
-    private var draftName = ""
+    private var plan = ConstructionPlan(BuildTool.RAIL)
+    private var reviewDialog: android.app.Dialog? = null
+    private var railOptions = ConstructionPlan(BuildTool.RAIL)
+    private val stationOrder = mutableListOf<Int>()
     private var drawing = false
     private var lastService = ""
     private lateinit var info: TextView
@@ -69,154 +86,239 @@ class NativeWorldActivity : Activity() {
     private lateinit var map: NetworkView
     private lateinit var play: Button
     private lateinit var save: Button
+    private lateinit var more: Button
+    private lateinit var lines: Button
+    private lateinit var finance: Button
+    private lateinit var zoomTools: LinearLayout
+    private lateinit var controlHint: LinearLayout
+    private lateinit var cancel: Button
+    private lateinit var localTime: TextView
+    private lateinit var balance: TextView
+    private lateinit var balanceUnit: TextView
+    private lateinit var dockTitle: TextView
+    private lateinit var currency: StudioCurrency
+    private var loadingDemand = false
+    private var saveRevision = 0L
+    private var worldChanged = false
+    private var restoringEdit = false
+    private data class RetainedEdits(val slotPath: String, val revision: Long, val history: WorldEditHistory)
+    private var history = WorldEditHistory()
     private var clock = 0.0
     private var running = false
     private var lastTick = 0L
     private var lastStatus = -1
     private var closed = false
+    private enum class ReferenceState { OPENING, PLAYING, SAVING }
+    private var reference: StudioReferenceClock? = null
+    private var referenceState: ReferenceState? = null
+    private var referenceTime: Double? = null
+    private var trainPreview: StudioReferenceClock? = null
+    private var afterCheckpoint: (() -> Unit)? = null
+    private var foreground = false
+    // A replacement activity must read the completed checkpoint after a rotation.
+    private companion object {
+        val pendingWrites = ConcurrentHashMap<String, CountDownLatch>()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xff153d42.toInt())
-            setPadding(0, 0, 0, 0)
+        if (intent.hasExtra("archiveSlot") && archiveSlot == null) {
+            Toast.makeText(this, "Dunia ini tidak tersedia untuk akun aktif.", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        val root = FrameLayout(this).apply {
             fitsSystemWindows = true
+            setBackgroundColor(StudioUi.BACKGROUND)
         }
-        val header = LinearLayout(this)
-        val back = Button(this).apply { text = "‹"; contentDescription = "Kembali"; setOnClickListener { finish() } }
-        header.addView(back, LinearLayout.LayoutParams(dp(52), dp(56)))
-        header.addView(TextView(this).apply {
-            text = if (workshop) "Dunia bangun · ${city.name}" else "168Railway World · Native"; textSize = 20f
-            setTextColor(Color.WHITE); gravity = android.view.Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(0, dp(56), 1f))
-        header.addView(Button(this).apply {
-            text = "Kota"
-            setOnClickListener { showCityPicker(this@NativeWorldActivity,cityStore,city.id) { handle==0L || !save.isEnabled || writeSave() } }
-        }, LinearLayout.LayoutParams(-2,dp(56)))
-        root.addView(header)
-        info = TextView(this).apply { text = "Membuka jaringan ${city.name}…"; setTextColor(Color.WHITE); setPadding(dp(12),0,dp(12),dp(8)) }
-        root.addView(info)
-        map = NetworkView(this)
-        root.addView(map, LinearLayout.LayoutParams(-1, 0, 1f))
-        status = TextView(this).apply { setTextColor(Color.WHITE); setPadding(dp(12),dp(8),dp(12),0) }
-        root.addView(status)
-        build = Button(this).apply {
-            text = if (workshop) "Bangun jalur" else "Buka dunia bangun"
-            isEnabled = false
-            setOnClickListener {
-                if (!workshop) {
-                    startActivity(Intent(this@NativeWorldActivity, NativeWorldActivity::class.java).putExtra("workshop", true))
-                } else if (drawing) {
-                    cancelDrawing()
-                } else {
-                    beginDrawing()
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = window.decorView.systemUiVisibility or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        @Suppress("DEPRECATION")
+        window.statusBarColor = 0xffe4f0ef.toInt()
+        map = NetworkView(this).apply {
+            workshop = this@NativeWorldActivity.workshop
+            trainEngine = { handle }
+            overlay.city = city.id
+            overlay.project = { coordinates -> CitySurface.project(handle,coordinates) }
+            overlay.allowTap = { !removingTrack && !selectingInfrastructure && !restoringEdit }
+            overlay.snapshot = {
+                if (closed || !this@NativeWorldActivity.foreground || handle == 0L) null else {
+                    stopTrainPreview()
+                    Engine.save(handle,clock)
                 }
             }
+            onTrainPreviewNeeded = ::previewTrainLoads
+            doubleTapZoom = true
         }
-        val tools = LinearLayout(this)
-        tools.addView(build, LinearLayout.LayoutParams(0, dp(48), 1f))
-        tools.addView(Button(this).apply {
-            text = "Layanan"
-            setOnClickListener {
-                if (handle == 0L) return@setOnClickListener
-                running = false
+        root.addView(map, FrameLayout.LayoutParams(-1, -1))
+
+        // Measure the HUD independently of the map so zooming and drawing retain a single viewport.
+        val compact = resources.configuration.screenWidthDp < 360
+        val gutter = dp(if (compact) 8 else 12)
+        val hud = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(hud, FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply {
+            setMargins(gutter, gutter, gutter, 0)
+        })
+        val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        hud.addView(header)
+        header.addView(StudioUi.iconButton(this, "Kembali", StudioUi.Icon.BACK) { leaveWorld() },
+            LinearLayout.LayoutParams(dp(48), dp(48)))
+        val titles = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            background = StudioUi.panel(context, radius = 16)
+            elevation = dp(2).toFloat()
+        }
+        titles.addView(StudioUi.text(this, archiveSlot?.title ?: city.name, 18f, true).apply { singleLine() })
+        info = StudioUi.text(this, "Membuka jaringan…", 12f, color = StudioUi.MUTED).apply { singleLine() }
+        titles.addView(info)
+        header.addView(titles, LinearLayout.LayoutParams(0,-2,1f).apply { marginStart = dp(6); marginEnd = dp(6) })
+        save = StudioUi.iconButton(this, "Simpan ke Studio", StudioUi.Icon.SAVE, StudioUi.Tone.BLUE) {
+            withCommittedWorld { saveWorld() }
+        }.apply { isEnabled = false }
+        header.addView(save, LinearLayout.LayoutParams(dp(48), dp(48)))
+
+        val mapTools = LinearLayout(this).apply { gravity = Gravity.TOP }
+        hud.addView(mapTools, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(8) })
+        val metrics = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = StudioUi.panel(context, 0xff173f48.toInt(), 16, 0xff264d55.toInt())
+            elevation = dp(2).toFloat()
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+        }
+        fun metric(caption: String, ink: Int): Pair<TextView,TextView> {
+            val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val title = StudioUi.text(this, caption, 10f, true, ink)
+            column.addView(title)
+            val value = StudioUi.text(this, "—", if (compact) 16f else 18f, true, StudioUi.WHITE).apply {
+                singleLine()
+                minimumWidth = dp(if (compact) 78 else 88)
+            }
+            column.addView(value, LinearLayout.LayoutParams(-2, -2))
+            metrics.addView(column)
+            return title to value
+        }
+        currency = StudioCurrency.current(this)
+        val cash = metric("KAS · ${currency.code}", 0xffbbef9e.toInt())
+        balanceUnit = cash.first
+        balance = cash.second
+        metrics.addView(View(this).apply { setBackgroundColor(0xff5a777c.toInt()) },
+            LinearLayout.LayoutParams(dp(1), dp(26)).apply { marginStart = dp(11); marginEnd = dp(11) })
+        localTime = metric(if (compact) "JAM LOKAL" else "WAKTU LOKAL", 0xffb0e9fa.toInt()).second
+        mapTools.addView(metrics)
+        mapTools.addView(View(this), LinearLayout.LayoutParams(0,1,1f))
+        zoomTools = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        listOf(
+            Triple(StudioUi.Icon.PLUS, "Perbesar peta", { map.zoom(1.6f) }),
+            Triple(StudioUi.Icon.MINUS, "Perkecil peta", { map.zoom(1f / 1.6f) }),
+            Triple(StudioUi.Icon.CENTER, "Tampilkan jaringan", { map.resetCamera() })
+        ).forEach { (icon, description, click) ->
+            zoomTools.addView(StudioUi.iconButton(this, description, icon, click = click),
+                LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(3) })
+        }
+        zoomTools.visibility = if (StudioGameSettings.read(this).zoomButtons) View.VISIBLE else View.GONE
+        mapTools.addView(zoomTools)
+
+        val dock = object : LinearLayout(this) {
+            override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+                val width = minOf(View.MeasureSpec.getSize(widthSpec), dp(440))
+                super.onMeasure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), heightSpec)
+            }
+        }.apply { orientation = LinearLayout.VERTICAL; clipToPadding = false }
+        root.addView(dock, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+            setMargins(gutter,0,gutter,gutter)
+        })
+        dock.addOnLayoutChangeListener { _, _, top, _, _, _, _, _, _ ->
+            map.statusBottomInset = root.height - top + gutter
+        }
+        controlHint = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = StudioUi.panel(context, radius = 14)
+            setPadding(dp(12),dp(6),dp(12),dp(6))
+        }
+        dock.addView(controlHint, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin = dp(4) })
+        dockTitle = StudioUi.text(this, "", 14f, true)
+        status = StudioUi.text(this, "Memuat dunia…", 13f, color = StudioUi.MUTED)
+        controlHint.addView(dockTitle)
+        controlHint.addView(status)
+        val bar = LinearLayout(this).apply {
+            background = StudioUi.panel(context, DOCK_GREEN, 23, DOCK_GREEN)
+            setPadding(dp(4),dp(4),dp(4),dp(4))
+        }
+        dock.addView(bar)
+        fun action(primary: Boolean = false, click: () -> Unit) = Button(this).apply {
+            val fill = if (primary) 0xffffd496.toInt() else DOCK_GREEN
+            backgroundTintList = null
+            background = StudioDepot.touch(context, fill, 18)
+            stateListAnimator = null
+            isAllCaps = false
+            typeface = StudioUi.face(context,true)
+            textSize = 12f
+            letterSpacing = 0f
+            gravity = Gravity.CENTER
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = dp(48)
+            minimumHeight = dp(48)
+            setTextColor(if (primary) DOCK_GREEN else -1)
+            setPadding(0,dp(5),0,dp(4))
+            maxLines = 1
+            compoundDrawablePadding = dp(1)
+            setOnClickListener { click() }
+        }
+        build = action(true) {
+            withCommittedWorld { when {
+                drawing && map.draft.size >= plan.tool.minPoints -> reviewDraft()
+                !drawing -> chooseConstruction()
+            } }
+        }
+        play = action {
+            if (drawing) undoDraft() else if (map.requiresStudioClock) {
+                if (reference == null) startReference() else withCommittedWorld()
+            } else {
+                running = !running
+                lastTick = SystemClock.elapsedRealtime()
+                updateControls()
                 map.removeCallbacks(tick)
-                play.text = "Jalankan ×8"
-                ServicePanel.open(this@NativeWorldActivity,handle,clock,workshop) { name ->
-                    lastService = name
-                    lastStatus = -1
-                    refresh()
-                }
+                if (running) map.post(tick)
             }
-        }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        tools.addView(Button(this).apply {
-            text = "Penumpang"
-            setOnClickListener {
-                if (handle == 0L || closed) return@setOnClickListener
-                val snapshot = Engine.save(handle, clock)
-                val hour = (clock.toLong() / 3600 % 24).toInt()
-                val period = when (hour) {
-                    in 6..9 -> 0
-                    in 10..15 -> 1
-                    in 16..19 -> 2
-                    in 20..23 -> 3
-                    else -> 4
-                }
-                fun show(pack: CityPackStore.CityPack) {
-                    NativeRidership.show(this@NativeWorldActivity, snapshot, pack.header, pack.cells, period)
-                }
-                val pack = activePack
-                if (pack != null) show(pack) else {
-                    isEnabled = false
-                    text = "Memuat…"
-                    executor.execute {
-                        val result = runCatching { cityStore.load(city.id) { _, _ -> } }
-                        runOnUiThread {
-                            if (!closed) {
-                                isEnabled = true
-                                text = "Penumpang"
-                                result.onSuccess { activePack = it; show(it) }.onFailure {
-                                    AlertDialog.Builder(this@NativeWorldActivity)
-                                        .setTitle("Data penumpang ${city.name} belum tersedia")
-                                        .setMessage(it.localizedMessage).setPositiveButton("Tutup", null).show()
-                                }
-                            }
-                        }
-                    }
-                }
+        }
+        lines = action { withCommittedWorld { openServices() } }
+        finance = action { withCommittedWorld { openFinance() } }
+        cancel = action { discardDraft() }
+        more = action { withCommittedWorld { manageWorld() } }
+        for (item in listOf(cancel, play, lines, build, finance, more)) {
+            bar.addView(item, LinearLayout.LayoutParams(0,-2,if (item == build) 1.25f else 1f))
+        }
+        updateControls()
+        map.onLocation = { point ->
+            when {
+                removingTrack -> selectTrackForRemoval(point)
+                selectingInfrastructure -> inspectRail(point)
+                drawing -> selectPoint(point)
             }
-        }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        root.addView(tools)
-        map.onLocation = { point -> if (drawing) selectPoint(point) }
+        }
         map.onStationTap = { station ->
-            if (!drawing && handle != 0L) {
-                StationInspector.show(this, handle, station, clock)
+            if (!drawing && !removingTrack && !restoringEdit && handle != 0L) {
+                selectingInfrastructure=false
+                updateControls()
+                withCommittedWorld { openStation(station) }
                 true
             } else false
         }
         map.onBend = { point ->
-            if (drawing && map.draft.isNotEmpty() && map.bends.size < 64) {
-                map.bends.add(Pair(map.draft.lastIndex,point))
-                map.invalidate()
-                status.text = "Titik lengkung ditambahkan. Ketuk stasiun berikutnya atau tahan untuk titik berikutnya."
+            if (drawing && plan.tool in setOf(BuildTool.BUS,BuildTool.FERRY) && map.draft.isNotEmpty() && map.draft.size < 24 && map.bends.size < 64) {
+                map.bends.add(map.draft.lastIndex to point)
+                updateDraft()
             }
         }
-        map.workshop = workshop
-        val toolbar = LinearLayout(this)
-        play = Button(this).apply {
-            text = "Jalankan ×8"; isEnabled = false
-            setOnClickListener {
-                running = !running; lastTick = SystemClock.elapsedRealtime()
-                text = if (running) "Jeda" else "Jalankan ×8"
-                if (running) {map.removeCallbacks(tick); map.post(tick)}
-            }
-        }
-        save = Button(this).apply {
-            text = "Simpan ▾"; isEnabled = false
-            setOnClickListener {
-                AlertDialog.Builder(this@NativeWorldActivity).setTitle("Simpanan")
-                    .setItems(arrayOf("Simpan di perangkat","Arsip & akun")) { _,index ->
-                        if(index==0) writeSave()
-                        else if(writeSave()) {
-                            startActivity(Intent(this@NativeWorldActivity,WorldArchiveActivity::class.java)
-                                .putExtra("archiveSource",archiveSlot?.id ?: local.baseFile.name).putExtra("city",city.id))
-                        }
-                    }.show()
-            }
-        }
-        toolbar.addView(play, LinearLayout.LayoutParams(0,dp(56),1f))
-        toolbar.addView(Button(this).apply {
-            text = "Keuangan"
-            setOnClickListener {
-                if (handle == 0L || closed) return@setOnClickListener
-                NativeFinance.show(this@NativeWorldActivity, handle, { clock }) { writeSave() }
-            }
-        }, LinearLayout.LayoutParams(0,dp(56),1f))
-        toolbar.addView(save, LinearLayout.LayoutParams(0,dp(56),1f))
-        root.addView(toolbar); setContentView(root)
+        setContentView(root)
+        val pending = pendingWrites[local.baseFile.path]
         executor.execute {
             try {
+                if (pending != null) check(pending.await(90, TimeUnit.SECONDS)) { "Penyimpanan simulasi sebelumnya belum selesai." }
                 var progressPercent = -1
                 val pack = try {
                     cityStore.load(city.id) { done,total ->
@@ -230,7 +332,10 @@ class NativeWorldActivity : Activity() {
                     if(city.id!="nyc") throw e
                     null // Bundled legacy starter remains available on a first offline launch.
                 }
-                val snapshot = try { local.readFully() } catch (_: java.io.FileNotFoundException) { null }
+                val snapshot = try { local.readFully() } catch (e: java.io.FileNotFoundException) {
+                    if (archiveSlot != null) throw e
+                    null
+                }
                 val restored = snapshot != null
                 val loaded = when {
                     snapshot != null -> Engine.open(snapshot)
@@ -250,28 +355,48 @@ class NativeWorldActivity : Activity() {
                     throw e
                 }
                 runOnUiThread {
-                    if (closed) { Engine.close(loaded); return@runOnUiThread }
+                    if (closed || isFinishing) { Engine.close(loaded); return@runOnUiThread }
+                    saveRevision = local.baseFile.lastModified()
+                    (lastNonConfigurationInstance as? RetainedEdits)?.let { previous ->
+                        if (previous.slotPath == local.baseFile.path && previous.revision == saveRevision) history = previous.history
+                    }
                     handle = loaded; activePack=pack; clock = geometry.getDouble("clock")
                     map.cityLayer=layer
                     map.load(geometry)
-                    info.text = "${city.name}  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
+                    if (intent.hasExtra("viewCity") && layer != null) {
+                        val origin = JSONObject(pack.header.readText()).getJSONObject("origin")
+                        val point = CitySurface.project(handle,doubleArrayOf(origin.getDouble("lon"),origin.getDouble("lat")))
+                        map.focusCity(point[0],point[1])
+                    }
+                    updateSummary()
                     if(!legacyWorkshop) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
-                    build.isEnabled = true
-                    play.isEnabled = !workshop || map.routeCount > 0
-                    save.isEnabled = !workshop || map.routeCount > 0
+                    updateControls()
                     if (workshop && map.routeCount > 0) {
                         val routes = geometry.getJSONArray("routes")
                         lastService = routes.getJSONObject(routes.length()-1).getString("name")
                     }
                     refresh()
-                    if (restored) status.append("  ·  Simpanan dibuka")
-                    if (workshop && map.routeCount == 0) beginDrawing()
+                    if (restored) info.announceForAccessibility("Simpanan dibuka")
+                    if (savedInstanceState != null) {
+                        map.restoreView(savedInstanceState)
+                        val restoredPlan = ConstructionPlan.restore(savedInstanceState)
+                        if (savedInstanceState.getBoolean("drawing") && restoredPlan != null) {
+                            drawing = true
+                            plan = restoredPlan
+                            if(plan.tool==BuildTool.RAIL) railOptions=plan
+                            savedInstanceState.getIntArray("linePlatforms")?.let { stationOrder.addAll(it.toList()) }
+                            updateDraft()
+                        } else {
+                            map.draft.clear()
+                            map.bends.clear()
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    if (!closed) {
+                    if (!closed && !isFinishing) {
                         info.text = "Jaringan ${city.name} gagal dibuka."
-                        AlertDialog.Builder(this).setTitle(info.text).setMessage(e.message)
+                        StudioDialogBuilder(this).setTitle(info.text).setMessage(e.message)
                             .setPositiveButton("Coba lagi") { _, _ -> recreate() }
                             .setNegativeButton("Kembali") { _, _ -> finish() }.show()
                     }
@@ -279,161 +404,1074 @@ class NativeWorldActivity : Activity() {
             }
         }
     }
-    private fun beginDrawing() {
+    private fun saveWorld() {
+        if (!writeSave()) return
+        if (archiveSlot != null && hostLibrary) {
+            openLibrary(sync = true)
+        } else {
+            Toast.makeText(this, "Dunia tersimpan di perangkat", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openLibrary(sync: Boolean = false) {
+        val library = if (hostLibrary) StudioLibraryActivity::class.java else WorldArchiveActivity::class.java
+        val target = Intent(this, library).apply {
+            putExtra("archiveSource", archiveSlot?.id ?: local.baseFile.name)
+            putExtra("city", city.id)
+            if (sync) putExtra("studioAction", "save")
+        }
+        if (hostLibrary) startActivityForResult(target, 168) else startActivity(target)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if (StudioNetworkDiagram.finishExport(this,requestCode,resultCode,data)) return
+        if (requestCode == 168 && resultCode == RESULT_OK) {
+            setResult(RESULT_OK,data)
+            finish()
+        }
+    }
+
+    private fun TextView.singleLine() {
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+    }
+
+    private fun openServices() {
+        stopClock()
+        val record = trackPanelChanges("Jadwal layanan")
+        ServicePanel.open(this, handle, clock, true) { name ->
+            record()
+            lastService = name
+            lastStatus = -1
+            refresh()
+        }
+    }
+
+    private fun openFinance() {
+        stopClock()
+        val record = trackPanelChanges("Keuangan")
+        NativeFinance.show(this, handle, { clock }, onCurrencyChanged = {
+            currency = StudioCurrency.current(this)
+            showBalance(NativeFinance.balance(handle, clock))
+        }) {
+            record()
+            writeSave()
+            showBalance(NativeFinance.balance(handle, clock))
+        }
+    }
+
+    private fun showBalance(cash: Double) {
+        if (!cash.isFinite()) return
+        balanceUnit.text = "KAS · ${currency.code}"
+        balance.text = currency.compact(cash)
+        balance.contentDescription = "Kas, ${currency.millions(cash)}"
+    }
+
+    private fun discardDraft() {
+        if (map.draft.isEmpty()) { cancelDrawing(); return }
+        StudioDialogBuilder(this).setTitle("Batalkan rancangan jalur?")
+            .setView(StudioDecision.draft(this,map.draft,map.bends,plan.tool.label,plan.specification))
+            .setMessage("Titik dan lengkung yang sedang digambar akan dihapus.")
+            .setPositiveButton("Batalkan rancangan") { _, _ -> cancelDrawing() }
+            .setNegativeButton("Lanjut menggambar", null).show()
+    }
+
+    private fun manageWorld() {
+        val options = mutableListOf<Pair<String, () -> Unit>>()
+        if (drawing) {
+            options.add("Pengaturan alat" to { configureTool(plan.tool) })
+            options.add("Pilih titik di tengah peta" to { selectPoint(map.centerPoint()) })
+            if (plan.tool in setOf(BuildTool.BUS,BuildTool.FERRY) && map.draft.isNotEmpty() && map.draft.size < 24 && map.bends.size < 64) options.add("Tambah lengkung di tengah peta" to { map.onBend?.invoke(map.centerPoint()); Unit })
+            options.add("Batalkan rancangan" to { discardDraft() })
+        } else {
+            for (backwards in listOf(true, false)) {
+                history.next(backwards)?.let { entry ->
+                    val verb = if (backwards) "Urungkan" else "Ulangi"
+                    options.add("$verb · ${entry.label}" to { restoreEdit(backwards, entry) })
+                }
+            }
+            if (map.stops.any { it.id >= 0 }) options.add("Pilih stasiun" to { chooseStation() })
+            options.add("Peta penumpang & lalu lintas" to { passengerLayers() })
+            if (workshop) options.add("Bongkar layanan atau stasiun" to { demolition() })
+            options.add("Tutorial bermain" to { chooseTutorial() })
+            options.add("Diagram jaringan" to { StudioNetworkDiagram.show(this, JSONObject(Engine.geometry(handle)), city.name, ::openStation, map.cityLayer) { id ->
+                val record = trackPanelChanges("Jadwal layanan")
+                ServicePanel.details(this,handle,id,clock,true) { record(); lastStatus = -1; refresh() }
+            } })
+            options.add("Cetak biru & konstruksi" to { chooseConstruction() })
+            options.add("Pengaturan permainan" to { StudioGameSettings.show(this) {
+                map.displaySettings = StudioGameSettings.read(this)
+                zoomTools.visibility = if (map.displaySettings.zoomButtons) View.VISIBLE else View.GONE
+                val selected = StudioCurrency.current(this)
+                if (currency != selected) {
+                    currency = selected
+                    showBalance(NativeFinance.balance(handle,clock))
+                }
+            } })
+            options.add("Arsip dan akun" to { if (writeSave()) openLibrary() })
+            if (hostLibrary && archiveSlot != null) options.add("Jelajahi kota lain" to {
+                StudioZonePicker.show(this,cityStore,city.id) { next ->
+                    val destination = cityStore.city(next)
+                    val target = StudioDecision(this,destination.name,
+                        if (cityStore.cached(next)) "Peta tersedia di perangkat" else android.text.format.Formatter.formatShortFileSize(this,destination.bytes)+" untuk diunduh")
+                    val thumbnail = runCatching { assets.open("world-native/zone-previews/$next.webp").use {
+                        android.graphics.BitmapFactory.decodeStream(it)
+                    } }.getOrNull()
+                    if (thumbnail != null) target.addView(android.widget.ImageView(this).apply {
+                        setImageBitmap(thumbnail)
+                        scaleType=android.widget.ImageView.ScaleType.FIT_CENTER
+                        contentDescription="Peta wilayah ${destination.name}"
+                    },LinearLayout.LayoutParams(-1,dp(132)))
+                    StudioDialogBuilder(this).setTitle("Jelajahi kota?").setView(target)
+                        .setMessage("Kota ini akan dibuka di dunia yang sedang dimainkan.")
+                        .setNegativeButton("Kembali",null)
+                        .setPositiveButton("Buka kota") { _,_ ->
+                            if (writeSave()) {
+                                startActivity(Intent(this,NativeWorldActivity::class.java)
+                                    .putExtra("archiveSlot",archiveSlot!!.id).putExtra("hostLibrary",true)
+                                    .putExtra("viewCity",next).addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT))
+                                finish()
+                            }
+                        }.show()
+                }
+            })
+            if (!hostLibrary) options.add("Pilih kota" to { showCityPicker(this, cityStore, city.id) { writeSave() } })
+        }
+        StudioUi.sheet(this, if (drawing) "Rancangan jalur" else "Kelola dunia") { column, dialog ->
+            if (!drawing && !selectingInfrastructure && !removingTrack) column.addView(StudioUi.text(this,status.text.toString(),14f))
+            options.forEach { (label, click) ->
+                column.addView(StudioUi.button(this, label) { dialog.dismiss(); click() }.apply {
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            }
+        }
+    }
+
+    private var selectingInfrastructure = false
+    private var removingTrack = false
+
+    private fun inspectRail(point: PointF) {
+        val id=map.nearestRail(point)
+        val rail=id?.let { map.railInfo(it) }
+        if(rail==null) { status.text="Ketuk lebih dekat ke rel atau stasiun."; return }
+        selectingInfrastructure=false
+        updateControls()
+        map.contentDescription="Peta jaringan kereta"
+        lastStatus=-1; refresh()
+        fun level(n:Int)=when { n>0 -> "Viaduk +$n"; n<0 -> "Terowongan $n"; else -> "Permukaan" }
+        val type=when(rail.kind) { 1 -> "Rel cepat"; 2 -> "Trem jalan"; 3 -> "Trem"; else -> "Rel konvensional" }
+        StudioUi.sheet(this,type) { body,dialog ->
+            body.addView(StudioDecision(this,"Ruas rel").apply {
+                fact("Panjang",java.lang.String.format(java.util.Locale.forLanguageTag("id-ID"),"%.2f km",rail.length/1000))
+                fact("Elevasi",if(rail.low==rail.high) level(rail.low) else "${level(rail.low)} → ${level(rail.high)}")
+                fact("Jumlah sepur",rail.tracks.toString())
+                if(rail.speed.isFinite()) fact("Batas kecepatan","${rail.speed.toInt()} km/jam")
+            })
+            body.addView(StudioUi.button(this,"Tempatkan stasiun",StudioUi.Tone.PRIMARY) {
+                dialog.dismiss()
+                configureTool(BuildTool.STATION)
+            })
+            body.addView(StudioUi.button(this,"Kembali ke peta") { dialog.dismiss() })
+        }
+    }
+
+    private fun startTrackRemoval() {
+        stopClock()
+        removingTrack = true
+        updateControls()
+        status.text = "Ketuk ruas rel yang ingin dibongkar."
+        map.contentDescription = status.text
+        map.announceForAccessibility(status.text)
+    }
+
+    private fun selectTrackForRemoval(point: PointF) {
+        val edge = map.nearestRail(point)
+        if (edge == null) {
+            Toast.makeText(this,"Ketuk lebih dekat ke ruas rel.",Toast.LENGTH_SHORT).show()
+            return
+        }
+        removingTrack = false
+        updateControls()
+        map.contentDescription = "Peta jaringan kereta"
+        refresh()
+        val preview = JSONObject(DemolitionPanel.remove(handle,2,edge,clock,false))
+        if (preview.has("error")) {
+            Toast.makeText(this,preview.getString("error"),Toast.LENGTH_LONG).show()
+            return
+        }
+        StudioDialogBuilder(this).setTitle("Bongkar ruas rel?")
+            .setView(DemolitionPanel.impact(this,2,preview))
+            .setNegativeButton("Batal",null)
+            .setPositiveButton("Bongkar") { _,_ -> commitDemolition(2,edge,"Ruas rel") }.show()
+    }
+
+    private fun demolition() {
+        stopClock()
+        DemolitionPanel.show(this,handle,clock,::commitDemolition)
+    }
+
+    private fun commitDemolition(kind: Int, id: Int, label: String) {
+        val before = Engine.save(handle, clock)
+        if (!history.canKeep(before) || local.baseFile.lastModified() != saveRevision) {
+            Toast.makeText(this, "Cadangan untuk urungkan belum siap. Buka kembali dunia ini.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val result = JSONObject(DemolitionPanel.remove(handle, kind, id, clock, true))
+        if (result.has("error")) {
+            Toast.makeText(this, result.getString("error"), Toast.LENGTH_LONG).show()
+            return
+        }
+        history.record("Bongkar $label", before)
+        worldChanged = true
+        val geometry = JSONObject(Engine.geometry(handle))
+        map.load(geometry, refit = false)
+        val routes = geometry.getJSONArray("routes")
+        lastService = routes.optJSONObject(routes.length() - 1)?.optString("name").orEmpty()
+        updateSummary()
+        lastStatus = -1
+        refresh()
+        updateControls()
+        writeSave()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && ::map.isInitialized) map.finishStationInspection()
+    }
+
+    private fun openStation(node: Int) {
+        stopClock()
+        map.showStationAboveSheet(node)
+        val record = trackPanelChanges("Fasilitas stasiun")
+        StationInspector.show(this,handle,node,clock, {
+            record()
+            map.load(JSONObject(Engine.geometry(handle)), refit = false, keepTrainLoads = true)
+            writeSave()
+            showBalance(NativeFinance.balance(handle,clock))
+            updateControls()
+        })
+    }
+
+    private fun chooseStation() {
+        val stations = map.stops.filter { it.id >= 0 }.sortedBy { it.name }
+        StudioDialogBuilder(this).setTitle("Pilih stasiun").setItems(stations.map { it.name }.toTypedArray()) { _, i ->
+            val station = stations[i]
+            openStation(station.id)
+        }.setNegativeButton("Tutup", null).show()
+    }
+
+    private fun passengerLayers() {
+        StudioUi.sheet(this,"Peta penumpang & lalu lintas") { column,dialog ->
+            fun group(index: Int, name: String, options: List<Pair<String,String>>) {
+                column.addView(StudioUi.text(this,name,17f,true).apply { setPadding(0,dp(10),0,dp(4)) })
+                options.forEach { (label,layer) ->
+                    val selected = map.overlay.selection[index] == layer
+                    column.addView(StudioUi.button(this, if (selected) "✓  $label" else label,
+                        if (selected) StudioUi.Tone.PRIMARY else StudioUi.Tone.SURFACE) {
+                        dialog.dismiss()
+                        map.overlay.choose(index,layer)
+                        map.announceForAccessibility("$name · $label")
+                    })
+                }
+            }
+            group(0,"Lingkaran perjalanan",listOf("Sembunyikan lingkaran perjalanan" to "none","Tujuan perjalanan" to "work","Asal perjalanan" to "home","Asal dan tujuan" to "both"))
+            group(1,"Penumpang stasiun",listOf("Sembunyikan penumpang stasiun" to "none","Memulai perjalanan" to "origins","Berganti layanan" to "transfers","Total penumpang" to "total"))
+            group(2,"Warna jalur",listOf("Warna layanan" to "line","Lalu lintas" to "traffic","Kecepatan" to "speed","Ketinggian" to "height","Laba" to "profit"))
+            column.addView(StudioUi.button(this,"Ringkasan penumpang") { dialog.dismiss(); showDemand() })
+        }
+    }
+
+    private fun showDemand() {
+        if (loadingDemand) return
+        val snapshot = Engine.save(handle, clock)
+        val hour = (clock.toLong() / 3600 % 24).toInt()
+        val period = when (hour) { in 6..9 -> 0; in 10..15 -> 1; in 16..19 -> 2; in 20..23 -> 3; else -> 4 }
+        fun show(pack: CityPackStore.CityPack) = NativeRidership.show(this, snapshot, pack.header, pack.cells, period)
+        val pack = activePack
+        if (pack != null) { show(pack); return }
+        loadingDemand = true
+        Toast.makeText(this, "Memuat data penumpang…", Toast.LENGTH_SHORT).show()
+        executor.execute {
+            val result = runCatching { cityStore.load(city.id) { _, _ -> } }
+            runOnUiThread {
+                loadingDemand = false
+                if (!closed && !isFinishing) result.onSuccess { activePack = it; show(it) }.onFailure {
+                    StudioDialogBuilder(this).setTitle("Data penumpang belum tersedia")
+                        .setMessage(it.localizedMessage).setPositiveButton("Tutup", null).show()
+                }
+            }
+        }
+    }
+
+    private fun stopClock() {
         running = false
         map.removeCallbacks(tick)
-        play.text = "Jalankan ×8"
-        play.isEnabled = false
-        save.isEnabled = false
-        drawing = true
-        draftName = "Lintas " + (map.routeCount + 1)
-        draftMode = 0
-        map.draft.clear(); map.bends.clear()
+        updateControls()
+    }
+
+    private fun updateControls() {
+        val openBend = map.bends.lastOrNull()?.first == map.draft.lastIndex
+        val ready = handle != 0L && !restoringEdit &&
+            referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING
+        build.isEnabled = ready && (!drawing || (map.draft.size >= plan.tool.minPoints && !openBend))
+        dockTitle.text = if (drawing) plan.specification else ""
+        dockTitle.visibility = if (drawing) View.VISIBLE else View.GONE
+        controlHint.visibility = if (!ready || drawing || selectingInfrastructure || removingTrack) View.VISIBLE else View.GONE
+        lines.visibility = if (drawing) View.GONE else View.VISIBLE
+        finance.visibility = lines.visibility
+        cancel.visibility = if (drawing) View.VISIBLE else View.GONE
+        lines.isEnabled = ready
+        finance.isEnabled = ready
+        more.isEnabled = ready
+        cancel.isEnabled = ready
+        play.isEnabled = ready && (if (drawing) map.draft.isNotEmpty() else map.routeCount > 0 || map.requiresStudioClock)
+        save.isEnabled = ready && !drawing
+        save.contentDescription = if (hostLibrary) "Simpan ke Studio" else "Simpan di perangkat"
+        fun render(button: Button, label: String, description: String, icon: StudioUi.Icon) {
+            if (button.text != label) button.text = label
+            button.contentDescription = description
+            button.alpha = if (button.isEnabled) 1f else .55f
+            if (button.tag != icon) {
+                val glyph = StudioUi.glyph(this, icon, if (button == build) DOCK_GREEN else -1)
+                button.setCompoundDrawables(null,glyph,null,null)
+                button.tag = icon
+            }
+        }
+        render(build, if (drawing) "Tinjau" else "Bangun", if (drawing) plan.tool.review else "Bangun jalur",
+            if (drawing) StudioUi.Icon.ROUTE else StudioUi.Icon.PLUS)
+        render(lines,"Jalur","Jalur",StudioUi.Icon.ROUTE)
+        render(finance,"Kas","Keuangan",StudioUi.Icon.WALLET)
+        render(cancel,"Batal","Batalkan rancangan",StudioUi.Icon.CLOSE)
+        render(more,if (drawing) "Alat" else "Kelola",if (drawing) "Alat rancangan" else "Kelola",StudioUi.Icon.MENU)
+        when {
+            drawing -> render(play,"Urung","Urungkan titik terakhir",StudioUi.Icon.UNDO)
+            running || referenceState == ReferenceState.PLAYING -> render(play,"Jeda","Jeda",StudioUi.Icon.PAUSE)
+            else -> render(play,"×8","Putar ×8",StudioUi.Icon.PLAY)
+        }
+        map.isDrafting = drawing
+    }
+
+    private fun chooseTutorial() {
+        StudioUi.sheet(this, "Tutorial bermain") { form, dialog ->
+            form.addView(StudioUi.text(this, "Pilih latihan untuk dunia ini.", 15f, color = StudioUi.MUTED))
+            form.addView(StudioUi.button(this, "Bangun lintas baru", StudioUi.Tone.PRIMARY, StudioUi.Icon.ROUTE) {
+                dialog.dismiss()
+                chooseConstruction()
+            }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
+            form.addView(StudioUi.text(this, "Pilih moda, gambar jalur, lalu tempatkan stasiun atau halte dan atur layanannya.", 14f).apply {
+                setPadding(dp(3), dp(4), dp(3), 0)
+            })
+            form.addView(StudioUi.button(this, "Panduan operasi", icon = StudioUi.Icon.TRAIN) {
+                dialog.dismiss()
+                openGuide()
+            }, LinearLayout.LayoutParams(-1,-2).apply { topMargin = dp(12) })
+            form.addView(StudioUi.text(this, "Ikuti panduan penumpang dan pengoperasian layanan di dunia ini.", 14f).apply {
+                setPadding(dp(3), dp(4), dp(3), 0)
+            })
+        }
+    }
+
+    private fun chooseConstruction() {
+        selectingInfrastructure=false
+        removingTrack=false
+        stopClock()
+        StudioUi.sheet(this,"Bangun jalur") { body,dialog ->
+            val tiles=BuildTool.values().map { tool -> Triple(tool.key,tool.label,{
+                dialog.dismiss()
+                configureTool(tool)
+            }) }.toMutableList()
+            tiles.add(Triple("select","Pilih") {
+                dialog.dismiss()
+                selectingInfrastructure=true
+                updateControls()
+                status.text="Ketuk ruas rel atau stasiun untuk memeriksanya."
+                map.contentDescription=status.text
+                map.announceForAccessibility(status.text)
+            })
+            tiles.add(Triple("delete","Bongkar") {
+                dialog.dismiss()
+                StudioUi.sheet(this,"Bongkar") { choices,menu ->
+                    choices.addView(StudioUi.button(this,"Bongkar rel di peta") { menu.dismiss(); startTrackRemoval() })
+                    choices.addView(StudioUi.button(this,"Layanan dan stasiun") { menu.dismiss(); demolition() })
+                }
+            })
+            body.addView(ConstructionTools.palette(this,tiles))
+        }
+    }
+
+    private fun configureTool(tool: BuildTool) {
+        val label=when(tool) {
+            BuildTool.RAIL -> ""
+            BuildTool.STATION -> "Stasiun ${map.stationCount+1}"
+            BuildTool.LINE -> "Lintas ${map.routeCount+1}"
+            BuildTool.BUS, BuildTool.FERRY -> "${tool.label} ${map.routeCount+1}"
+        }
+        val keep=drawing && plan.tool==tool
+        val initial=when { keep -> plan; tool==BuildTool.RAIL -> railOptions; else -> ConstructionPlan(tool,label) }
+        ConstructionPanel.options(this,initial) {
+            if(!keep) { map.draft.clear(); map.bends.clear(); stationOrder.clear() }
+            plan=it
+            if(tool==BuildTool.RAIL) railOptions=it
+            stopTrainPreview()
+            drawing=true
+            updateDraft()
+        }
+    }
+
+    private fun updateDraft() {
+        updateControls()
+        dockTitle.text=plan.specification
+        val n=map.draft.size
+        status.text=when(plan.tool) {
+            BuildTool.RAIL -> when(n) {
+                0 -> "Ketuk peta untuk menandai awal rel."
+                1 -> "Ketuk ujung rel. Tambahkan titik untuk membelokkan jalur."
+                else -> "$n titik rel · Tambah titik atau tinjau biaya."
+            }
+            BuildTool.STATION -> if(n==0) "Ketuk rel yang sudah dibangun untuk menempatkan peron." else "Lokasi dipilih. Ketuk rel lain atau tinjau stasiun."
+            BuildTool.LINE -> if(n==0) "Ketuk stasiun pertama yang akan dilayani." else "$n stasiun · Ketuk stasiun berikutnya sesuai urutan perjalanan."
+            BuildTool.BUS -> if(n==0) "Ketuk lokasi awal bus di dekat jalan." else "$n titik · Ketuk tujuan berikutnya. Rute akan mengikuti jalan."
+            BuildTool.FERRY -> if(n==0) "Ketuk pesisir untuk memilih dermaga awal." else "$n dermaga · Ketuk dermaga berikutnya. Tahan untuk menandai lintasan air."
+        }
+        status.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
+        map.contentDescription="Peta konstruksi ${plan.tool.label}. ${status.text}"
         map.invalidate()
-        build.text = "Batalkan"
-        status.text = "Ketuk peta untuk menempatkan stasiun awal A."
+    }
+
+    private fun undoDraft() {
+        if(map.draft.isEmpty()) return
+        if(map.bends.lastOrNull()?.first==map.draft.lastIndex) map.bends.removeAt(map.bends.lastIndex)
+        else {
+            map.draft.removeAt(map.draft.lastIndex)
+            if(plan.tool==BuildTool.LINE && stationOrder.isNotEmpty()) stationOrder.removeAt(stationOrder.lastIndex)
+        }
+        updateDraft()
     }
 
     private fun cancelDrawing() {
-        drawing = false
-        map.draft.clear(); map.bends.clear()
-        map.invalidate()
-        build.text = "Bangun jalur"
-        play.isEnabled = map.routeCount > 0
-        save.isEnabled = map.routeCount > 0
-        lastStatus = -1
+        drawing=false
+        status.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_NONE
+        map.draft.clear(); map.bends.clear(); stationOrder.clear()
+        updateControls()
+        lastStatus=-1
         refresh()
     }
 
     private fun selectPoint(point: PointF) {
-        if (map.draft.size >= 24) return
-        map.draft.add(point)
-        map.invalidate()
-        if (map.draft.size == 1) {
-            status.text = "Ketuk stasiun B (minimal 350 m), atau tahan peta untuk menambah titik lengkung."
+        if(plan.tool==BuildTool.STATION) {
+            map.draft.clear()
+        } else if(map.draft.size>=24) {
+            status.text="Batas 24 titik tercapai. Tinjau rancangan atau urungkan titik terakhir."
             return
         }
-        val input = EditText(this).apply {
-            setSingleLine()
-            filters = arrayOf(InputFilter.LengthFilter(48))
-            setText(draftName)
-            selectAll()
-        }
-        val vehicle = android.widget.Spinner(this).apply {
-            adapter = android.widget.ArrayAdapter(this@NativeWorldActivity, android.R.layout.simple_spinner_dropdown_item,
-                listOf("Kereta komuter", "Kereta cepat", "Trem · rel khusus"))
-            setSelection(draftMode)
-        }
-        val form = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20),0,dp(20),0)
-            addView(input, LinearLayout.LayoutParams(-1,-2))
-            addView(vehicle)
-        }
-        var keepStops = false
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("Buat layanan")
-            .setMessage("${map.draft.size} stasiun · Ketuk dekat stasiun lama untuk memakai rel yang sudah dibangun.")
-            .setView(form)
-            .setPositiveButton("Bangun & jalankan", null)
-            .setNeutralButton(if (map.draft.size<24) "Tambah stasiun" else null) { _,_ ->
-                keepStops = true
-                status.text = "Ketuk lokasi stasiun ${('A'.code + map.draft.size).toChar()}."
+        if(plan.tool==BuildTool.LINE) {
+            val nearest=map.stops.asSequence().filter { it.id>=0 }.minByOrNull { kotlin.math.hypot(it.x-point.x,it.y-point.y) }
+            if(nearest==null || kotlin.math.hypot(nearest.x-point.x,nearest.y-point.y)>map.pickRadiusMeters()) {
+                status.text="Ketuk penanda stasiun di peta."
+                return
             }
-            .setNegativeButton("Pilih ulang", null)
-            .create()
-        dialog.setOnDismissListener {
-            draftMode = vehicle.selectedItemPosition
-            draftName = input.text.toString()
-            if (drawing && !keepStops && map.draft.size >= 2) {
-                map.draft.removeAt(map.draft.lastIndex)
-                map.bends.removeAll { it.first >= map.draft.lastIndex }
-                map.invalidate()
-                status.text = "Ketuk lokasi lain untuk stasiun ${('A'.code + map.draft.size).toChar()}."
+            if(stationOrder.lastOrNull()==nearest.id) return
+            stationOrder.add(nearest.id)
+            map.draft.add(PointF(nearest.x,nearest.y))
+        } else {
+            val previous=map.draft.lastOrNull()
+            val minDistance=if(plan.tool==BuildTool.BUS || plan.tool==BuildTool.FERRY) 350f else 1f
+            if(previous!=null && kotlin.math.hypot(point.x-previous.x,point.y-previous.y)<minDistance) {
+                status.text="Titik berikutnya harus berjarak setidaknya ${minDistance.toInt()} m."
+                return
             }
+            map.draft.add(point)
         }
-        dialog.show()
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val coords = map.draft.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
-            val bends = map.bends.flatMap { (leg,p) -> listOf(leg.toDouble(),p.x.toDouble(),p.y.toDouble()) }.toDoubleArray()
-            val result = JSONObject(Engine.build(handle, coords, input.text.toString(), clock, listOf(0,1,3)[vehicle.selectedItemPosition], bends))
-            if (result.has("error")) {
-                input.error = result.getString("error")
-            } else {
-                drawing = false
+        updateDraft()
+    }
+
+    private data class Quote(val geometry: JSONObject,val bytes: ByteArray,val charge: Double,val vertices: List<PointF>?,val snapped: PointF?)
+
+    private fun reviewDraft() {
+        val spec=plan
+        val points=map.draft.map { PointF(it.x,it.y) }
+        val bends=map.bends.toList()
+        val order=stationOrder.map { node -> map.stops.first { it.id==node }.packedId }.toIntArray()
+        val snap=map.pickRadiusMeters()
+        val coords=points.flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
+        val via=points.flatMapIndexed { i,p -> listOf(p)+bends.filter { it.first==i }.map { it.second } }
+            .flatMap { listOf(it.x.toDouble(),it.y.toDouble()) }.toDoubleArray()
+        val curves=bends.flatMap { (leg,p) -> listOf(leg.toDouble(),p.x.toDouble(),p.y.toDouble()) }.toDoubleArray()
+        val original=Engine.save(handle,clock)
+        val editTime=clock
+        val directory=RoadTileStore.directory(this)
+        val candidate=Engine.forkCandidate(handle,clock,directory.absolutePath)
+        if(candidate==0L) { Toast.makeText(this,"Rancangan belum dapat dibuka.",Toast.LENGTH_LONG).show(); return }
+        val activeHandle=handle
+        var prepared=0L
+        var geometry: JSONObject?=null
+        var bytes: ByteArray?=null
+        lateinit var primary: Button
+        reviewDialog=StudioUi.sheet(this,spec.tool.review,pinnedAction={ primary }) { body,dialog ->
+            body.addView(StudioDecision.draft(this,points,bends,spec.tool.label,spec.specification))
+            val cost=StudioUi.text(this,if(spec.tool==BuildTool.BUS || spec.tool==BuildTool.RAIL && spec.kind==2) "Menghitung lintasan jalan…" else "Menghitung biaya…",17f,true,StudioDepot.TEAL)
+            cost.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
+            body.addView(cost,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
+            body.addView(StudioUi.button(this,"Kembali ke peta") { dialog.dismiss() })
+            primary=StudioUi.button(this,spec.tool.action,StudioUi.Tone.PRIMARY) {
+                val snapshot=bytes ?: return@button
+                val geo=geometry ?: return@button
+                if(handle!=activeHandle || prepared==0L || !persistBytes(snapshot)) return@button
+                val old=handle
+                handle=prepared
+                prepared=0L
+                Engine.close(old)
+                history.record(spec.tool.action,original)
                 dialog.dismiss()
-                map.draft.clear(); map.bends.clear()
-                lastService = result.getString("name")
-                clock = max(clock, result.getDouble("departure"))
-                map.load(JSONObject(Engine.geometry(handle)))
-                info.text = "${city.name}  ·  ${map.routeCount} jalur  ·  ${map.stationCount} stasiun"
-                build.text = "Bangun jalur"
-                play.isEnabled = true
-                save.isEnabled = true
-                lastTick = SystemClock.elapsedRealtime()
-                running = true
-                play.text = "Jeda"
-                map.post(tick)
+                map.load(geo,refit=false)
+                clock=geo.getDouble("clock")
+                val routes=geo.getJSONArray("routes")
+                lastService=routes.optJSONObject(routes.length()-1)?.optString("name").orEmpty()
+                updateSummary()
+                cancelDrawing()
+                constructionComplete(spec)
+            }.apply { isEnabled=false }
+            dialog.setOnDismissListener {
+                reviewDialog=null
+                if(prepared!=0L) { Engine.close(prepared); prepared=0L }
             }
+            // Only this worker touches the candidate until it hands ownership back to the UI.
+            Thread({
+                val result=runCatching {
+                    val balanceBefore=NativeFinance.balance(candidate,editTime)
+                    val json=when(spec.tool) {
+                        BuildTool.RAIL -> {
+                            if(spec.wireKind in setOf(2,10,11)) RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,coords))
+                            NativeConstruction.rail(candidate,coords,spec.level,spec.wireKind,spec.tracks,editTime,true,spec.speed,spec.flySpeed,spec.autoRamp,spec.flying)
+                        }
+                        BuildTool.STATION -> NativeConstruction.station(candidate,coords[0],coords[1],snap,spec.name,spec.platform,editTime,true)
+                        BuildTool.LINE -> NativeRailLine.create(candidate,order,spec.name,editTime,spec.vehicle,true)
+                        BuildTool.BUS, BuildTool.FERRY -> {
+                            if(spec.tool==BuildTool.BUS) RoadTileStore.prepare(directory,Engine.requiredRoads(candidate,via))
+                            Engine.build(candidate,coords,spec.name,editTime,if(spec.tool==BuildTool.BUS) 5 else 4,curves)
+                        }
+                    }
+                    val built=JSONObject(json)
+                    check(!built.has("error")) { built.optString("error") }
+                    val save=Engine.save(candidate,editTime)
+                    check(save.isNotEmpty()) { "Simpanan rancangan belum siap." }
+                    val geo=JSONObject(Engine.geometry(candidate))
+                    val path=built.optJSONArray("path") ?: if(spec.tool in setOf(BuildTool.BUS,BuildTool.FERRY,BuildTool.LINE)) {
+                        val id=built.optInt("line",built.optInt("id",-1))
+                        val routes=geo.getJSONArray("routes")
+                        (0 until routes.length()).map { routes.getJSONObject(it) }.firstOrNull { it.optInt("id")==id }?.optJSONArray("points")
+                    } else null
+                    val vertices=path?.let { xs -> (0 until xs.length()-1 step 2).map { i -> PointF(xs.getDouble(i).toFloat(),xs.getDouble(i+1).toFloat()) } }
+                    val builtPoint=if(built.has("x") && built.has("y")) PointF(built.getDouble("x").toFloat(),built.getDouble("y").toFloat()) else null
+                    Quote(geo,save,built.optDouble("cost",balanceBefore-NativeFinance.balance(candidate,editTime)),vertices,builtPoint)
+                }
+                runOnUiThread {
+                    if(closed || !dialog.isShowing || handle!=activeHandle || result.isFailure) {
+                        Engine.close(candidate)
+                        if(dialog.isShowing) cost.text=result.exceptionOrNull()?.localizedMessage ?: "Dunia sudah berubah."
+                    } else {
+                        val (geo,save,charge,vertices,builtPoint)=result.getOrThrow()
+                        geometry=geo; bytes=save; prepared=candidate
+                        if(!vertices.isNullOrEmpty() || builtPoint!=null) {
+                            body.removeViewAt(0)
+                            val markers=if(builtPoint==null) points else listOf(builtPoint)
+                            body.addView(StudioDecision.draft(this,markers,bends,spec.tool.label,spec.specification,vertices),0)
+                        }
+                        cost.text="Biaya pembangunan · ${currency.compact(charge)}"
+                        primary.isEnabled=true
+                    }
+                }
+            },"studio-construction-quote").start()
+        }
+    }
+
+    private fun constructionComplete(spec: ConstructionPlan) {
+        val next=when(spec.tool){ BuildTool.RAIL -> BuildTool.STATION; BuildTool.STATION -> BuildTool.LINE; else -> null }
+        val title=when(spec.tool){ BuildTool.RAIL -> "Rel selesai dibangun"; BuildTool.STATION -> "Stasiun selesai dibangun"; else -> "Layanan siap diatur" }
+        StudioUi.sheet(this,title) { body,dialog ->
+            body.addView(StudioUi.text(this,spec.specification,16f,true,StudioDepot.TEAL))
+            val label=when(next){ BuildTool.STATION -> "Tempatkan stasiun"; BuildTool.LINE -> "Buat layanan kereta"; else -> "Atur jadwal" }
+            body.addView(StudioUi.button(this,label,StudioUi.Tone.PRIMARY) {
+                dialog.dismiss()
+                if(next==null) openServices() else configureTool(next)
+            },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(10) })
+            if(spec.tool==BuildTool.RAIL) body.addView(StudioUi.button(this,"Tambah ruas rel") { dialog.dismiss(); configureTool(BuildTool.RAIL) })
+            if(spec.tool==BuildTool.STATION) body.addView(StudioUi.button(this,"Tambah stasiun") { dialog.dismiss(); configureTool(BuildTool.STATION) })
+            body.addView(StudioUi.button(this,"Kembali ke peta") { dialog.dismiss() })
         }
     }
 
     private fun dp(value:Int) = (value * resources.displayMetrics.density).toInt()
     private val tick = object : Runnable {
         override fun run() {
-            if (!running || handle==0L) return
+            if (!running || handle==0L || map.requiresStudioClock) return
             val now=SystemClock.elapsedRealtime()
+            if (now > lastTick) worldChanged = true
             clock+=(now-lastTick)*0.008; lastTick=now
             refresh(); map.postDelayed(this, 65)
         }
     }
     private fun refresh() {
-        val positions=Engine.positions(handle,clock); map.trains=positions; map.invalidate()
-        val second=clock.toInt()
+        val displayClock = referenceTime ?: clock
+        val trainCount = map.updateTrains(displayClock, referenceState == ReferenceState.PLAYING)
+        val second = Math.floorMod(displayClock.toLong() + localClockShift, 86400L).toInt()
         if(second!=lastStatus) {
             lastStatus=second
-            val service = if (workshop && lastService.isNotEmpty()) "  ·  $lastService" else ""
-            status.text = "%02d:%02d:%02d   ·   %d kereta%s".format(second/3600%24,second/60%60,second%60,positions.size/3,service)
+            localTime.text = "%02d:%02d:%02d".format(java.util.Locale.ROOT,second/3600%24,second/60%60,second%60)
+            if (!drawing && !selectingInfrastructure && !removingTrack && !restoringEdit && referenceState != ReferenceState.OPENING && referenceState != ReferenceState.SAVING) {
+                val service = if (workshop && lastService.isNotEmpty()) " · $lastService" else ""
+                status.text = if (map.routeCount == 0) "Pilih moda untuk mulai membangun jaringan." else "${trainCount} kereta di peta$service"
+            }
         }
     }
-    private fun writeSave(): Boolean {
-        val bytes = Engine.save(handle,clock)
-        val stream = runCatching { local.startWrite() }.getOrElse { status.text="Gagal menyimpan"; return false }
-        try {
-            if(bytes.isEmpty())throw java.io.IOException("Simpanan kosong")
-            stream.write(bytes); local.finishWrite(stream); status.append("  ·  Tersimpan"); return true
-        } catch (e: Exception) { local.failWrite(stream); status.text="Gagal menyimpan"; return false }
+    // A panel can commit several edits while its dialog remains open.
+    private fun trackPanelChanges(label: String): () -> Unit {
+        var before = Engine.save(handle, clock)
+        return {
+            history.record(label, before)
+            worldChanged = true
+            before = Engine.save(handle, clock)
+        }
+    }
+
+    private fun restoreEdit(backwards: Boolean, target: WorldEditHistory.Entry) {
+        if (restoringEdit || history.next(backwards) !== target) return
+        stopClock()
+        val current = Engine.save(handle, clock)
+        if (!history.canKeep(current)) {
+            Toast.makeText(this, "Dunia terlalu besar untuk riwayat edit.", Toast.LENGTH_LONG).show()
+            return
+        }
+        restoringEdit = true
+        updateControls()
+        status.text = "Memulihkan ${target.label}…"
+        val pack = activePack
+        executor.execute {
+            var candidate = 0L
+            val result = runCatching {
+                candidate = Engine.open(target.bytes)
+                check(candidate != 0L) { "Cadangan edit tidak dapat dibuka." }
+                if (pack != null) {
+                    checkNotNull(CitySurface.attach(candidate, pack.header.readText(), pack.cells.readBytes(), pack.terrain.readBytes())) {
+                        "Data medan kota tidak dapat dipasang."
+                    }
+                }
+                JSONObject(Engine.geometry(candidate))
+            }
+            runOnUiThread {
+                try {
+                    if (closed || isFinishing || isChangingConfigurations) return@runOnUiThread
+                    result.onSuccess { geometry ->
+                        if (!writeSave(target.bytes)) return@onSuccess
+                        val previous = handle
+                        handle = candidate
+                        candidate = 0L
+                        Engine.close(previous)
+                        history.moved(backwards, current)
+                        clock = geometry.getDouble("clock")
+                        map.load(geometry, refit = false)
+                        val routes = geometry.getJSONArray("routes")
+                        lastService = routes.optJSONObject(routes.length() - 1)?.optString("name").orEmpty()
+                        updateSummary()
+                    }.onFailure {
+                        Toast.makeText(this, it.localizedMessage ?: "Edit gagal dipulihkan.", Toast.LENGTH_LONG).show()
+                    }
+                    restoringEdit = false
+                    lastStatus = -1
+                    updateControls()
+                    refresh()
+                } finally {
+                    if (candidate != 0L) Engine.close(candidate)
+                }
+            }
+        }
+    }
+
+    /** Compute the paused gauge on the reference workers too. Discard the read-only worker as
+     * soon as its complete first batch arrives. Its clock, money and archive never replace the slot. */
+    private fun previewTrainLoads() {
+        if (reference != null || trainPreview != null || closed || !foreground || drawing || handle == 0L) return
+        val version = map.trainNetworkVersion
+        val source = handle
+        val bytes = Engine.previewArchive(source,clock) ?: return
+        var received = false
+        lateinit var preview: StudioReferenceClock
+        fun stop() { if (trainPreview === preview) { trainPreview=null; preview.close() } }
+        preview = StudioReferenceClock(this,{ if (received) stop() },{ stop() })
+        trainPreview = preview
+        preview.onTrainLoads = { epoch,rows ->
+            if (handle==source && version==map.trainNetworkVersion && reference==null && !closed) {
+                received = true
+                map.trainLoads(epoch,rows)
+            } else stop()
+        }
+        preview.open(bytes) { map.postDelayed({ stop() },20_000) }
+    }
+
+    private fun stopTrainPreview() {
+        val preview=trainPreview
+        trainPreview=null
+        preview?.close()
+    }
+
+    private fun startReference() {
+        if (reference != null || handle == 0L || drawing) return
+        stopTrainPreview()
+        if (worldChanged && !writeSave()) return
+        val bytes = Engine.save(handle, clock)
+        lateinit var runtime: StudioReferenceClock
+        runtime = StudioReferenceClock(this, { time ->
+            if (reference === runtime && referenceState == ReferenceState.PLAYING && !closed) {
+                referenceTime = time
+                refresh()
+            }
+        }, { reason ->
+            if (reference === runtime && referenceState != ReferenceState.SAVING) {
+                finishReference(runtime)
+                referenceUnavailable(reason)
+            }
+        })
+        runtime.onTrainLoads = { epoch, rows -> if (reference === runtime && !closed) map.trainLoads(epoch,rows) }
+        runtime.onCash = { cash -> if (reference === runtime && !closed) showBalance(cash) }
+        reference = runtime
+        referenceState = ReferenceState.OPENING
+        updateControls()
+        status.text = "Menyiapkan simulasi anggaran…"
+        runtime.open(bytes) {
+            if (reference !== runtime || closed) return@open
+            if (!foreground) { finishReference(runtime); return@open }
+            referenceState = ReferenceState.PLAYING
+            updateControls()
+            runtime.play(8.0)
+        }
+    }
+
+    private fun withCommittedWorld(action: (() -> Unit)? = null) {
+        val runtime = reference
+        if (runtime == null) { action?.invoke(); return }
+        if (referenceState == ReferenceState.OPENING) {
+            finishReference(runtime)
+            action?.invoke()
+            return
+        }
+        if (action != null && afterCheckpoint == null) afterCheckpoint = action
+        if (referenceState == ReferenceState.SAVING) return
+        referenceState = ReferenceState.SAVING
+        updateControls()
+        status.text = "Menyimpan hasil simulasi…"
+        val key = local.baseFile.path
+        val completed = CountDownLatch(1)
+        pendingWrites[key] = completed
+        fun done(error: String? = null) {
+            val next = afterCheckpoint
+            afterCheckpoint = null
+            finishReference(runtime)
+            completed.countDown()
+            pendingWrites.remove(key, completed)
+            if (closed) executor.shutdown()
+            else if (error != null) referenceUnavailable(error)
+            else if (foreground && !isFinishing) next?.invoke()
+        }
+        runtime.snapshot { result ->
+            result.onFailure { done(it.localizedMessage ?: "Snapshot simulasi tidak tersedia.") }
+                .onSuccess { bytes ->
+                    val pack = activePack
+                    executor.execute {
+                        var candidate = 0L
+                        val restored = runCatching {
+                            candidate = Engine.open(bytes)
+                            check(candidate != 0L) { "Hasil simulasi tidak dapat dibuka." }
+                            if (pack != null) checkNotNull(CitySurface.attach(candidate, pack.header.readText(),
+                                pack.cells.readBytes(), pack.terrain.readBytes())) { "Medan kota tidak dapat dipasang." }
+                            JSONObject(Engine.geometry(candidate))
+                        }
+                        runOnUiThread {
+                            try {
+                                restored.onFailure { done(it.localizedMessage ?: "Hasil simulasi belum dapat dibaca.") }
+                                    .onSuccess { geometry ->
+                                        if (!persistBytes(bytes)) { done("Hasil simulasi belum tersimpan di perangkat."); return@onSuccess }
+                                        if (!closed) {
+                                            Engine.close(handle)
+                                            handle = candidate
+                                            candidate = 0L
+                                            clock = geometry.getDouble("clock")
+                                            map.load(geometry, refit = false, keepTrainLoads = true)
+                                            updateSummary()
+                                        }
+                                        done()
+                                    }
+                            } finally { if (candidate != 0L) Engine.close(candidate) }
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun finishReference(runtime: StudioReferenceClock) {
+        reference = null
+        referenceState = null
+        referenceTime = null
+        runtime.close()
+        if (!closed && handle != 0L) {
+            lastStatus = -1
+            updateControls()
+            refresh()
+        }
+    }
+
+    private fun openGuide() {
+        val guide = StudioOperationsGuide(this, { bit, card ->
+            val previous = Engine.guide(handle,-1,0)
+            val result = Engine.guide(handle, if (bit == -1 && card == 0) -2 else bit, card)
+            if (previous != result) { worldChanged = true; writeSave() }
+            if (result == "null") JSONObject() else JSONObject(result)
+        }) { task ->
+            when (task) {
+                "zoom" -> map.zoom(1.6f)
+                "summary" -> showDemand()
+                "layers" -> passengerLayers()
+                "rail" -> configureTool(BuildTool.RAIL)
+                "station" -> configureTool(BuildTool.STATION)
+                "line" -> configureTool(BuildTool.LINE)
+                "services" -> openServices()
+                "play" -> if (play.isEnabled) play.performClick() else openServices()
+                "finance" -> openFinance()
+            }
+        }
+        guide.show()
+    }
+
+    private fun referenceUnavailable(reason: String) {
+        if (closed || !foreground || isFinishing) return
+        StudioDialogBuilder(this).setTitle("Simulasi belum bisa dilanjutkan")
+            .setMessage("$reason\n\nSimpanan terakhir masih tersedia.")
+            .setNegativeButton("Tutup", null)
+            .setPositiveButton("Coba lagi") { _, _ -> startReference() }.show()
+    }
+
+    private fun updateSummary() {
+        info.text = "${city.name} · ${map.routeCount} jalur · ${map.stationCount} stasiun"
+        showBalance(map.balance)
+    }
+
+    private fun writeSave(restoredBytes: ByteArray? = null): Boolean {
+        if (handle == 0L || drawing || reference != null) return false
+        if (restoredBytes == null && !worldChanged && local.baseFile.isFile) return true
+        return persistBytes(restoredBytes ?: Engine.save(handle, clock))
+    }
+
+    private fun persistBytes(bytes: ByteArray): Boolean {
+        return runCatching {
+            check(local.baseFile.lastModified() == saveRevision)
+            check(bytes.isNotEmpty())
+            val stream = local.startWrite()
+            try { stream.write(bytes); local.finishWrite(stream) }
+            catch (e: Exception) { local.failWrite(stream); throw e }
+            saveRevision = local.baseFile.lastModified()
+            worldChanged = false
+        }.onSuccess {
+            if (hostLibrary) archiveSlot?.let { slot ->
+                runCatching { StudioPendingSaves.markDirty(this, slot.id) }.onFailure {
+                    Toast.makeText(this, "Tersimpan di perangkat. Pilih Simpan untuk mengirim ke Studio.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.onFailure {
+            Toast.makeText(this, "Dunia gagal disimpan di perangkat.", Toast.LENGTH_LONG).show()
+        }.isSuccess
+    }
+
+    private fun leaveWorld() {
+        if(removingTrack || selectingInfrastructure) {
+            selectingInfrastructure=false; removingTrack=false
+            map.contentDescription="Peta jaringan kereta"
+            updateControls(); lastStatus=-1; refresh(); return
+        }
+        if (reference != null) { withCommittedWorld { leaveWorld() }; return }
+        if (handle == 0L) { finish(); return }
+        if (drawing && map.draft.isNotEmpty()) {
+            StudioDialogBuilder(this).setTitle("Tinggalkan rancangan jalur?")
+                .setView(StudioDecision.draft(this,map.draft,map.bends,plan.tool.label,plan.specification))
+                .setMessage("Titik rancangan belum menjadi jalur. Dunia yang sudah dibangun akan disimpan di perangkat.")
+                .setPositiveButton("Tinggalkan") { _, _ -> cancelDrawing(); if (writeSave()) finish() }
+                .setNegativeButton("Lanjut menggambar", null).show()
+        } else {
+            if (drawing) cancelDrawing()
+            if (writeSave()) finish()
+        }
+    }
+
+    @Deprecated("Compatibility with API 24")
+    override fun onBackPressed() = leaveWorld()
+
+    @Deprecated("Retained for configuration changes on API 24 and above")
+    override fun onRetainNonConfigurationInstance(): Any? =
+        if (handle == 0L) null else RetainedEdits(local.baseFile.path, saveRevision, history)
+
+    override fun onSaveInstanceState(out: Bundle) {
+        super.onSaveInstanceState(out)
+        if (handle == 0L || local.baseFile.lastModified() != saveRevision) return
+        if (!drawing && worldChanged) writeSave()
+        out.putBoolean("drawing", drawing)
+        plan.save(out)
+        out.putIntArray("linePlatforms",stationOrder.map { id -> map.stops.first { it.id==id }.packedId }.toIntArray())
+        map.saveView(out)
     }
     override fun onResume() {
         super.onResume()
+        foreground = true
+        if (hostLibrary && archiveSlot != null && WorldDocuments.list(this).none { it.id == archiveSlot?.id }) {
+            finish()
+            return
+        }
+        if (handle != 0L && local.baseFile.lastModified() != saveRevision) {
+            recreate()
+            return
+        }
+        if (handle != 0L) {
+            map.overlay.startNeeded()
+            val selected = StudioCurrency.current(this)
+            if (currency != selected) {
+                currency = selected
+                showBalance(NativeFinance.balance(handle, clock))
+            }
+        }
         if (!legacyWorkshop && handle != 0L) getSharedPreferences("world-native",0).edit().putString("last-city",city.id).apply()
     }
     override fun onPause() {
-        super.onPause(); running=false; play.text="Jalankan ×8"; map.removeCallbacks(tick)
+        super.onPause()
+        foreground = false
+        if (::map.isInitialized) map.overlay.stop()
+        stopTrainPreview()
+        if (reference != null) withCommittedWorld()
+        if (::play.isInitialized) {
+            stopClock()
+            if (reference == null && hostLibrary && !drawing && worldChanged) writeSave()
+        }
     }
     override fun onDestroy() {
-        closed=true; map.removeCallbacks(tick); executor.shutdownNow()
+        closed = true
+        if (::map.isInitialized) map.overlay.stop()
+        reviewDialog?.dismiss()
+        stopTrainPreview()
+        if (::map.isInitialized) map.removeCallbacks(tick)
+        if (referenceState != ReferenceState.SAVING) {
+            reference?.close()
+            executor.shutdownNow()
+        }
         if(handle!=0L) {Engine.close(handle); handle=0}
         super.onDestroy()
     }
 }
 
 internal class NetworkView(context: Context):View(context) {
+    var displaySettings = StudioGameSettings.read(context)
+        set(value) { field=value; invalidate() }
+    val overlay = StudioPassengerOverlay(context as? Activity){ invalidate() }
+    private var baseLayer: StudioBaseLayer? = null
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); if(baseLayer==null)baseLayer=StudioBaseLayer(context){invalidate()} }
+    override fun onDetachedFromWindow() { overlay.stop(); baseLayer?.close();baseLayer=null;super.onDetachedFromWindow() }
     var cityLayer: CitySurface.Layer? = null
+    private var cityCenter: PointF? = null
     var workshop = false
+    var requiresStudioClock = true
+        private set
+    var statusBottomInset = 0
+        set(value) { if (field != value) { field = value; invalidate() } }
+    var doubleTapZoom = false
+    var isDrafting = false
+        set(value) {
+            if (field == value) return
+            field = value
+            contentDescription = if (value) "Peta konstruksi. Ketuk lokasi untuk alat yang dipilih." else "Peta jaringan kereta"
+            invalidate()
+        }
+    init {
+        isClickable = true
+        isFocusable = true
+        contentDescription = "Peta jaringan kereta"
+    }
     var onLocation: ((PointF) -> Unit)? = null
     var onBend: ((PointF) -> Unit)? = null
     val bends = mutableListOf<Pair<Int,PointF>>()
     var onStationTap: ((Int) -> Boolean)? = null
     val draft = mutableListOf<PointF>()
     val lines = mutableListOf<Pair<Int,Path>>()
-    data class Station(val x:Float,val y:Float,val name:String,val id:Int)
+    private data class RailStyle(val level: Int, val kind: Int, val tracks: Int)
+    data class RailInfo(val low:Int,val high:Int,val kind:Int,val tracks:Int,val length:Double,val speed:Double)
+    private data class RailPiece(val id: Int, val points: FloatArray, val info:RailInfo) {
+        val path by lazy {
+            Path().apply {
+                if (points.size >= 2) moveTo(points[0],points[1])
+                for (j in 2 until points.size-1 step 2) lineTo(points[j],points[j+1])
+            }
+        }
+    }
+    private val pieces = mutableListOf<RailPiece>()
+    fun railInfo(id:Int): RailInfo? = pieces.firstOrNull { it.id==id }?.info
+    fun nearestRail(point: PointF): Int? {
+        var best: Int? = null
+        var limit = pickRadiusMeters()*pickRadiusMeters()
+        for ((id,coords) in pieces) {
+            for (i in 2 until coords.size step 2) {
+                val x = coords[i-2].toDouble()
+                val y = coords[i-1].toDouble()
+                val dx = coords[i]-x
+                val dy = coords[i+1]-y
+                val length2 = dx*dx+dy*dy
+                if (length2 == 0.0) continue
+                val u = (((point.x-x)*dx+(point.y-y)*dy)/length2).coerceIn(0.0,1.0)
+                val ex = point.x-(x+u*dx)
+                val ey = point.y-(y+u*dy)
+                val distance2 = ex*ex+ey*ey
+                if (distance2 <= limit) { limit = distance2; best = id }
+            }
+        }
+        return best
+    }
+    private val infrastructure = mutableMapOf<RailStyle,Path>()
+    private var railBounds: RectF? = null
+    fun pickRadiusMeters(): Double = (28.0 * density / scale).coerceIn(6.0,250.0)
+
+    data class Station(val x:Float,val y:Float,val name:String,val id:Int,val platform:StudioStationGlyph?,val packedId:Int)
+    private fun stationZoom() = kotlin.math.log2(scale / density * 40075016.7f / (512f * trainPainter.mercatorPerFrame))
     val stops=mutableListOf<Station>()
-    var trains=FloatArray(0)
+    var onTrainPreviewNeeded: (() -> Unit)? = null
+    var trainNetworkVersion = 0
+        private set
+    private var previewRequested = false
+    private val trainPainter = StudioTrainPainter(resources.displayMetrics.density)
+    var trainEngine: () -> Long
+        get() = trainPainter.engine
+        set(value) { trainPainter.engine = value }
+    fun trainLoads(epoch:Long,rows:org.json.JSONArray) { trainPainter.setLoads(epoch,rows); invalidate() }
+    val trainCount get() = trainPainter.count
+    private var trainFrom = Double.NaN
+    private var trainTo = Double.NaN
+    private var trainAt = 0L
+    private var trainWindow = 0L
+    private fun trainTime(now:Long) = if (trainWindow > 0L)
+        trainFrom + (trainTo-trainFrom)*((now-trainAt).toDouble()/trainWindow).coerceIn(0.0,1.0) else trainTo
+    fun updateTrains(time:Double,interpolate:Boolean = false):Int {
+        val now = SystemClock.elapsedRealtime()
+        if (!interpolate || time != trainTo) {
+            val previous = trainTime(now)
+            trainWindow = if (interpolate && previous.isFinite() && time >= previous && time-previous <= 16.0)
+                (now-trainAt).coerceIn(0L,650L) else 0L
+            trainFrom = previous
+            trainTo = time
+            trainAt = now
+        }
+        trainPainter.time = trainTime(now)
+        trainPainter.update(centerX,centerY,scale,width,height)
+        invalidate()
+        return trainCount
+    }
     val stationCount get()=stops.size
     val routeCount get()=lines.size
     private val density=resources.displayMetrics.density
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
+    private val draftDash = android.graphics.DashPathEffect(floatArrayOf(7*density, 4*density), 0f)
     private val water=context.assets.open("world-native/nyc-water.png").use { BitmapFactory.decodeStream(it) }
     private val waterBox=FloatArray(4)
 
@@ -441,11 +1479,45 @@ internal class NetworkView(context: Context):View(context) {
     private var scale=0.01f; private var homeScale=0.01f
     private fun sx(x:Float)=(x-centerX)*scale+width/2f
     private fun sy(y:Float)=(centerY-y)*scale+height/2f
-    fun load(data:JSONObject, refit:Boolean = true) {
+    var balance = Double.NaN
+        private set
+
+    fun load(data:JSONObject, refit:Boolean = true,keepTrainLoads:Boolean = false) {
+        overlay.reset()
+        trainNetworkVersion++
+        if (!keepTrainLoads) previewRequested=false
+        trainPainter.reset(keepTrainLoads)
+        trainPainter.mercatorPerFrame = data.optDouble("mercatorPerFrame",1.0).toFloat()
+        balance = data.optDouble("cash")
+        requiresStudioClock = data.optBoolean("requiresStudioClock", true)
         lines.clear()
         stops.clear()
+        cityCenter = data.optJSONArray("homePoint")?.takeIf { it.length() == 2 }?.let {
+            PointF(it.getDouble(0).toFloat(), it.getDouble(1).toFloat())
+        }
         val bounds=data.getJSONArray("waterBox")
         for(i in 0..3) waterBox[i]=cityLayer?.bounds?.get(i) ?: bounds.getDouble(i).toFloat()
+        infrastructure.clear()
+        pieces.clear()
+        railBounds = null
+        val tracks = data.optJSONArray("tracks")
+        for (index in 0 until (tracks?.length() ?: 0)) {
+            val track = tracks!!.getJSONObject(index)
+            val points = track.getJSONArray("points")
+            val style = RailStyle(track.getInt("level"),track.getInt("kind"),track.getInt("tracks"))
+            val path = infrastructure.getOrPut(style) { Path() }
+            val coords = FloatArray(points.length()) { points.getDouble(it).toFloat() }
+            val length = if(track.has("length")) track.getDouble("length") else
+                (2 until coords.size step 2).sumOf { j -> kotlin.math.hypot((coords[j]-coords[j-2]).toDouble(),(coords[j+1]-coords[j-1]).toDouble()) }
+            pieces.add(RailPiece(track.getInt("id"),coords,RailInfo(style.level,track.optInt("topLevel",style.level),style.kind,style.tracks,length,track.optDouble("speed"))))
+            for (j in 0 until coords.size-1 step 2) {
+                val x = coords[j]
+                val y = coords[j+1]
+                if (j == 0) path.moveTo(x,y) else path.lineTo(x,y)
+                val bounds = railBounds
+                if (bounds == null) railBounds = RectF(x,y,x,y) else bounds.union(x,y)
+            }
+        }
         val routes=data.getJSONArray("routes")
         for(i in 0 until routes.length()) {
             val row=routes.getJSONObject(i);val points=row.getJSONArray("points")
@@ -454,20 +1526,83 @@ internal class NetworkView(context: Context):View(context) {
                 val x=points.getDouble(j).toFloat();val y=points.getDouble(j+1).toFloat()
                 if(j==0) path.moveTo(x,y) else path.lineTo(x,y)
             }
-            lines.add((row.getInt("color") or Color.BLACK) to path)
+            val color = row.getInt("color") or Color.BLACK
+            lines.add(color to path)
+            if (overlay.snapshot != null) overlay.route(row.getInt("id"),color,path)
         }
         val stations=data.getJSONArray("stations")
         for(i in 0 until stations.length()) {
             val s=stations.getJSONArray(i)
-            stops.add(Station(s.getDouble(0).toFloat(),s.getDouble(1).toFloat(),s.getString(2),s.getInt(3)))
+            stops.add(Station(s.getDouble(0).toFloat(),s.getDouble(1).toFloat(),s.getString(2),s.getInt(3),StudioStationGlyph.read(s.optJSONObject(4)),s.optInt(5,s.getInt(3))))
         }
-        if(refit)fit(); invalidate()
+        if(refit)fit(); overlay.startNeeded(); invalidate()
+    }
+    private var inspectingStation: Station? = null
+    fun showStationAboveSheet(id:Int) {
+        val station=stops.firstOrNull { it.id == id } ?: return
+        inspectingStation=station
+        val minScale=density*trainPainter.mercatorPerFrame*.592f // z15.5, enough to see a platform's orientation.
+        scale=max(scale,minScale)
+        val x=station.x+(station.platform?.midX ?: 0f)
+        val y=station.y+(station.platform?.midY ?: 0f)
+        focusAt(x,y-height*.32f/scale)
+    }
+
+    fun finishStationInspection() {
+        val station=inspectingStation ?: return
+        inspectingStation=null
+        focusAt(station.x+(station.platform?.midX ?: 0f),station.y+(station.platform?.midY ?: 0f))
+    }
+
+    fun centerPoint() = PointF(centerX, centerY)
+    fun focusCity(x: Float, y: Float) {
+        homeScale = width.coerceAtLeast(1) / 12000f
+        scale = homeScale
+        focusAt(x,y)
+    }
+    fun focusAt(x: Float, y: Float) {
+        centerX = x
+        centerY = y
+        invalidate()
+    }
+    fun zoom(factor: Float, pivotX: Float = width / 2f, pivotY: Float = height / 2f) {
+        val old = scale
+        scale = (scale * factor).coerceIn(homeScale * .25f, max(homeScale * 35f,6.7f * density * trainPainter.mercatorPerFrame))
+        centerX += (pivotX - width / 2f) * (1f/old - 1f/scale)
+        centerY -= (pivotY - height / 2f) * (1f/old - 1f/scale)
+        invalidate()
+    }
+    fun resetCamera() { fit(); invalidate() }
+    fun saveView(out: Bundle) {
+        out.putStringArray("mapLayers",overlay.selection.copyOf())
+        out.putFloatArray("camera", floatArrayOf(centerX, centerY, scale / homeScale))
+        out.putFloatArray("stops", draft.flatMap { listOf(it.x, it.y) }.toFloatArray())
+        out.putFloatArray("bends", bends.flatMap { (leg, p) -> listOf(leg.toFloat(), p.x, p.y) }.toFloatArray())
+    }
+    fun restoreView(state: Bundle) {
+        state.getStringArray("mapLayers")?.takeIf { it.size == 3 }?.copyInto(overlay.selection)
+        overlay.startNeeded()
+        state.getFloatArray("camera")?.let {
+            centerX = it[0]
+            centerY = it[1]
+            scale = homeScale * it[2]
+        }
+        state.getFloatArray("stops")?.let { for (i in it.indices step 2) draft.add(PointF(it[i], it[i+1])) }
+        state.getFloatArray("bends")?.let { for (i in it.indices step 3) bends.add(it[i].toInt() to PointF(it[i+1], it[i+2])) }
+        invalidate()
     }
     private fun fit() {
         if (width == 0 || height == 0) return
         if (stops.isEmpty()) {
-            centerX = 0f
-            centerY = 0f
+            railBounds?.let { box ->
+                centerX = box.centerX()
+                centerY = box.centerY()
+                homeScale = .7f * min(width/max(600f,box.width()),height/max(600f,box.height()))
+                scale = homeScale
+                return
+            }
+            centerX = cityCenter?.x ?: cityLayer?.bounds?.let { (it[0] + it[2]) / 2f } ?: 0f
+            centerY = cityCenter?.y ?: cityLayer?.bounds?.let { (it[1] + it[3]) / 2f } ?: 0f
             homeScale = width / 9000f
             scale = homeScale
             return
@@ -478,14 +1613,19 @@ internal class NetworkView(context: Context):View(context) {
         homeScale=min(width/max(600f,xs[hi]-xs[lo]),height/max(600f,ys[hi]-ys[lo]))*.7f
         scale=homeScale
     }
-    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);fit()}
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (oldw == 0 || oldh == 0) fit()
+    }
     override fun onDraw(c:Canvas){
         super.onDraw(c);c.drawColor(0xffeaf2ee.toInt())
         if(waterBox[0]!=waterBox[2]) {
             paint.style=Paint.Style.FILL; paint.color=Color.WHITE;paint.isFilterBitmap=true
             c.drawBitmap(cityLayer?.bitmap ?: water,null,RectF(sx(waterBox[0]),sy(waterBox[3]),sx(waterBox[2]),sy(waterBox[1])),paint)
         }
-        cityLayer?.let { layer ->
+        baseLayer?.draw(c,trainEngine(),centerX,centerY,scale,width,height,trainPainter.mercatorPerFrame,displaySettings.mapNames)
+        if (displaySettings.contrast < 1f) c.drawColor(Color.argb(((1-displaySettings.contrast)*255).toInt(),245,246,239))
+        if (displaySettings.mapNames) cityLayer?.let { layer ->
             val cells = mutableSetOf<Long>()
             paint.style=Paint.Style.FILL
             for (place in layer.places) {
@@ -499,33 +1639,101 @@ internal class NetworkView(context: Context):View(context) {
             }
         }
         c.save();c.translate(width/2f,height/2f);c.scale(scale,-scale);c.translate(-centerX,-centerY)
-        paint.style=Paint.Style.STROKE; paint.strokeWidth=2.6f*density/scale;paint.strokeJoin=Paint.Join.ROUND
-        for((color,line) in lines){paint.color=color;c.drawPath(line,paint)}
+        val overview = stops.size > 180 && scale < homeScale * 2.2f
+        val routeWidth = (if (overview) 2.1f else 3.6f) * density * displaySettings.lineWidth / scale
+        paint.style = Paint.Style.STROKE
+        paint.strokeJoin = Paint.Join.ROUND
+        paint.strokeCap = Paint.Cap.ROUND
+        for ((style, path) in infrastructure) {
+            val stroke = (if (style.tracks >= 4) 4.8f else if (style.tracks == 1) 2.6f else 3.5f) * density / scale
+            paint.strokeWidth = stroke
+            paint.color = when {
+                style.level < 0 -> 0xff82768b.toInt()
+                style.level > 0 -> 0xff366d74.toInt()
+                style.kind >= 2 -> 0xffa66c39.toInt()
+                else -> 0xff485c64.toInt()
+            }
+            c.drawPath(path,paint)
+            paint.strokeWidth = stroke * .38f
+            paint.color = if (style.level < 0) 0xffdcd5e2.toInt() else 0xffe0e9df.toInt()
+            c.drawPath(path,paint)
+        }
+        if (overlay.track == "line") {
+            paint.strokeWidth = routeWidth + 1.8f * density / scale
+            paint.color = 0xfffaf6e9.toInt()
+            for ((_, line) in lines) c.drawPath(line, paint)
+            paint.strokeWidth = routeWidth
+            for ((color, line) in lines) {
+                paint.color = color
+                c.drawPath(line, paint)
+            }
+        } else {
+            paint.strokeWidth = routeWidth
+            if (overlay.track == "height" || overlay.track == "speed") {
+                paint.color = if (overlay.track == "height") 0xff58b04a.toInt() else 0xff879194.toInt()
+                for ((_,path) in lines) c.drawPath(path,paint)
+            }
+            if (overlay.track != "traffic") for (piece in pieces) {
+                paint.color = overlay.railColor(piece.id,piece.info.low,piece.info.speed)
+                c.drawPath(piece.path,paint)
+            }
+            overlay.drawRoutes(c,routeWidth)
+        }
         c.restore()
+        if (!isDrafting && overlay.active) overlay.circles(c,centerX,centerY,scale,density)
         paint.style=Paint.Style.FILL
         var labelX=-10000f;var labelY=-10000f
         val labelCells=mutableSetOf<Long>()
+        val stationCells = if (overview) mutableSetOf<Long>() else null
+        val stationZoom = stationZoom()
         for(s in stops){
-            val x=sx(s.x);val y=sy(s.y)
-            if(x<0||x>width||y<0||y>height) continue
-            paint.color=0xff356367.toInt();c.drawCircle(x,y,2.2f*density,paint)
-            paint.color=Color.WHITE;c.drawCircle(x,y,1.3f*density,paint)
+            if (stationZoom < 9f) break
+            val originX=sx(s.x); val originY=sy(s.y)
+            val platform=s.platform
+            val box=stationZoom >= 14f && platform != null
+            val margin=if (box) platform!!.reach*scale+12*density else 6*density
+            if (originX < -margin || originX > width+margin || originY < -margin || originY > height+margin) continue
+            val x=originX+(platform?.midX ?: 0f)*scale
+            val y=originY-(platform?.midY ?: 0f)*scale
+            if (stationCells != null) {
+                val cell = ((x / (9*density)).toLong() shl 32) or (y / (9*density)).toLong()
+                if (!stationCells.add(cell)) continue
+            }
+            if (box) {
+                platform!!.draw(c,paint,originX,originY,scale,density,trainPainter.mercatorPerFrame,inspectingStation?.id == s.id)
+            } else {
+                val ring = (if (overview) 2f else 3.6f) * density * displaySettings.circleSize
+                paint.color=0xff26474b.toInt();c.drawCircle(x,y,ring,paint)
+                paint.color=0xfffff9e7.toInt();c.drawCircle(x,y,ring*.6f,paint)
+            }
             val col=(x/(103*density)).toLong();val row=(y/(60*density)).toLong()
-            if(labelCells.add((col shl 32) or row) && (kotlin.math.abs(x-labelX)>78*density || kotlin.math.abs(y-labelY)>20*density)){
-                paint.textSize=9*density;paint.color=0xff294849.toInt();c.drawText(s.name,x+4*density,y-3*density,paint);labelX=x;labelY=y
+            if(displaySettings.names && labelCells.add((col shl 32) or row) && (kotlin.math.abs(x-labelX)>78*density || kotlin.math.abs(y-labelY)>20*density)){
+                paint.textSize = (if (overview) 9f else 11f) * density
+                val tx = x + (if (box) 9 else 5)*density
+                val ty = y - (if (box) 9 else 4)*density
+                paint.color = 0xfff7f5e9.toInt()
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 2.6f*density
+                c.drawText(s.name,tx,ty,paint)
+                paint.style = Paint.Style.FILL
+                paint.color = 0xff243f46.toInt()
+                c.drawText(s.name,tx,ty,paint)
+                labelX=x;labelY=y
             }
         }
-        for(i in trains.indices step 3){
-            val x=sx(trains[i+1]);val y=sy(trains[i+2])
-            if(x<0||x>width||y<0||y>height)continue
-            val radius = (if (workshop) 5f else 2f) * density
-            paint.color=0xff183b46.toInt()
-            c.drawRoundRect(x-1.5f*radius,y-radius,x+1.5f*radius,y+radius,density,density,paint)
-            paint.color=0xffffeb85.toInt();c.drawCircle(x,y,1.25f*density,paint)
+        val frameTime=SystemClock.elapsedRealtime()
+        trainPainter.time = trainTime(frameTime)
+        trainPainter.update(centerX,centerY,scale,width,height)
+        if (frameTime-trainAt < trainWindow) postInvalidateDelayed(50)
+        if (displaySettings.trains) trainPainter.draw(c,scale,width,height,displaySettings)
+        if (!overlay.active && !previewRequested && requiresStudioClock && trainPainter.needsLoads && onTrainPreviewNeeded!=null) {
+            previewRequested=true
+            post { onTrainPreviewNeeded?.invoke() }
         }
         if (draft.isNotEmpty()) {
-            paint.color=0xffdd692e.toInt()
-            paint.strokeWidth=3*density
+            paint.color=0xffcc502e.toInt()
+            paint.strokeWidth=3.5f*density
+            paint.pathEffect = draftDash
             draft.forEachIndexed { i,start ->
                 var last=start
                 for ((leg,p) in bends) if (leg==i) {
@@ -536,46 +1744,161 @@ internal class NetworkView(context: Context):View(context) {
                 draft.getOrNull(i+1)?.let { c.drawLine(sx(last.x),sy(last.y),sx(it.x),sy(it.y),paint) }
             }
         }
+        paint.pathEffect = null
         for ((index,p) in draft.withIndex()) {
             val x=sx(p.x);val y=sy(p.y)
-            paint.color=0xffcf5823.toInt();c.drawCircle(x,y,10*density,paint)
-            paint.textSize=12*density;paint.color=Color.WHITE
-            c.drawText(('A'.code+index).toChar().toString(),x-4*density,y+4*density,paint)
+            paint.color = 0xfffffcf1.toInt()
+            c.drawCircle(x,y,12*density,paint)
+            paint.color = 0xffab4227.toInt()
+            c.drawCircle(x,y,10*density,paint)
+            paint.textSize = 12*density
+            paint.color = Color.WHITE
+            val label = (index + 1).toString()
+            c.drawText(label,x-paint.measureText(label)/2,y-(paint.ascent()+paint.descent())/2,paint)
         }
-        paint.color=0xc8ffffff.toInt();c.drawRect(0f,height-17*density,162*density,height.toFloat(),paint)
-        paint.textSize=9*density;paint.color=0xff38575c.toInt()
-        val credit = if (cityLayer == null) "Perairan · US Census TIGER/Line 2020" else "© OpenStreetMap contributors · ODbL"
-        c.drawText(credit,5*density,height-5*density,paint)
+        if (isDrafting && isFocused) {
+            paint.strokeWidth = 2f * density
+            paint.color = 0xff163f44.toInt()
+            val x = width / 2f
+            val y = height / 2f
+            c.drawLine(x-8*density, y, x+8*density, y, paint)
+            c.drawLine(x, y-8*density, x, y+8*density, paint)
+        }
+        paint.style=Paint.Style.FILL;paint.textSize=9*density
+        val credit = "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" + if(cityLayer==null)" · US Census" else ""
+        val note = if (!isDrafting) overlay.legend() ?: baseLayer?.status else baseLayer?.status
+        paint.color=0xdcffffff.toInt()
+        c.drawRect(0f,height-15*density,paint.measureText(credit)+10*density,height.toFloat(),paint)
+        paint.color=0xff38575c.toInt()
+        c.drawText(credit,5*density,height-4*density,paint)
+        if (note != null) {
+            val bottom = height - max(15*density, statusBottomInset.toFloat())
+            paint.textSize = 12*density
+            paint.color = 0xf2ffffff.toInt()
+            c.drawRoundRect(8*density,bottom-24*density,paint.measureText(note)+28*density,bottom,6*density,6*density,paint)
+            paint.color = 0xff38575c.toInt()
+            c.drawText(note,18*density,bottom-7*density,paint)
+        }
     }
-    private val pinch=ScaleGestureDetector(context,object:ScaleGestureDetector.SimpleOnScaleGestureListener(){
-        override fun onScale(d:ScaleGestureDetector):Boolean{
-            val old=scale
-            scale=(scale*d.scaleFactor).coerceIn(homeScale*.25f,max(homeScale*35,homeScale))
-            centerX+=(d.focusX-width/2)*(1/old-1/scale)
-            centerY-=(d.focusY-height/2)*(1/old-1/scale)
-            invalidate();return true
-        }
-    })
-    private val pan=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){
-        override fun onDown(e:MotionEvent)=true
-        override fun onSingleTapConfirmed(e:MotionEvent):Boolean {
-            val range = 20f*density
-            val nearest = stops.asSequence().filter { it.id >= 0 }.map { station ->
-                val dx = sx(station.x)-e.x
-                val dy = sy(station.y)-e.y
-                station to dx*dx+dy*dy
-            }.filter { it.second <= range*range }.minByOrNull { it.second }?.first
-            if (nearest != null && onStationTap?.invoke(nearest.id)==true) return true
-            onLocation?.invoke(PointF(centerX+(e.x-width/2f)/scale,centerY-(e.y-height/2f)/scale))
+    private var previousFocusX = 0f
+    private var previousFocusY = 0f
+    private val pinch = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(d: ScaleGestureDetector): Boolean {
+            previousFocusX = d.focusX
+            previousFocusY = d.focusY
             return true
         }
-        override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean {
-            if(!pinch.isInProgress){centerX+=dx/scale;centerY-=dy/scale;invalidate()};return true
+        override fun onScale(d: ScaleGestureDetector): Boolean {
+            zoom(d.scaleFactor, previousFocusX, previousFocusY)
+            centerX += (previousFocusX - d.focusX) / scale
+            centerY -= (previousFocusY - d.focusY) / scale
+            previousFocusX = d.focusX
+            previousFocusY = d.focusY
+            return true
         }
-        override fun onLongPress(e:MotionEvent) {
+    }).apply { isQuickScaleEnabled = false }
+
+    private fun selectAt(x: Float, y: Float) {
+        if (!isDrafting && overlay.inspect(x,y,stops){ id -> onStationTap?.invoke(id) }) return
+        val range = 24f * density
+        val zoom=stationZoom()
+        if (!isDrafting && zoom >= 9f) {
+            var nearest: Station? = null
+            var closest = range
+            for (station in stops) {
+                if (station.id < 0) continue
+                val dx = x-sx(station.x); val dy = sy(station.y)-y
+                val platform=station.platform
+                val distance = if (platform != null && zoom >= 14f) {
+                    val margin=platform.reach*scale+range+12*density
+                    if (kotlin.math.abs(dx)>margin || kotlin.math.abs(dy)>margin) continue
+                    platform.distance(dx/scale,dy/scale,scale,density,trainPainter.mercatorPerFrame)
+                } else kotlin.math.hypot(dx-(platform?.midX ?: 0f)*scale,dy-(platform?.midY ?: 0f)*scale)
+                if (distance <= closest) {
+                    nearest = station
+                    closest = distance
+                }
+            }
+            if (nearest != null && onStationTap?.invoke(nearest.id) == true) return
+        }
+        onLocation?.invoke(PointF(centerX + (x-width/2f)/scale, centerY - (y-height/2f)/scale))
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        selectAt(width/2f, height/2f)
+        return true
+    }
+    private fun moveMap(horizontal: Int, vertical: Int) {
+        focusAt(centerX + horizontal * width * .24f / scale, centerY + vertical * height * .24f / scale)
+    }
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> moveMap(0, 1)
+            KeyEvent.KEYCODE_DPAD_DOWN -> moveMap(0, -1)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> moveMap(1, 0)
+            KeyEvent.KEYCODE_DPAD_LEFT -> moveMap(-1, 0)
+            else -> return super.onKeyDown(keyCode, event)
+        }
+        return true
+    }
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.isScrollable = true
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK,
+            if (isDrafting) "Letakkan stasiun di tengah peta" else "Periksa stasiun di tengah peta"))
+    }
+    override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
+        when (action) {
+            android.R.id.accessibilityActionScrollUp -> moveMap(0, 1)
+            android.R.id.accessibilityActionScrollDown -> moveMap(0, -1)
+            android.R.id.accessibilityActionScrollRight -> moveMap(1, 0)
+            android.R.id.accessibilityActionScrollLeft -> moveMap(-1, 0)
+            else -> return super.performAccessibilityAction(action, arguments)
+        }
+        return true
+    }
+    private val pan = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent) = true
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            if (!isDrafting) return false
+            super@NetworkView.performClick()
+            selectAt(e.x, e.y)
+            return true
+        }
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            if (isDrafting) return true
+            super@NetworkView.performClick()
+            selectAt(e.x, e.y)
+            return true
+        }
+        override fun onScroll(a: MotionEvent?, b: MotionEvent, dx: Float, dy: Float): Boolean {
+            if (!pinch.isInProgress && b.pointerCount == 1) focusAt(centerX + dx/scale, centerY - dy/scale)
+            return true
+        }
+        override fun onLongPress(e: MotionEvent) {
             onBend?.invoke(PointF(centerX+(e.x-width/2f)/scale,centerY-(e.y-height/2f)/scale))
         }
-        override fun onDoubleTap(e:MotionEvent):Boolean{fit();invalidate();return true}
+        override fun onDoubleTapEvent(e: MotionEvent): Boolean {
+            if (isDrafting && e.actionMasked == MotionEvent.ACTION_UP) {
+                super@NetworkView.performClick()
+                selectAt(e.x, e.y)
+            }
+            return true
+        }
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            if (isDrafting) return true
+            if (doubleTapZoom) zoom(1.6f, e.x, e.y) else resetCamera()
+            return true
+        }
     })
-    override fun onTouchEvent(e:MotionEvent):Boolean {pinch.onTouchEvent(e);pan.onTouchEvent(e);return true}
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        pinch.onTouchEvent(e)
+        pan.onTouchEvent(e)
+        return true
+    }
 }

@@ -2,9 +2,10 @@
 package world.nativegame
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
+import android.text.format.Formatter
 import android.provider.OpenableColumns
 import android.util.AtomicFile
 import android.widget.*
@@ -16,7 +17,7 @@ import java.util.concurrent.Executors
 class WorldArchiveActivity : Activity() {
     private val worker=Executors.newSingleThreadExecutor()
     private val login by lazy { WorldLogin(this) }
-    private val store by lazy { CityPackStore(filesDir, assets.open("world-native/cities.tsv").bufferedReader()) }
+    private val store by lazy { StudioCatalog.get(this) }
     private lateinit var menu: LinearLayout
     private lateinit var feedback: TextView
     private var busy=false
@@ -98,15 +99,21 @@ class WorldArchiveActivity : Activity() {
         }) { feedback.text="Dunia berhasil diekspor." }
     }
     private fun chooseCity(bytes: ByteArray, name: String) {
-        val cities=store.cities().toList()
-        val h=WorldDocuments.header(bytes)
-        val selected=h.optString("nativeArchiveCity").ifBlank { intent.getStringExtra("city") ?: h.optString("city") }
-        var pick=cities.indexOfFirst { it.id==selected }.coerceAtLeast(0)
-        AlertDialog.Builder(this).setTitle("Peta untuk $name")
-            .setSingleChoiceItems(cities.map { it.name }.toTypedArray(),pick) { _,i -> pick=i }
-            .setPositiveButton("Buat slot baru") { _,_ ->
-                job({ WorldDocuments.import(this,bytes,name,cities[pick].id) }) { open(it) }
-            }.setNegativeButton("Batal",null).show()
+        val city = WorldDocuments.startingCity(WorldDocuments.header(bytes),store.cities().toList())
+            ?: intent.getStringExtra("city").orEmpty()
+        StudioZonePicker.show(this,store,city,"Peta untuk $name",allowCurrent=true) { id ->
+            val place = store.city(id)
+            val content = LinearLayout(this).apply {
+                orientation=LinearLayout.VERTICAL
+                StudioMapPreview.image(context,StudioMapPreview.cityPath(id),"Peta wilayah "+place.name)?.let { addView(it) }
+                addView(StudioUi.text(context,name,19f,true,StudioDepot.TEAL))
+                addView(StudioUi.text(context,place.name+" · "+Formatter.formatShortFileSize(context,bytes.size.toLong()),15f,color=StudioDepot.SECONDARY))
+            }
+            StudioDialogBuilder(this).setTitle("Impor ke dunia baru?").setView(content)
+                .setPositiveButton("Buat slot baru") { _,_ ->
+                    job({ WorldDocuments.import(this,bytes,name,id) }) { open(it) }
+                }.setNegativeButton("Batal",null).show()
+        }
     }
     private fun open(slot: WorldDocuments.Slot) {
         startActivity(Intent(this,NativeWorldActivity::class.java).putExtra("archiveSlot",slot.id))
@@ -114,31 +121,49 @@ class WorldArchiveActivity : Activity() {
     private fun chooseRemote(session: JSONObject, write: Boolean) {
         job({ WorldCloud.list(session) }) { rows ->
             val records=List(rows.length()) { rows.getJSONObject(it) }
-            val labels=records.map { "${it.getString("name")} · v${it.getInt("version")}" }.toMutableList()
-            if(write) labels.add(0,"Buat arsip baru")
-            if(labels.isEmpty()) { feedback.text="Akun ini belum punya arsip."; return@job }
-            AlertDialog.Builder(this).setTitle(if(write) "Simpan ke akun" else "Pulihkan ke slot baru")
-                .setItems(labels.toTypedArray()) { _, i ->
-                    if(write && i==0) {
-                        val name=EditText(this).apply { hint="Nama arsip"; setSingleLine(true) }
-                        AlertDialog.Builder(this).setTitle("Arsip baru").setView(name).setPositiveButton("Simpan") { _,_ ->
-                            val label=name.text.toString().trim().take(100)
-                            if(label.isNotEmpty()) upload(session,UUID.randomUUID().toString(),0,label)
-                            else feedback.text="Isi nama arsip."
-                        }.setNegativeButton("Batal",null).show()
-                    } else {
-                        val row=records[if(write)i-1 else i]
-                        val id=row.getString("id"); val title=row.getString("name")
+            StudioUi.sheet(this,if (write) "Simpan ke akun" else "Pulihkan dunia") { content, dialog ->
+                fun add(view: View) = content.addView(view,LinearLayout.LayoutParams(-1,-2).apply { topMargin=StudioUi.dp(this@WorldArchiveActivity,8) })
+                if (write) add(StudioUi.button(this,"Buat arsip baru",StudioUi.Tone.PRIMARY,StudioUi.Icon.PLUS) {
+                    dialog.dismiss()
+                    val name=EditText(this).apply { hint="Nama arsip"; setSingleLine(true); filters=arrayOf(android.text.InputFilter.LengthFilter(100)) }
+                    val entry = LinearLayout(this).apply {
+                        orientation=LinearLayout.VERTICAL
+                        addView(name)
+                        intent.getStringExtra("city")?.let { city ->
+                            StudioMapPreview.image(context,StudioMapPreview.cityPath(city),"Peta dunia aktif")?.let { addView(it) }
+                        }
+                    }
+                    val newArchive = StudioDialogBuilder(this).setTitle("Arsip baru").setView(entry)
+                        .setPositiveButton("Simpan",null).setNegativeButton("Batal",null).show()
+                    newArchive.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                        val label=name.text.toString().trim()
+                        if(label.isBlank()) {
+                            name.error="Isi nama arsip."
+                            name.requestFocus()
+                        } else {
+                            newArchive.dismiss()
+                            upload(session,UUID.randomUUID().toString(),0,label)
+                        }
+                    }
+                })
+                if (records.isEmpty()) add(StudioUi.text(this,"Belum ada dunia tersimpan di akun ini.",15f,color=StudioDepot.SECONDARY))
+                for(row in records) {
+                    val id=row.getString("id")
+                    val title=row.getString("name")
+                    val detail=saveDetails(row)
+                    add(StudioDepot.ticket(this,title,detail,StudioUi.Icon.CLOUD) {
+                        dialog.dismiss()
                         if(write) {
-                            AlertDialog.Builder(this).setTitle("Perbarui $title?")
-                                .setMessage("Versi akun ${row.getInt("version")} akan diperbarui dengan dunia aktif.")
+                            StudioDialogBuilder(this).setTitle("Perbarui $title?")
+                                .setMessage("$detail\nSimpanan di akun akan diganti dengan dunia aktif.")
                                 .setPositiveButton("Perbarui") { _,_->upload(session,id,row.getInt("version"),title) }
                                 .setNegativeButton("Batal",null).show()
                         } else job({
-                            WorldCloud.read(session,id).also { WorldDocuments.header(it) }
+                            WorldCloud.read(session,id,row.getInt("version")).also { WorldDocuments.header(it) }
                         }) { bytes->chooseCity(bytes,title) }
-                    }
-                }.setNegativeButton("Batal",null).show()
+                    })
+                }
+            }
         }
     }
     private fun upload(session: JSONObject,id: String,version: Int,name: String) {

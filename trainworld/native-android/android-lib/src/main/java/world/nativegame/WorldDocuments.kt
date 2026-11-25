@@ -36,16 +36,36 @@ internal object WorldDocuments {
         require(h.optString("game") == "anitabuilder" && h.optInt("format") == 1)
         return h
     }
+    fun startingCity(header: JSONObject, cities: List<CityPackStore.City>): String? {
+        val preferred = listOf("home", "start", "nativeArchiveCity")
+            .map { header.optString(it) }.filter { it.isNotEmpty() }
+        preferred.firstOrNull { id -> cities.any { it.id == id } }?.let { return it }
+        val opened = header.optJSONArray("opened")
+        if (opened != null && opened.length() == 1) {
+            val one = opened.optString(0)
+            if (cities.any { it.id == one }) return one
+        }
+        // Modern world saves use NYC as the coordinate frame even for networks in other cities.
+        if (preferred.isNotEmpty() || (opened != null && opened.length() > 1)) return null
+        val legacy = header.optString("city")
+        return legacy.takeIf { id -> cities.any { it.id == id } && (!header.has("region") || id != "nyc") }
+    }
+
     fun path(context: Context, id: String) = File(context.filesDir, "world-archive/${UUID.fromString(id)}.save")
     private fun prefs(context: Context) = context.getSharedPreferences("studio-archive-index", 0)
     fun list(context: Context): List<Slot> = prefs(context).all.mapNotNull { (id, value) ->
         runCatching {
             val h = JSONObject(value as String)
+            if (h.has("hostOwner")) {
+                val profile = context.getSharedPreferences("FlutterSharedPreferences", 0)
+                    .getString("flutter.railway_user_data", null) ?: return@mapNotNull null
+                if (JSONObject(profile).optString("id") != h.getString("hostOwner")) return@mapNotNull null
+            }
             check(path(context,id).isFile)
             Slot(id, h.getString("name"), h.getString("city"), h.optBoolean("workshop"))
         }.getOrNull()
     }.sortedBy { it.title }
-    fun import(context: Context, bytes: ByteArray, name: String, city: String): Slot {
+    fun import(context: Context, bytes: ByteArray, name: String, city: String, owner: String? = null): Slot {
         val h = header(bytes)
         val handle = Engine.open(bytes)
         require(handle != 0L) { "Mesin tidak dapat membuka dunia." }
@@ -60,7 +80,16 @@ internal object WorldDocuments {
         val workshop = h.optBoolean("nativeWorkshop")
         val title = name.trim().take(100).ifBlank { "Dunia impor" }
         val meta = JSONObject().put("name",title).put("city",city).put("workshop",workshop)
+        if (owner != null) meta.put("hostOwner",owner)
         check(prefs(context).edit().putString(id,meta.toString()).commit()) { "Indeks arsip gagal disimpan." }
         return Slot(id,title,city,workshop)
     }
+}
+
+
+/** Account metadata is available before the player chooses to download a world. */
+internal fun android.content.Context.saveDetails(row: JSONObject): String {
+    val parts = mutableListOf("Versi ${row.getInt("version")}")
+    row.optLong("size").takeIf { it > 0 }?.let { parts += android.text.format.Formatter.formatShortFileSize(this,it) }
+    return parts.joinToString(" · ")
 }

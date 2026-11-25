@@ -12,9 +12,9 @@ public class CityPackStoreTest {
         Path data=Paths.get(args[0]), catalog=Paths.get("android-lib/src/main/assets/world-native/cities.tsv");
         AtomicInteger transfers=new AtomicInteger();
         CityPackStore store=new CityPackStore(root,Files.newBufferedReader(catalog),p->{transfers.incrementAndGet();return Files.newInputStream(data.resolve(p));});
-        if(store.cities().size()!=38)throw new AssertionError();
+        if(store.cities().size()!=4135)throw new AssertionError();
         CityPackStore.CityPack tokyo=store.load("tyo"), london=store.load("lon");
-        if(!tokyo.city.name.equals("Tokyo")||!london.city.name.equals("London")||tokyo.network.equals(london.network)||transfers.get()!=10)throw new AssertionError();
+        if(!tokyo.city.name.equals("Tokyo")||!london.city.name.equals("London")||tokyo.network.equals(london.network)||transfers.get()!=12)throw new AssertionError();
         CityPackStore offline=new CityPackStore(root,Files.newBufferedReader(catalog),p->{throw new IOException("offline");});
         if(!Arrays.equals(Files.readAllBytes(tokyo.network.toPath()),Files.readAllBytes(offline.load("tyo").network.toPath())))throw new AssertionError();
         if(!offline.load("lon").network.isFile())throw new AssertionError();
@@ -24,8 +24,8 @@ public class CityPackStoreTest {
         if(!tokyo.network.exists()||!london.network.exists())throw new AssertionError("previous cache lost");
         CityPackStore wrong=new CityPackStore(root,Files.newBufferedReader(catalog),p->new ByteArrayInputStream(new byte[1]));
         try{wrong.load("lon");throw new AssertionError("wrong pack accepted");}catch(IOException expected){}
-        if(!store.load("lon").network.isFile()||transfers.get()!=15)throw new AssertionError();
-        if(store.load("jak").network!=null||!offline.load("jak").terrain.isFile()||!offline.load("jak").places.isFile()||transfers.get()!=20)throw new AssertionError("Jakarta must open offline without a fictional network");
-        System.out.println("37 real cities plus Jakarta sandbox, Tokyo and London verified, restart offline, failed downloads preserve both worlds, atomic repair passed");
+        if(!store.load("lon").network.isFile()||transfers.get()!=18)throw new AssertionError();
+        if(store.load("jak").network!=null||!offline.load("jak").terrain.isFile()||!offline.load("jak").places.isFile()||transfers.get()!=23)throw new AssertionError("Jakarta must open offline without a fictional network");
+        System.out.println("4,135 zones including 37 real networks, Tokyo and London verified, restart offline, failed downloads preserve both worlds, atomic repair passed");
     }
 }
