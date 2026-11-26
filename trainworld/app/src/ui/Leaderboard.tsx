@@ -48,6 +48,11 @@ export function netStats(g: { lines?: number; stations?: number; riders?: number
   return out.join(" · ");
 }
 
+/** the podium's two short lines: "30 lini · 320 stasiun" and "2,2 jt/hari" */
+export function netStatsShort(g: { lines?: number; stations?: number; riders?: number }): [string, string] {
+  return [netStats({ lines: g.lines, stations: g.stations }), g.riders ? t("player.ridersShort", { count: pointsShort(g.riders) }) : ""];
+}
+
 function Row({ r, board, mine }: { r: BoardRow; board: string; mine: boolean }) {
   return <li class={(mine ? "me" : "") + (r.id ? " lb-click" : "")} onClick={r.id ? () => (playerShown.value = r.id!) : undefined}>
     <span class="lb-rank num">{r.rank}</span>

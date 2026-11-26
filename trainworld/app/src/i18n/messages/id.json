@@ -38,6 +38,7 @@
   "launch.welcomeBlankText": "Surabaya, Bandung, Yogyakarta, atau kotamu",
   "player.riders": "{count} penumpang/hari",
   "launch.boardCity": "Papan per kota",
+  "player.ridersShort": "{count}/hari",
   "launch.games": "Game tersimpan",
   "player.bigger": "Perbesar",
   "player.noPic": "Belum ada gambar: muncul setelah pemainnya main lagi",

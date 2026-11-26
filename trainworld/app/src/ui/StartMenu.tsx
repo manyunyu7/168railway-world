@@ -37,7 +37,7 @@ import { RailwayBrand } from "./RailwayBrand";
 import { Card, CommunityButton } from "./Community";
 import { communityOn, communityOpen, fetchShares, linkedShare, type ShareRow } from "../game/community";
 import { accountState, boards, boardsOpen, fetchBoards, playerShown, type Board, type BoardKind } from "../game/account";
-import { Avatar, WORLD, netStats } from "./Leaderboard";
+import { Avatar, WORLD, netStats, netStatsShort } from "./Leaderboard";
 import { Named } from "./Flag";
 import { pointsShort } from "../game/points";
 import { dismissUpdate, updateToShow } from "./updates";
@@ -371,7 +371,7 @@ function BoardPeek() {
           <Avatar name={r.name} photo={r.photo} size={r.rank === 1 ? 54 : 42} cls="bp-av" />
           <button type="button" class="bp-nm" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><Named name={r.name} flag={r.flag} small /></button>
           <span class="bp-pts num">{pointsShort(r.value)}</span>
-          {netStats(r) && <small class="bp-st num">{netStats(r)}</small>}
+          {netStats(r) && <small class="bp-st num">{netStatsShort(r).filter(Boolean).map((l) => <span>{l}</span>)}</small>}
           <span class="bp-blk">{r.rank}</span>
         </div> : <div key={i} />)}</div>
         {rows.slice(3, 10).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Avatar name={r.name} photo={r.photo} size={26} /><span class="bp-nmw"><Named name={r.name} flag={r.flag} small />{netStats(r) && <small class="num">{netStats(r)}</small>}</span><b class="num">{pointsShort(r.value)}</b></button>)}
