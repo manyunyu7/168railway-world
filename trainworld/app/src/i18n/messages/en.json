@@ -39,6 +39,8 @@
   "player.riders": "{count} riders a day",
   "launch.boardCity": "Boards by city",
   "player.ridersShort": "{count} a day",
+  "launch.ridersUnit": "riders a day",
+  "launch.pointsUnit": "points",
   "launch.games": "Saved games",
   "player.bigger": "Show bigger",
   "player.noPic": "No picture yet: it appears the next time its player plays",

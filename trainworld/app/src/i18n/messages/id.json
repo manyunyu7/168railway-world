@@ -39,6 +39,8 @@
   "player.riders": "{count} penumpang/hari",
   "launch.boardCity": "Papan per kota",
   "player.ridersShort": "{count}/hari",
+  "launch.ridersUnit": "penumpang/hari",
+  "launch.pointsUnit": "poin",
   "launch.games": "Game tersimpan",
   "player.bigger": "Perbesar",
   "player.noPic": "Belum ada gambar: muncul setelah pemainnya main lagi",

@@ -37,7 +37,7 @@ import { RailwayBrand } from "./RailwayBrand";
 import { Card, CommunityButton } from "./Community";
 import { communityOn, communityOpen, fetchShares, linkedShare, type ShareRow } from "../game/community";
 import { accountState, boards, boardsOpen, fetchBoards, playerShown, type Board, type BoardKind } from "../game/account";
-import { Avatar, WORLD, netStats, netStatsShort, playingNow, rowSub } from "./Leaderboard";
+import { Avatar, WORLD, headline, netSize, playingNow, rowSub } from "./Leaderboard";
 import { Named } from "./Flag";
 import { pointsShort } from "../game/points";
 import { dismissUpdate, updateToShow } from "./updates";
@@ -370,14 +370,14 @@ function BoardPeek() {
         <div class="bp-pod">{top.map((r, i) => r ? <div class={"bp-p p" + r.rank} key={i}>
           <Avatar name={r.name} photo={r.photo} size={r.rank === 1 ? 54 : 42} cls="bp-av" />
           <button type="button" class="bp-nm" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><Named name={r.name} flag={r.flag} small /></button>
-          <span class="bp-pts num">{pointsShort(r.value)}</span>
+          <span class="bp-pts num"><b>{headline(r)[0]}</b> <small>{headline(r)[1]}</small></span>
           {rowSub(r, 1, false) && <small class="bp-sub">{playingNow(r) && <i class="live-dot" />}{rowSub(r, 1, false)}</small>}
-          {netStats(r) && <small class="bp-st num">{netStatsShort(r).filter(Boolean).map((l) => <span>{l}</span>)}</small>}
+          {netSize(r) && <small class="bp-st num"><span>{netSize(r)}</span></small>}
           <span class="bp-blk">{r.rank}</span>
         </div> : <div key={i} />)}</div>
-        {rows.slice(3, 10).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Avatar name={r.name} photo={r.photo} size={26} /><span class="bp-nmw"><Named name={r.name} flag={r.flag} small />{rowSub(r, 1) && <small class="bp-sub">{playingNow(r) && <i class="live-dot" />}{rowSub(r, 1)}</small>}{netStats(r) && <small class="bp-net num">{netStats(r)}</small>}</span>{r.thumb ? <img class="bp-th" src={r.thumb} alt="" loading="lazy" width={60} height={40} /> : <span />}<span class="bp-val"><b class="num">{pointsShort(r.value)}</b><i class="bp-bar"><i style={{ width: `${Math.max(4, Math.round(100 * r.value / (rows[0]?.value || 1)))}%` }} /></i></span></button>)}
+        {rows.slice(3, 10).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Avatar name={r.name} photo={r.photo} size={26} /><span class="bp-nmw"><Named name={r.name} flag={r.flag} small />{rowSub(r, 1) && <small class="bp-sub">{playingNow(r) && <i class="live-dot" />}{rowSub(r, 1)}</small>}{netSize(r) && <small class="bp-net num">{netSize(r)}</small>}</span>{r.thumb ? <img class="bp-th" src={r.thumb} alt="" loading="lazy" width={60} height={40} /> : <span />}<span class="bp-val"><b class="num">{headline(r)[0]}</b><small class="bp-unit">{headline(r)[1]}</small><i class="bp-bar"><i style={{ width: `${Math.max(4, Math.round(100 * r.value / (rows[0]?.value || 1)))}%` }} /></i></span></button>)}
       </>}
-      {me ? <div class="bp-me"><div><span class="bp-rk num">{me.rank}</span><span>{t("launch.you")}</span><b class="num">{pointsShort(me.value)}</b></div>
+      {me ? <div class="bp-me"><div><span class="bp-rk num">{me.rank}</span><span>{t("launch.you")}</span><b class="num">{pointsShort(me.value)} <small class="bp-unit">{t("launch.pointsUnit")}</small></b></div>
         {meAbove && <small class="muted">{t("launch.toNext", { points: pointsShort(meAbove.value - me.value), rank: meAbove.rank })}</small>}</div>
         : d && <p class="muted small bp-join">{t("launch.joinBoard")}</p>}
     </div>

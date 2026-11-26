@@ -67,6 +67,13 @@ export function rowSub(r: BoardRow, cities = 2, when = true): string {
   return out.join(" · ");
 }
 
+/** 168Railway (26 Nov, owner): a row's headline figure, riders a day where its game sent them, else its points */
+export function headline(r: { value: number; riders?: number }): [string, string] {
+  return r.riders ? [pointsShort(r.riders), t("launch.ridersUnit")] : [pointsShort(r.value), t("launch.pointsUnit")];
+}
+/** the network's size alone, "28 lini · 312 stasiun", where riders are the headline */
+export const netSize = (r: { lines?: number; stations?: number }) => netStats({ lines: r.lines, stations: r.stations });
+
 /** the podium's two short lines: "30 lini · 320 stasiun" and "2,2 jt/hari" */
 export function netStatsShort(g: { lines?: number; stations?: number; riders?: number }): [string, string] {
   return [netStats({ lines: g.lines, stations: g.stations }), g.riders ? t("player.ridersShort", { count: pointsShort(g.riders) }) : ""];
@@ -78,9 +85,9 @@ function Row({ r, board, mine }: { r: BoardRow; board: string; mine: boolean }) 
     <Avatar name={r.name} photo={r.photo} size={28} cls="lb-av" />
     <span class="lb-name">{r.id ? <button type="button" class="lb-who" aria-label={t("player.open", { name: r.name })}><Named name={r.name} flag={r.flag} /></button> : <Named name={r.name} flag={r.flag} />}
       {rowSub(r) && <small class="lb-sub">{playingNow(r) && <i class="live-dot" />}{rowSub(r)}</small>}
-      {netStats(r) && <small class="lb-stats num">{netStats(r)}</small>}</span>
+      {netSize(r) && <small class="lb-stats num">{netSize(r)}</small>}</span>
     {r.thumb && <img class="lb-th" src={r.thumb} alt="" loading="lazy" width={60} height={40} />}
-    <span class="lb-value num" data-tip={t("leaderboard.valueTip", { points: exact(r.value), world: board === WORLD, city: board === WORLD ? "" : board.startsWith(COUNTRY) ? countryLabel(board.slice(COUNTRY.length)) : cityName(board.slice(WORLD.length + 1)) }) + "\n" + t("leaderboard.pointsRule", { trip: POINTS_PER_TRIP, km: POINTS_PER_KM })}>{t("leaderboard.value", { points: pointsShort(r.value) })}</span>
+    <span class="lb-value num" data-tip={t("leaderboard.valueTip", { points: exact(r.value), world: board === WORLD, city: board === WORLD ? "" : board.startsWith(COUNTRY) ? countryLabel(board.slice(COUNTRY.length)) : cityName(board.slice(WORLD.length + 1)) }) + "\n" + t("leaderboard.pointsRule", { trip: POINTS_PER_TRIP, km: POINTS_PER_KM })}><b>{headline(r)[0]}</b> <small class="lb-unit">{headline(r)[1]}</small></span>
   </li>;
 }
 
