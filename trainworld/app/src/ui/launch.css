@@ -314,8 +314,8 @@
 
 /* the metro map drawing itself behind the signed-in home (metroBackdrop.ts): clearer than the old menu's, still
    quiet behind the white cards */
-.start-menu.launch-menu:has(> .launch-row) > .start-metro { filter: blur(1px); opacity: .4; }
+.start-menu.launch-menu:has(> .launch-row) > .start-metro { filter: blur(5px); opacity: .45; }
 /* the sign-in: the lines move behind the left panel, which lets them through a little */
-.start-menu.launch-menu:has(> .launch-guest) > .start-metro { filter: blur(1px); opacity: .6; }
+.start-menu.launch-menu:has(> .launch-guest) > .start-metro { filter: blur(5px); opacity: .65; }
 .start-menu.launch-menu:has(> .launch-guest) { background: var(--bg); }
 .launch-guest .launch-side { background: color-mix(in srgb, var(--bg) 80%, transparent); }
