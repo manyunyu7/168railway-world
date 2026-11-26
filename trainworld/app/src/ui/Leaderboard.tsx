@@ -199,8 +199,7 @@ function Player({ id }: { id: string }) {
       <h4 class="pl-sub">{t("player.maps")}</h4>
       {p.games.length === 0 ? <p class="small muted">{t("player.noGames")}</p> : <ul class="pl-games">
         {p.games.map((g) => <li>
-          {g.thumb ? <button type="button" class="pl-pic" aria-label={t("player.bigger")} onClick={() => setBig(g.thumb!)}><img src={g.thumb} alt="" loading="lazy" width={480} height={320} /></button>
-            : <div class="pl-pic pl-nopic small muted">{t("player.noPic")}</div>}
+          {g.thumb && <button type="button" class="pl-pic" aria-label={t("player.bigger")} onClick={() => setBig(g.thumb!)}><img src={g.thumb} alt="" loading="lazy" width={480} height={320} /></button>}
           <div class="pl-g-top"><b>{g.cities.length ? g.cities.map((c) => shownName(c)).join(" · ") : t("player.noCity")}</b>
             <span class="pl-kind">{g.kind === "tpl" ? "Template" : "Dari nol"}</span></div>
           <div class="small muted num">{t("savesPanel.day", { day: g.day })} · {t("leaderboard.value", { points: pointsShort(g.points) })} · {t("player.lastPlayed", { date: day(g.at) })}</div>
