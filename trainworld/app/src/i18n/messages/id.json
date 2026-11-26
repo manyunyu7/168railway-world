@@ -37,6 +37,7 @@
   "launch.welcomeBlank": "Peta kosong",
   "launch.welcomeBlankText": "Surabaya, Bandung, Yogyakarta, atau kotamu",
   "launch.games": "Game tersimpan",
+  "player.loadMore": "Muat lagi ({shown} dari {count})",
   "player.title": "Pemain",
   "player.open": "Buka profil {name}",
   "player.back": "Papan peringkat",

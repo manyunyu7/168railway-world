@@ -564,3 +564,13 @@
 .launch-row button.bp-row { width: 100%; border: 0; border-top: 1px solid #dde6f4; background: none; font: inherit; text-align: left; cursor: pointer; }
 .launch-row button.bp-row:hover:not(:disabled) { background: #f5f9ff; }
 .launch-row :is(.bp-nm, .bp-row):disabled { cursor: default; }
+
+/* avatars: a profile photo, or an initial on its own colour (Leaderboard.tsx Avatar) */
+.av { flex: none; border-radius: 999px; object-fit: cover; display: inline-grid; place-items: center; color: #fff; font-weight: 900; background: #dde6f4; }
+.bp-av.av { border: 3px solid #fff; box-shadow: 0 2px 8px rgb(0 0 0 / 15%); box-sizing: content-box; }
+.lb-rows li { align-items: center; }
+.lb-rows .lb-av { margin-right: 2px; }
+.lb-more { justify-content: center; padding: 6px 0; }
+.lb-more .btn { width: 100%; }
+.pl-av.av { box-shadow: 0 4px 14px rgb(15 31 61 / 18%); }
+.launch-row button.bp-row { gap: 10px; }

@@ -37,7 +37,7 @@ import { RailwayBrand } from "./RailwayBrand";
 import { Card, CommunityButton } from "./Community";
 import { communityOn, communityOpen, fetchShares, linkedShare, type ShareRow } from "../game/community";
 import { accountState, boards, boardsOpen, fetchBoards, playerShown, type Board, type BoardKind } from "../game/account";
-import { WORLD } from "./Leaderboard";
+import { Avatar, WORLD } from "./Leaderboard";
 import { Named } from "./Flag";
 import { pointsShort } from "../game/points";
 import { dismissUpdate, updateToShow } from "./updates";
@@ -344,7 +344,7 @@ function BoardPeek() {
   const on = accountState.value === "on" || MOCK;
   useEffect(() => { if (on && !MOCK) void fetchBoards(WORLD, kind); }, [on, kind]);
   if (!on) return null;
-  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000, id: "a0000000000" + i })), me: { rank: 27, name: "kamu", value: 120000 } }
+  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395], ["dipo_bukit", 380], ["loko_cc206", 344], ["krl_mania", 300], ["rel_ganda", 287], ["nusantara_rail", 260]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000, id: "a0000000000" + i })), me: { rank: 27, name: "kamu", value: 120000 } }
     : b.key === WORLD && b.kind === kind ? b.data : null;
   const rows = d?.rows ?? [];
   const top = [rows[1], rows[0], rows[2]];
@@ -360,12 +360,12 @@ function BoardPeek() {
     <div class="bp">
       {!d ? <p class="muted small">{b.error || t("leaderboard.loading")}</p> : !rows.length ? <p class="muted small">{t("leaderboard.nobody")}</p> : <>
         <div class="bp-pod">{top.map((r, i) => r ? <div class={"bp-p p" + r.rank} key={i}>
-          <span class="bp-av" aria-hidden="true">{(r.name || "?").slice(0, 1).toUpperCase()}</span>
+          <Avatar name={r.name} photo={r.photo} size={r.rank === 1 ? 54 : 42} cls="bp-av" />
           <button type="button" class="bp-nm" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><Named name={r.name} flag={r.flag} small /></button>
           <span class="bp-pts num">{pointsShort(r.value)}</span>
           <span class="bp-blk">{r.rank}</span>
         </div> : <div key={i} />)}</div>
-        {rows.slice(3, 5).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Named name={r.name} flag={r.flag} small /><b class="num">{pointsShort(r.value)}</b></button>)}
+        {rows.slice(3, 10).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Avatar name={r.name} photo={r.photo} size={26} /><Named name={r.name} flag={r.flag} small /><b class="num">{pointsShort(r.value)}</b></button>)}
       </>}
       {me ? <div class="bp-me"><div><span class="bp-rk num">{me.rank}</span><span>{t("launch.you")}</span><b class="num">{pointsShort(me.value)}</b></div>
         {meAbove && <small class="muted">{t("launch.toNext", { points: pointsShort(meAbove.value - me.value), rank: meAbove.rank })}</small>}</div>
@@ -632,6 +632,7 @@ export function showStartMenu(onPick: (c: GameChoice) => void) {
     root.remove();
     document.documentElement.classList.remove("choosing");
     choosing.value = false;
+    document.getElementById("boot-cover")?.remove();
     onPick(c);
   };
   // T-3478: as the new game sheet's Start does (NewGame.tsx), on this side of the reload
@@ -652,5 +653,5 @@ export function showStartMenu(onPick: (c: GameChoice) => void) {
   // shows once, already right (a failed or slow check lets the player in)
   const slotsRead = listSlots().then((slots) => ({ slots, unread: false }), (err) => ({ slots: [] as SaveSlot[], unread: err instanceof StorageReadError }));
   void Promise.all([slotsRead, checkHostAuth()])
-    .then(([{ slots, unread }, auth]) => { if (!done) { noteVisit("open"); render(h(Menu, { slots, unread, pick, settling, guest: auth === "out" }), root); } });
+    .then(([{ slots, unread }, auth]) => { if (!done) { noteVisit("open"); render(h(Menu, { slots, unread, pick, settling, guest: auth === "out" }), root); } document.getElementById("boot-cover")?.remove(); });
 }

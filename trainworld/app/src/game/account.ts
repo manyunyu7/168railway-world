@@ -41,12 +41,14 @@ export interface AccountView {
 interface Session { token: string; account: AccountView }
 export interface AccountConfig { googleClientId: string; dev: boolean; password: boolean; signIn: boolean; trainworld?: boolean; trainworldGames?: boolean; trainworldFeedback?: boolean; trainworldFeedbackThreads?: boolean; /** T-3326: how many screenshots a new feedback takes; absent or 0 on a server that drops them */ trainworldFeedbackImages?: number; trainworldPing?: boolean; trainworldAchievements?: boolean; trainworldCommunity?: boolean; trainworldCommunityPreview?: boolean; trainworldCommunitySearch?: boolean; trainworldCommunityPages?: boolean; trainworldFlags?: boolean; /** T-3279: the flag list version the server accepts (game/flags.json `set`) */ trainworldFlagSet?: number }
 export interface BoardSetting { on: boolean; name: string; /** set when a moderator hid the display name; absent on a server that does not say */ nameHidden?: boolean; /** T-3269: the flag beside the name, game/flags.ts */ flag?: string }
-export interface BoardRow { rank: number; name: string; value: number; flag?: string; /** 168Railway: the player's stand-in id, for their profile */ id?: string }
+export interface BoardRow { rank: number; name: string; value: number; flag?: string; /** 168Railway: the player's stand-in id, for their profile */ id?: string; /** 168Railway: their profile photo */ photo?: string | null }
 /** 168Railway (26 Nov): a leaderboard player's profile, `GET trainworld/player/<id>` (web StudioWorldBoards::player) */
 export interface PlayerGame { kind: BoardKind; points: number; day: number; cities: string[]; at: number }
-export interface PlayerProfile { id: string; name: string; joinedAt: number | null; since: number | null; games: PlayerGame[]; gameCount: number; sandboxCount: number }
+export interface PlayerProfile { id: string; name: string; photo?: string | null; joinedAt: number | null; since: number | null; games: PlayerGame[]; gameCount: number; sandboxCount: number }
 /** the profile open in the leaderboards, by its id */
 export const playerShown = signal<string | null>(null);
+/** 168Railway: a further page of a board (50 rows from `offset`), for Load more */
+export const fetchBoardPage = (key: string, kind: BoardKind, offset: number) => api<Board>("GET", `trainworld/board?board=${encodeURIComponent(key)}&kind=${kind}&offset=${offset}`);
 export const fetchPlayer = (id: string) => api<PlayerProfile>("GET", `trainworld/player/${encodeURIComponent(id)}`, undefined, { auth: false });
 export interface Board { board: string; count: number; rows: BoardRow[]; me?: BoardRow }
 

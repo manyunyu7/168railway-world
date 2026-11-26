@@ -9,7 +9,7 @@ import { normalise } from "../game/search";
 import { tPlace } from "../i18n/places";
 import { findStart } from "./NewGame";
 import { CITIES, zoneCountry } from "../game/cities";
-import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoards, fetchPlayer, HOST_ACCOUNTS, playerShown, playingKind, session, setBoard, type BoardRow, type PlayerProfile } from "../game/account";
+import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoardPage, fetchBoards, fetchPlayer, HOST_ACCOUNTS, playerShown, playingKind, session, setBoard, type BoardRow, type PlayerProfile } from "../game/account";
 import { CAN_SIGN_IN_THROUGH_APP, HOST_LOGIN, signInThroughApp } from "../game/hostSession";
 import { exact } from "../game/format";
 import { t, tCountry, tDate } from "../i18n";
@@ -28,9 +28,21 @@ export const REGION = "region_";
 const cityName = (id: string) => CITIES.find((c) => c.id === id)?.name ?? id;
 const collate = new Intl.Collator(undefined, { sensitivity: "base" }).compare;
 
+/** 168Railway: a player's profile photo, or their initial on a colour of their own */
+const AV_COLOURS = ["#0b5cd5", "#00a3b8", "#8e4fd1", "#e6402e", "#e8a000", "#2e77e6", "#c2185b"];
+export function Avatar({ name, photo, size = 28, cls = "" }: { name: string; photo?: string | null; size?: number; cls?: string }) {
+  const [broken, setBroken] = useState(false);
+  const c = AV_COLOURS[[...name].reduce((a, ch) => a + ch.charCodeAt(0), 0) % AV_COLOURS.length];
+  const st = { width: `${size}px`, height: `${size}px` };
+  return photo && !broken
+    ? <img class={"av " + cls} src={photo} alt="" width={size} height={size} loading="lazy" referrerPolicy="no-referrer" style={st} onError={() => setBroken(true)} />
+    : <span class={"av av-txt " + cls} aria-hidden="true" style={{ ...st, background: c, fontSize: `${Math.round(size * 0.42)}px` }}>{(name || "?").slice(0, 1).toUpperCase()}</span>;
+}
+
 function Row({ r, board, mine }: { r: BoardRow; board: string; mine: boolean }) {
   return <li class={(mine ? "me" : "") + (r.id ? " lb-click" : "")} onClick={r.id ? () => (playerShown.value = r.id!) : undefined}>
     <span class="lb-rank num">{r.rank}</span>
+    <Avatar name={r.name} photo={r.photo} size={28} cls="lb-av" />
     <span class="lb-name">{r.id ? <button type="button" class="lb-who" aria-label={t("player.open", { name: r.name })}><Named name={r.name} flag={r.flag} /></button> : <Named name={r.name} flag={r.flag} />}</span>
     <span class="lb-value num" data-tip={t("leaderboard.valueTip", { points: exact(r.value), world: board === WORLD, city: board === WORLD ? "" : board.startsWith(COUNTRY) ? countryLabel(board.slice(COUNTRY.length)) : cityName(board.slice(WORLD.length + 1)) }) + "\n" + t("leaderboard.pointsRule", { trip: POINTS_PER_TRIP, km: POINTS_PER_KM })}>{t("leaderboard.value", { points: pointsShort(r.value) })}</span>
   </li>;
@@ -126,8 +138,18 @@ function Boards() {
   const others = Object.keys(st.list).filter((k) => k.startsWith(WORLD + "_")).map((k) => k.slice(WORLD.length + 1))
     .filter((id) => !mine.includes(id)).sort((a, b) => collate(cityName(a), cityName(b)));
   const lands = [...new Set([...mine.map((id) => zoneCountry(id)?.toLowerCase() ?? ""), ...Object.keys(st.list).filter((k) => k.startsWith(COUNTRY)).map((k) => k.slice(COUNTRY.length))].filter(Boolean))];
-  const meIn = d?.me && d.rows.some((r) => r.rank === d.me!.rank && r.name === d.me!.name);
   const kind = st.kind ?? playingKind();
+  // 168Railway: Load more, 50 rows a page, kept for this board and kind
+  const [more, setMore] = useState<{ at: string; rows: BoardRow[]; busy: boolean }>({ at: "", rows: [], busy: false });
+  const pageKey = `${key}/${kind}/${st.at}`;
+  const extra = more.at === pageKey ? more.rows : [];
+  const rows = d ? [...d.rows, ...extra] : [];
+  const loadMore = () => {
+    if (!d || more.busy) return;
+    setMore({ at: pageKey, rows: extra, busy: true });
+    fetchBoardPage(key, kind, rows.length).then((p) => setMore({ at: pageKey, rows: [...extra, ...(p.rows ?? [])], busy: false }), () => setMore({ at: pageKey, rows: extra, busy: false }));
+  };
+  const meIn = d?.me && rows.some((r) => r.rank === d.me!.rank && r.name === d.me!.name);
   return <>
     {HOST_ACCOUNTS && <div class="group new-game-mode lb-kind">
       {(["nol", "tpl"] as const).map((k) => <button type="button" class={"btn" + (kind === k ? " on" : "")} aria-pressed={kind === k}
@@ -137,8 +159,10 @@ function Boards() {
     <CityPick boardKey={key} mine={mine} all={new Set([...mine, ...others])} countries={lands} />
     {!d ? <p class="small muted">{st.error || t("leaderboard.loading")}</p>
       : <ol class="lb-rows">
-        {d.rows.length === 0 && <li class="muted">{t("leaderboard.nobody")}</li>}
-        {d.rows.map((r) => <Row r={r} board={key} mine={!!meIn && r.rank === d.me!.rank && r.name === d.me!.name} />)}
+        {rows.length === 0 && <li class="muted">{t("leaderboard.nobody")}</li>}
+        {rows.map((r) => <Row r={r} board={key} mine={!!meIn && r.rank === d.me!.rank && r.name === d.me!.name} />)}
+        {rows.length < d.count && <li class="lb-more"><button type="button" class="btn text" disabled={more.busy} onClick={loadMore}>
+          {more.busy ? t("leaderboard.loading") : t("player.loadMore", { shown: rows.length, count: d.count })}</button></li>}
         {d.me && !meIn && <><li class="lb-gap" /><Row r={d.me} board={key} mine /></>}
       </ol>}
     {st.error && d && <p class="acct-msg">{st.error}</p>}
@@ -162,7 +186,7 @@ function Player({ id }: { id: string }) {
     <button type="button" class="btn text pl-back" onClick={() => (playerShown.value = null)}><Icon.goBack />{t("player.back")}</button>
     {!p ? <p class="small muted">{err || t("leaderboard.loading")}</p> : <>
       <div class="pl-head">
-        <span class="pl-av" aria-hidden="true">{(p.name || "?").slice(0, 1).toUpperCase()}</span>
+        <Avatar name={p.name} photo={p.photo} size={64} cls="pl-av" />
         <div><h3 class="pl-name">{p.name}</h3><span class="muted small">{t("player.since", { date: day(p.since) })}</span></div>
       </div>
       <dl class="pl-facts">

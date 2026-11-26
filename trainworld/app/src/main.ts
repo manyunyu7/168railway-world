@@ -179,6 +179,8 @@ const nativeArchive = takeEditorArchive();
 const lastDied = !nativeArchive && lastLoadDied();
 const urlChoice = nativeArchive ? { nativeArchive } as import("./workers/clockClient").GameChoice : lastDied ? null : choiceFromUrl();
 if (lastDied) loadCannotFinish(outOfMemoryText(), true);
+// 168Railway: index.html's cover hides the bare map until the start menu is up; a game the URL picks has its own loading card
+if (urlChoice) document.getElementById("boot-cover")?.remove();
 // Demand pool (T-026) first: its downloads and pack opening are the longest part of startup, so
 // they start before the map is set up (T-172). The clock worker's network snapshots go to
 // `submitNetwork` below (workers/demandClient.ts); `?demandTest=1` solves T-005's hand-made
