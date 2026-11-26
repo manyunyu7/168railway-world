@@ -13,7 +13,7 @@ import { startMetroBackdrop } from "./metroBackdrop";
 import { noteVisit } from "../game/visitNote";
 import { hostSignedIn } from "../game/account";
 import { CAN_SIGN_IN_THROUGH_APP, checkHostAuth, finishSignInWindow, HOST_REGISTER, IN_RAILWAY_APP, signInHere, signInThroughApp, signInWithGoogle } from "../game/hostSession";
-import { HOME_CITY, isCity } from "../game/cities";
+import { cityById, HOME_CITY, isCity } from "../game/cities";
 import { choosing } from "../game/loading";
 import { display, dropMarket, keepMarket } from "../game/ui";
 import { failLists, listSlots, newGameName, StorageReadError, type SaveSlot } from "../workers/saveFile";
@@ -23,7 +23,7 @@ import { saveRefusal } from "../game/memoryCheck";
 import { overBudget } from "../game/memoryEstimate";
 import { MemoryWarn } from "./MemoryWarn";
 import { blockKeysOutside } from "./keys";
-import { JABO_SCENARIOS, NewGameSheet, type JaboScenario, type NewGameView } from "./NewGame";
+import { JABO_SCENARIOS, NewGameSheet, START_CITIES, type JaboScenario, type NewGameView } from "./NewGame";
 import { newGameEnd, setStartAt } from "./locate";
 
 
@@ -43,6 +43,7 @@ import { pointsShort } from "../game/points";
 import { dismissUpdate, updateToShow } from "./updates";
 import { accountBackupFile, accountList, accountOnly, cardOf, damagedAccount, deleteOwed, deleteVersions, downloadAccountGame, downloadFailure, pinnedFile, settleOnStart, slotsChanged, stopStartSettle } from "../game/accountGames";
 import { t, type MessageKey } from "../i18n";
+import { tPlace } from "../i18n/places";
 
 declare const __TW_VERSION__: string | undefined;
 /** The build's commit count (vite.config.ts), "dev" on a dev server. */
@@ -275,17 +276,40 @@ function GameCard({ origin, accentOf, children, last }: { origin: string; accent
   </li>;
 }
 
-/** Mulai baru: the Jabodetabek starts as stations on one metro line, the empty map the last stop */
-function StartLine({ onPick }: { onPick: (tab: NewGameView["tab"], jabo?: JaboScenario) => void }) {
-  const big = new Set<JaboScenario>(["jak", "indo"]);
-  return <div class="sl">
-    <div class="sl-track" aria-hidden="true" />
-    {JABO_SCENARIOS.map((id) => <button type="button" class={"sl-st" + (big.has(id) ? " big" : "")} data-scenario={id} onClick={() => onPick("real", id)}>
-      <span class="sl-dot" aria-hidden="true" /><b>{t(`newGame.jabo.${id}` as MessageKey)}</b>
-    </button>)}
-    <button type="button" class="sl-st end" onClick={() => onPick("blank")}>
-      <span class="sl-dot" aria-hidden="true"><Icon.plus /></span><b>{t("launch.welcomeBlank")}</b><i>{t("launch.blankShort")}</i>
-    </button>
+/** Mulai baru (2026-11-26 option D): the two lead starts as big pictures (one line for a first game, the whole 2026
+ * network), the empty map beside them, then the other scenarios and the start cities as chips, each opening the new
+ * game sheet on its pick */
+const LEAD_STARTS: { id: JaboScenario; level: MessageKey }[] = [{ id: "jak_bogor", level: "launch.levelEasy" }, { id: "jak", level: "launch.levelFull" }];
+function StartPicks({ onPick }: { onPick: (tab: NewGameView["tab"], jabo?: JaboScenario, city?: string) => void }) {
+  const lead = new Set(LEAD_STARTS.map((l) => l.id));
+  return <div class="sp">
+    <div class="sp-top">
+      {LEAD_STARTS.map(({ id, level }) => <button type="button" class="sp-hero" data-scenario={id} onClick={() => onPick("real", id)}>
+        <StageSnap id={id} class="sp-hero-img" />
+        <span class="sp-hero-text">
+          <span class="sp-level">{t(level)}</span>
+          <b>{t(`newGame.jabo.${id}` as MessageKey)}</b>
+          <span class="sp-tip">{t(`newGame.jaboTip.${id}` as MessageKey)}</span>
+        </span>
+      </button>)}
+      <button type="button" class="sp-blank" onClick={() => onPick("blank")}>
+        <span class="sp-plus" aria-hidden="true"><Icon.plus /></span>
+        <span><b>{t("launch.welcomeBlank")}</b><span class="sp-blank-sub">{t("launch.blankAnyCity")}</span></span>
+      </button>
+    </div>
+    <div class="sp-chips">
+      <span class="sp-label">{t("launch.otherScenarios")}</span>
+      {JABO_SCENARIOS.filter((id) => !lead.has(id)).map((id) => <button type="button" class="sp-chip" data-scenario={id} onClick={() => onPick("real", id)}>
+        <img src={`./snapshots/${id}.jpg`} alt="" width={36} height={36} loading="lazy" /><span>{t(`newGame.jabo.${id}` as MessageKey)}</span>
+      </button>)}
+    </div>
+    <div class="sp-chips">
+      <span class="sp-label">{t("launch.fromScratchIn")}</span>
+      {START_CITIES.filter((id) => id !== HOME_CITY && isCity(id)).map((id) => <button type="button" class="sp-chip sp-city" data-city={id} onClick={() => onPick("blank", undefined, id)}>
+        <Icon.pin /><span>{tPlace(id, cityById(id).name)}</span>
+      </button>)}
+      <button type="button" class="sp-chip sp-city sp-more" onClick={() => onPick("blank")}><Icon.globe /><span>{t("launch.otherCity")}</span></button>
+    </div>
   </div>;
 }
 
@@ -369,8 +393,9 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
   const metro = useRef<HTMLCanvasElement>(null);
   useEffect(() => (metro.current ? startMetroBackdrop(metro.current) : undefined), [guest, sheet]);
   const [sheetJabo, setSheetJabo] = useState<JaboScenario>("jak_mulai");
-  const openSheet = (tab: NewGameView["tab"], jabo?: JaboScenario) => {
-    setSheetTab(tab); if (jabo) setSheetJabo(jabo);
+  const [sheetCity, setSheetCity] = useState<string | undefined>(undefined);
+  const openSheet = (tab: NewGameView["tab"], jabo?: JaboScenario, city?: string) => {
+    setSheetTab(tab); if (jabo) setSheetJabo(jabo); setSheetCity(city);
     setView((v) => ({ tab, jabo: jabo ?? v.jabo })); setSheet(true);
   };
   // T-988: the slots again once the account has settled them (downloads, deletions, forks)
@@ -498,7 +523,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
           {/* T-2753: the language on the first row, so a new player (who lands on the sheet) sets it first */}
           <div class="start-top"><LanguageSelect /><AccountButton kind="start" /></div>
         </div>
-        <NewGameSheet heading={false} back={false} tab={sheetTab} jabo={sheetJabo} onView={setView} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
+        <NewGameSheet heading={false} back={false} tab={sheetTab} jabo={sheetJabo} city={sheetCity} onView={setView} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
       </section>
       <div class="launch-stage">
         <StageSnap id={view.tab === "real" ? view.jabo : "base-jak"} />
@@ -563,8 +588,8 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
           </button>
         </div>}
         <section class="lsec">
-          <div class="lsec-head"><h2>{t("launch.startNew")}</h2><span class="muted">{t("launch.startNewSub")}</span></div>
-          <StartLine onPick={openSheet} />
+          <div class="lsec-head"><h2>{t("launch.startNew")}</h2><span class="muted">{t("launch.startNewSub2")}</span></div>
+          <StartPicks onPick={openSheet} />
         </section>
         <div class="lsec-two"><CommunityPeek /><BoardPeek /></div>
         <HostWorlds openFile={openHostFile} />

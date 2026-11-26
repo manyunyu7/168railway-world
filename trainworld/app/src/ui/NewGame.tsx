@@ -23,7 +23,7 @@ import { noteVisit } from "../game/visitNote";
 
 /** The suggested starts (T-728): 168Railway offers Indonesia's biggest cities (every other city stays a search
  * away). */
-const START_CITIES = ["jak", "sur", "bad", "yog", "sem", "med", "maa", "den"];
+export const START_CITIES = ["jak", "sur", "bad", "yog", "sem", "med", "maa", "den"];
 /** The cities with a real network a sandbox can start from (`packs/real/<id>.save`; the list is
  * written by pipeline/realauto.py ship). */
 const REAL_NETWORKS = new Set<string>(realNetworks);
@@ -148,12 +148,12 @@ async function realNetwork(id: string): Promise<ArrayBuffer> {
 }
 
 /** The sheet. `onStart` gets the new game, with its real network downloaded when chosen. */
-export function NewGameSheet({ onStart, onBack, heading = true, tab: tab0 = "real", jabo: jabo0 = "jak_mulai", onView, back = true }: { onStart: (spec: NewGameSpec) => void; onBack: () => void; heading?: boolean; tab?: NewGameView["tab"]; jabo?: JaboScenario; onView?: (v: NewGameView) => void; back?: boolean }) {
+export function NewGameSheet({ onStart, onBack, heading = true, tab: tab0 = "real", jabo: jabo0 = "jak_mulai", city: city0, onView, back = true }: { onStart: (spec: NewGameSpec) => void; onBack: () => void; heading?: boolean; tab?: NewGameView["tab"]; jabo?: JaboScenario; city?: string; onView?: (v: NewGameView) => void; back?: boolean }) {
   // 168Railway launcher: the real networks and the empty map on two tabs
   const [tab, setTab] = useState<NewGameView["tab"]>(tab0);
   const [mode, setMode] = useState<GameMode>("normal");
   // T-2123: New York is lit to begin with (the first suggestion); Choose on map is the world start
-  const [start, setStart] = useState<string | null>(START_CITIES[0]);
+  const [start, setStart] = useState<string | null>(city0 ?? START_CITIES[0]);
   const [text, setText] = useState("");
   const [cursor, setCursor] = useState(0);
   const [real, setReal] = useState(false);

@@ -500,3 +500,41 @@
 .launch .launch-panel .btn.start-new { color: #fff; }
 .launch .new-game-scenario.on { border-color: #0b5cd5; box-shadow: 0 3px 0 #0848a8; }
 .launch .new-game-mode .btn.on { color: #0b5cd5; }
+
+/* Mulai baru, option D: two big starts with their pictures, the empty map beside them, scenario and city chips */
+.sp { display: flex; flex-direction: column; gap: 12px; }
+.sp-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 250px; gap: 14px; }
+.launch-row .sp-hero { position: relative; height: 270px; padding: 0; border: 0; border-radius: 20px; overflow: hidden; cursor: pointer; text-align: left; font: inherit; color: #fff; background: #0f1f3d;
+  box-shadow: 0 8px 24px rgb(15 31 61 / 12%); }
+.sp-hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
+.sp-hero:hover .sp-hero-img { transform: scale(1.03); }
+.sp-hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 32%, rgb(15 31 61 / 92%)); }
+.sp-hero-text { position: absolute; left: 18px; right: 18px; bottom: 16px; z-index: 1; display: flex; flex-direction: column; gap: 6px; }
+.sp-level { align-self: flex-start; padding: 3px 10px; border-radius: 999px; background: #0b5cd5; font-size: 11px; font-weight: 900; letter-spacing: .3px; }
+.sp-hero[data-scenario="jak_bogor"] .sp-level { background: #00a3b8; }
+.sp-hero-text b { font-size: 24px; font-weight: 900; letter-spacing: -.5px; line-height: 1.1; }
+.sp-tip { font-size: 14px; line-height: 1.4; opacity: .9; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.launch-row .sp-blank { border: 0; border-radius: 20px; padding: 20px; background: #0b5cd5; color: #fff; font: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 8px 24px rgb(11 92 213 / 25%); }
+.launch-row .sp-blank:hover { background: #1a6ae6; }
+.sp-plus { width: 48px; height: 48px; border-radius: 14px; background: rgb(255 255 255 / 18%); display: grid; place-items: center; }
+.sp-plus svg { width: 24px; height: 24px; stroke-width: 2.6; }
+.sp-blank b { display: block; font-size: 22px; font-weight: 900; }
+.sp-blank-sub { display: block; font-size: 14px; opacity: .88; margin-top: 4px; }
+.sp-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sp-label { font-size: 13px; font-weight: 700; color: #56647e; margin-right: 2px; }
+.launch-row .sp-chip { display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 14px 0 6px; border-radius: 999px; border: 1px solid #dde6f4; background: #fff;
+  font: inherit; font-size: 14px; font-weight: 800; color: #0f1f3d; cursor: pointer; }
+.launch-row .sp-chip:hover { border-color: #9dbbe9; background: #f5f9ff; }
+.sp-chip img { width: 34px; height: 34px; border-radius: 999px; object-fit: cover; }
+.launch-row .sp-city { padding-left: 12px; height: 40px; }
+.sp-city svg { width: 15px; height: 15px; color: #0b5cd5; }
+.launch-row .sp-more { color: #0b5cd5; border-style: dashed; }
+.sp-hero:focus-visible, .sp-blank:focus-visible, .sp-chip:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+@media (max-width: 860px) {
+  .sp-top { grid-template-columns: minmax(0, 1fr); }
+  .launch-row .sp-hero { height: 210px; }
+  .launch-row .sp-blank { flex-direction: row; align-items: center; justify-content: flex-start; gap: 14px; padding: 16px; }
+  .sp-label { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .sp-hero-img { transition: none; } }
