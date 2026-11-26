@@ -366,3 +366,22 @@
 .row-card-map .row-card-title { font-size: 22px; }
 .row-card-info .row-figures { font-size: 14px; }
 .row-card-info .row-cash { padding: 2px 9px; font-size: 12px; }
+
+/* livelier cards (owner: colour and style): each card takes its network's strongest line colour (--acc, from its
+   picture) for a rail line with three stations across its top, its chip, its play button and its shadow */
+.launch-row .row-card-map { --acc: var(--row-go); --acc-dark: color-mix(in srgb, var(--acc) 78%, #000);
+  border: 1px solid color-mix(in srgb, var(--acc) 30%, var(--row-line)); border-radius: 24px;
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--acc) 22%, transparent), 0 14px 32px color-mix(in srgb, var(--acc) 16%, transparent); }
+.launch-row .row-card-map.is-last { border: 2px solid color-mix(in srgb, var(--acc) 55%, var(--row-line)); }
+.row-route { position: absolute; left: 0; right: 0; top: 0; height: 8px; background: var(--acc); z-index: 1; }
+.row-route i { position: absolute; top: -2px; width: 12px; height: 12px; margin-left: -6px; border-radius: 999px; background: #fff; border: 3px solid var(--acc-dark); box-sizing: border-box; }
+.row-route i:nth-child(1) { left: 18%; } .row-route i:nth-child(2) { left: 50%; } .row-route i:nth-child(3) { left: 82%; }
+.row-card-map .row-card-body { padding-top: 26px; }
+.row-card-map .row-chip { background: color-mix(in srgb, var(--acc) 14%, var(--bg)); color: var(--acc-dark); border-color: transparent; }
+.row-card-map .row-card-title { font-size: 24px; letter-spacing: -.7px; }
+.row-card-info { border: 1px solid color-mix(in srgb, var(--acc) 18%, transparent); }
+.row-card-map .row-cash { border-color: color-mix(in srgb, var(--acc) 30%, var(--row-line)); }
+.launch-row .row-card-map .row-play { background: var(--acc-dark); border-color: color-mix(in srgb, var(--acc) 60%, #000);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--acc) 35%, transparent); }
+.launch-row .row-card-map .row-play:hover { background: var(--acc); }
+.launch-row .row-card-map.is-last .row-chip { background: color-mix(in srgb, var(--acc) 16%, var(--bg)); color: var(--acc-dark); }

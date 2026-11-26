@@ -226,6 +226,49 @@ function StageSnap({ id, alt = "", eager = false, class: cls = "launch-stage-img
     width={2100} height={1500} alt={alt} decoding="async" {...{ fetchpriority: eager ? "high" : "auto" }} />;
 }
 
+/** 168Railway launcher card: the strongest line colour in a saved game's picture (the network's own colours), for
+ * the card's accent; null for no picture or a picture with no coloured lines */
+function useAccent(thumb?: string): string | null {
+  const [accent, setAccent] = useState<string | null>(null);
+  useEffect(() => {
+    setAccent(null);
+    if (!thumb) return;
+    let gone = false;
+    const img = new Image();
+    img.onload = () => {
+      if (gone) return;
+      const cv = document.createElement("canvas"); cv.width = 96; cv.height = 64;
+      const cx = cv.getContext("2d", { willReadFrequently: true });
+      if (!cx) return;
+      cx.drawImage(img, 0, 0, 96, 64);
+      const d = cx.getImageData(0, 0, 96, 64).data;
+      const bins = new Map<number, { n: number; r: number; g: number; b: number }>();
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        if (d[i + 3] < 200 || Math.max(r, g, b) - Math.min(r, g, b) < 90) continue;
+        const k = (r >> 5) << 6 | (g >> 5) << 3 | (b >> 5);
+        const e = bins.get(k) ?? { n: 0, r: 0, g: 0, b: 0 };
+        e.n++; e.r += r; e.g += g; e.b += b; bins.set(k, e);
+      }
+      let best: { n: number; r: number; g: number; b: number } | null = null;
+      for (const e of bins.values()) if (!best || e.n > best.n) best = e;
+      if (best && best.n >= 6) setAccent(`rgb(${Math.round(best.r / best.n)} ${Math.round(best.g / best.n)} ${Math.round(best.b / best.n)})`);
+    };
+    img.src = thumb;
+    return () => { gone = true; };
+  }, [thumb]);
+  return accent;
+}
+
+/** One saved game's card on the launcher's row (option 6, with its own accent colour) */
+function GameCard({ origin, accentOf, children, last }: { origin: string; accentOf?: string; children: ComponentChildren; last: boolean }) {
+  const accent = useAccent(accentOf);
+  return <li data-origin={origin} class={"row-card row-card-map" + (last ? " is-last" : "")} style={accent ? { "--acc": accent } : undefined}>
+    <div class="row-route" aria-hidden="true"><i /><i /><i /></div>
+    {children}
+  </li>;
+}
+
 function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest: guest0 = false }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void>; guest?: boolean }) {
   // 168Railway: a guest signs in on the card, and the menu opens in place
   const [guest, setGuest] = useState(guest0);
@@ -401,7 +444,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
             // option 6: the game's own picture behind the card, its name big, one line of figures, a round play button
             const figures = [t("savesPanel.day", { day: s.day }), s.lines !== undefined ? t("savesPanel.lines", { count: s.lines }) : null,
               s.stations !== undefined ? t("savesPanel.stations", { count: s.stations }) : null].filter(Boolean).join(" · ");
-            return <li key={g.origin} data-origin={g.origin} class={"row-card row-card-map" + (last ? " is-last" : "")}>
+            return <GameCard key={g.origin} origin={g.origin} accentOf={s.thumb} last={last}>
               <div class="row-card-bg" aria-hidden="true"><SlotThumb slot={s} /></div>
               <div class="row-card-body">
                 <div class="row-card-info">
@@ -428,7 +471,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
                   <DeleteAsk group={g} yesLabel={t("startMenu.deleteSave")} keepLabel={t("startMenu.keepIt")} yesClass="start-delete-yes" onYes={() => void remove(groupHeads(g))} onKeep={() => setRemoving(null)} />
                 </div>}
               </div>
-            </li>;
+            </GameCard>;
           })}
         </ul> : <div class="row-cards row-welcome">
           <button class="row-card row-pick" onClick={() => openSheet("real")}>
