@@ -36,7 +36,7 @@ import { Changelog } from "./Changelog";
 import { RailwayBrand } from "./RailwayBrand";
 import { Card, CommunityButton } from "./Community";
 import { communityOn, communityOpen, fetchShares, linkedShare, type ShareRow } from "../game/community";
-import { accountState, boards, boardsOpen, fetchBoards, type Board, type BoardKind } from "../game/account";
+import { accountState, boards, boardsOpen, fetchBoards, playerShown, type Board, type BoardKind } from "../game/account";
 import { WORLD } from "./Leaderboard";
 import { Named } from "./Flag";
 import { pointsShort } from "../game/points";
@@ -344,7 +344,7 @@ function BoardPeek() {
   const on = accountState.value === "on" || MOCK;
   useEffect(() => { if (on && !MOCK) void fetchBoards(WORLD, kind); }, [on, kind]);
   if (!on) return null;
-  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000 })), me: { rank: 27, name: "kamu", value: 120000 } }
+  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000, id: "a0000000000" + i })), me: { rank: 27, name: "kamu", value: 120000 } }
     : b.key === WORLD && b.kind === kind ? b.data : null;
   const rows = d?.rows ?? [];
   const top = [rows[1], rows[0], rows[2]];
@@ -356,16 +356,16 @@ function BoardPeek() {
         <button role="tab" aria-selected={kind === "tpl"} class={kind === "tpl" ? "on" : ""} onClick={() => setKind("tpl")}>{t("newGame.tabReal")}</button>
         <button role="tab" aria-selected={kind === "nol"} class={kind === "nol" ? "on" : ""} onClick={() => setKind("nol")}>{t("launch.fromScratch")}</button>
       </div>
-      <button type="button" class="lsec-more" onClick={() => (boardsOpen.value = true)}>{t("launch.full")} →</button></div>
+      <button type="button" class="lsec-more" onClick={() => { playerShown.value = null; boardsOpen.value = true; }}>{t("launch.full")} →</button></div>
     <div class="bp">
       {!d ? <p class="muted small">{b.error || t("leaderboard.loading")}</p> : !rows.length ? <p class="muted small">{t("leaderboard.nobody")}</p> : <>
         <div class="bp-pod">{top.map((r, i) => r ? <div class={"bp-p p" + r.rank} key={i}>
           <span class="bp-av" aria-hidden="true">{(r.name || "?").slice(0, 1).toUpperCase()}</span>
-          <span class="bp-nm"><Named name={r.name} flag={r.flag} small /></span>
+          <button type="button" class="bp-nm" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><Named name={r.name} flag={r.flag} small /></button>
           <span class="bp-pts num">{pointsShort(r.value)}</span>
           <span class="bp-blk">{r.rank}</span>
         </div> : <div key={i} />)}</div>
-        {rows.slice(3, 5).map((r) => <div class="bp-row"><span class="num">{r.rank}</span><Named name={r.name} flag={r.flag} small /><b class="num">{pointsShort(r.value)}</b></div>)}
+        {rows.slice(3, 5).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Named name={r.name} flag={r.flag} small /><b class="num">{pointsShort(r.value)}</b></button>)}
       </>}
       {me ? <div class="bp-me"><div><span class="bp-rk num">{me.rank}</span><span>{t("launch.you")}</span><b class="num">{pointsShort(me.value)}</b></div>
         {meAbove && <small class="muted">{t("launch.toNext", { points: pointsShort(meAbove.value - me.value), rank: meAbove.rank })}</small>}</div>

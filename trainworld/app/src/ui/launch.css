@@ -538,3 +538,29 @@
   .sp-label { flex-basis: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .sp-hero-img { transition: none; } }
+
+/* leaderboard player profile (Leaderboard.tsx Player) and clickable names */
+.lb-rows li.lb-click { cursor: pointer; }
+.lb-rows li.lb-click:hover { background: color-mix(in srgb, #0b5cd5 7%, var(--bg)); }
+.lb-who { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 30%, transparent); text-underline-offset: 3px; }
+.pl { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.pl-g-top b { min-width: 0; overflow-wrap: anywhere; }
+.pl-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
+.pl-back svg { width: 14px; height: 14px; }
+.pl-head { display: flex; align-items: center; gap: 14px; }
+.pl-av { width: 56px; height: 56px; border-radius: 999px; background: #0b5cd5; color: #fff; display: grid; place-items: center; font-size: 22px; font-weight: 900; }
+.pl-name { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -.4px; }
+.pl-facts { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pl-facts div { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #0b5cd5 7%, var(--bg)); }
+.pl-facts dt { font-size: 12px; color: var(--muted); }
+.pl-facts dd { margin: 2px 0 0; font-weight: 900; }
+.pl-sub { margin: 4px 0 0; font-size: 15px; font-weight: 900; }
+.pl-games { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.pl-games li { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--rule); display: flex; flex-direction: column; gap: 3px; }
+.pl-g-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pl-kind { padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, #0b5cd5 10%, var(--bg)); color: #0b5cd5; font-size: 11px; font-weight: 900; white-space: nowrap; }
+.launch-row .bp-nm { border: 0; background: none; padding: 0; font: inherit; font-size: 13px; font-weight: 800; color: #0f1f3d; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.launch-row .bp-nm:hover:not(:disabled) { text-decoration: underline; }
+.launch-row button.bp-row { width: 100%; border: 0; border-top: 1px solid #dde6f4; background: none; font: inherit; text-align: left; cursor: pointer; }
+.launch-row button.bp-row:hover:not(:disabled) { background: #f5f9ff; }
+.launch-row :is(.bp-nm, .bp-row):disabled { cursor: default; }

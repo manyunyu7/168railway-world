@@ -9,10 +9,10 @@ import { normalise } from "../game/search";
 import { tPlace } from "../i18n/places";
 import { findStart } from "./NewGame";
 import { CITIES, zoneCountry } from "../game/cities";
-import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoards, HOST_ACCOUNTS, playingKind, session, setBoard, type BoardRow } from "../game/account";
+import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoards, fetchPlayer, HOST_ACCOUNTS, playerShown, playingKind, session, setBoard, type BoardRow, type PlayerProfile } from "../game/account";
 import { CAN_SIGN_IN_THROUGH_APP, HOST_LOGIN, signInThroughApp } from "../game/hostSession";
 import { exact } from "../game/format";
-import { t, tCountry } from "../i18n";
+import { t, tCountry, tDate } from "../i18n";
 import { countryName } from "../i18n/intl";
 import { moneyState } from "../game/money";
 import { POINTS_PER_KM, POINTS_PER_TRIP, pointsScore, pointsShort } from "../game/points";
@@ -29,9 +29,9 @@ const cityName = (id: string) => CITIES.find((c) => c.id === id)?.name ?? id;
 const collate = new Intl.Collator(undefined, { sensitivity: "base" }).compare;
 
 function Row({ r, board, mine }: { r: BoardRow; board: string; mine: boolean }) {
-  return <li class={mine ? "me" : ""}>
+  return <li class={(mine ? "me" : "") + (r.id ? " lb-click" : "")} onClick={r.id ? () => (playerShown.value = r.id!) : undefined}>
     <span class="lb-rank num">{r.rank}</span>
-    <span class="lb-name"><Named name={r.name} flag={r.flag} /></span>
+    <span class="lb-name">{r.id ? <button type="button" class="lb-who" aria-label={t("player.open", { name: r.name })}><Named name={r.name} flag={r.flag} /></button> : <Named name={r.name} flag={r.flag} />}</span>
     <span class="lb-value num" data-tip={t("leaderboard.valueTip", { points: exact(r.value), world: board === WORLD, city: board === WORLD ? "" : board.startsWith(COUNTRY) ? countryLabel(board.slice(COUNTRY.length)) : cityName(board.slice(WORLD.length + 1)) }) + "\n" + t("leaderboard.pointsRule", { trip: POINTS_PER_TRIP, km: POINTS_PER_KM })}>{t("leaderboard.value", { points: pointsShort(r.value) })}</span>
   </li>;
 }
@@ -146,10 +146,47 @@ function Boards() {
   </>;
 }
 
+/** 168Railway (26 Nov, owner): one player's profile — name, playing since, joined, and their games */
+function Player({ id }: { id: string }) {
+  const [p, setP] = useState<PlayerProfile | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let live = true;
+    setP(null); setErr("");
+    fetchPlayer(id).then((r) => { if (live) setP(r); }, (e) => { if (live) setErr((e as Error).message); });
+    return () => { live = false; };
+  }, [id]);
+  const day = (s: number | null) => s ? tDate(s * 1000, { day: "numeric", month: "long", year: "numeric" }) : "—";
+  const best = p?.games[0]?.points ?? 0;
+  return <div class="pl">
+    <button type="button" class="btn text pl-back" onClick={() => (playerShown.value = null)}><Icon.goBack />{t("player.back")}</button>
+    {!p ? <p class="small muted">{err || t("leaderboard.loading")}</p> : <>
+      <div class="pl-head">
+        <span class="pl-av" aria-hidden="true">{(p.name || "?").slice(0, 1).toUpperCase()}</span>
+        <div><h3 class="pl-name">{p.name}</h3><span class="muted small">{t("player.since", { date: day(p.since) })}</span></div>
+      </div>
+      <dl class="pl-facts">
+        <div><dt>{t("player.joined")}</dt><dd>{day(p.joinedAt)}</dd></div>
+        <div><dt>{t("player.since2")}</dt><dd>{day(p.since)}</dd></div>
+        <div><dt>{t("player.games")}</dt><dd class="num">{p.gameCount}{p.sandboxCount ? <span class="muted small"> {t("player.plusSandbox", { count: p.sandboxCount })}</span> : null}</dd></div>
+        <div><dt>{t("player.best")}</dt><dd class="num">{t("leaderboard.value", { points: pointsShort(best) })}</dd></div>
+      </dl>
+      <h4 class="pl-sub">{t("player.maps")}</h4>
+      {p.games.length === 0 ? <p class="small muted">{t("player.noGames")}</p> : <ul class="pl-games">
+        {p.games.map((g) => <li>
+          <div class="pl-g-top"><b>{g.cities.length ? g.cities.map((c) => shownName(c)).join(" · ") : t("player.noCity")}</b>
+            <span class="pl-kind">{g.kind === "tpl" ? "Template" : "Dari nol"}</span></div>
+          <div class="small muted num">{t("savesPanel.day", { day: g.day })} · {t("leaderboard.value", { points: pointsShort(g.points) })} · {t("player.lastPlayed", { date: day(g.at) })}</div>
+        </li>)}
+      </ul>}
+    </>}
+  </div>;
+}
+
 export function Leaderboard() {
-  const open = boardsOpen.value;
-  return <Modal open={open} onClose={() => (boardsOpen.value = false)} title={t("leaderboard.title")} cls="acct-panel lb-panel" head={<CommunityButton />}>
-    {open && <Boards />}
+  const open = boardsOpen.value, who = playerShown.value;
+  return <Modal open={open} onClose={() => { boardsOpen.value = false; playerShown.value = null; }} title={who ? t("player.title") : t("leaderboard.title")} cls="acct-panel lb-panel" head={<CommunityButton />}>
+    {open && (who ? <Player id={who} /> : <Boards />)}
   </Modal>;
 }
 
