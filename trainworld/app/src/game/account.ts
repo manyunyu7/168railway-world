@@ -41,9 +41,9 @@ export interface AccountView {
 interface Session { token: string; account: AccountView }
 export interface AccountConfig { googleClientId: string; dev: boolean; password: boolean; signIn: boolean; trainworld?: boolean; trainworldGames?: boolean; trainworldFeedback?: boolean; trainworldFeedbackThreads?: boolean; /** T-3326: how many screenshots a new feedback takes; absent or 0 on a server that drops them */ trainworldFeedbackImages?: number; trainworldPing?: boolean; trainworldAchievements?: boolean; trainworldCommunity?: boolean; trainworldCommunityPreview?: boolean; trainworldCommunitySearch?: boolean; trainworldCommunityPages?: boolean; trainworldFlags?: boolean; /** T-3279: the flag list version the server accepts (game/flags.json `set`) */ trainworldFlagSet?: number }
 export interface BoardSetting { on: boolean; name: string; /** set when a moderator hid the display name; absent on a server that does not say */ nameHidden?: boolean; /** T-3269: the flag beside the name, game/flags.ts */ flag?: string }
-export interface BoardRow { rank: number; name: string; value: number; flag?: string; /** 168Railway: the player's stand-in id, for their profile */ id?: string; /** 168Railway: their profile photo */ photo?: string | null }
+export interface BoardRow { rank: number; name: string; value: number; flag?: string; /** 168Railway (26 Nov): the size of the game behind the row and its riders a day, when its game sent them */ lines?: number; stations?: number; riders?: number; /** 168Railway: the player's stand-in id, for their profile */ id?: string; /** 168Railway: their profile photo */ photo?: string | null }
 /** 168Railway (26 Nov): a leaderboard player's profile, `GET trainworld/player/<id>` (web StudioWorldBoards::player) */
-export interface PlayerGame { kind: BoardKind; points: number; day: number; cities: string[]; at: number; /** its network picture, when its owner's game has sent one */ thumb?: string | null }
+export interface PlayerGame { kind: BoardKind; points: number; day: number; cities: string[]; at: number; lines?: number; stations?: number; riders?: number; /** its network picture, when its owner's game has sent one */ thumb?: string | null }
 export interface PlayerProfile { id: string; name: string; photo?: string | null; joinedAt: number | null; since: number | null; games: PlayerGame[]; gameCount: number; sandboxCount: number }
 /** the profile open in the leaderboards, by its id */
 export const playerShown = signal<string | null>(null);
@@ -385,7 +385,7 @@ export async function gameForShare(): Promise<string | null> {
 }
 
 /** The game's figures now: weekday points (T-3465, `pointsScore`) in all, and its best cities. */
-function figures(): { day: number; points: number; cities: Record<string, number> } | null {
+function figures(): { day: number; points: number; cities: Record<string, number>; lines?: number; stations?: number; riders?: number } | null {
   const m = moneyState.peek();
   const hour = m?.hours.at(-1)?.hour;
   if (!m || hour === undefined) return null;
@@ -395,7 +395,14 @@ function figures(): { day: number; points: number; cities: Record<string, number
   const points = cap(per.reduce((a, [, v]) => a + v, 0));
   const cities: Record<string, number> = {};
   for (const [id, v] of per.slice(0, MAX_CITIES)) cities[id] = cap(v);
-  return { day: Math.floor(hour / 24), points, cities };
+  // 168Railway (26 Nov): the network's size and its last whole day's rides, shown beside the points on the boards
+  const slot = playingSlot(), card = slot ? saveSlotsState.peek().slots.find((x) => x.key === slot) : undefined;
+  const lastDay = m.ledger.length > 1 ? m.ledger[m.ledger.length - 2] : undefined;
+  const extra: { lines?: number; stations?: number; riders?: number } = {};
+  if (card?.lines !== undefined) extra.lines = card.lines;
+  if (card?.stations !== undefined) extra.stations = card.stations;
+  if (lastDay?.rides !== undefined) extra.riders = Math.max(0, Math.round(lastDay.rides));
+  return { day: Math.floor(hour / 24), points, cities, ...extra };
 }
 
 /** A game whose figures never rank: a sandbox, or (T-3115) a copy of a shared network, which the server is told is a
@@ -434,7 +441,7 @@ export async function sendScores(now = false) {
     const f = figures();
     if (!f) return;
     const kind = m.tpl ? "tpl" : "nol";
-    const sig = JSON.stringify([f.points, f.cities, kind]);
+    const sig = JSON.stringify([f.points, f.cities, kind, f.lines, f.stations, f.riders]);
     const before = e.acct === acct ? e.sent : undefined;
     if (sig === before || (!before && f.points <= 0)) return;
     if (!now && before && Date.now() - (e.at ?? 0) < SEND_GAP_MS) return;

@@ -36,6 +36,8 @@
   "launch.welcomeJaboText": "28 lini sudah jalan, tinggal kembangkan",
   "launch.welcomeBlank": "Peta kosong",
   "launch.welcomeBlankText": "Surabaya, Bandung, Yogyakarta, atau kotamu",
+  "player.riders": "{count} penumpang/hari",
+  "launch.boardCity": "Papan per kota",
   "launch.games": "Game tersimpan",
   "player.bigger": "Perbesar",
   "player.noPic": "Belum ada gambar: muncul setelah pemainnya main lagi",

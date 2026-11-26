@@ -39,11 +39,21 @@ export function Avatar({ name, photo, size = 28, cls = "" }: { name: string; pho
     : <span class={"av av-txt " + cls} aria-hidden="true" style={{ ...st, background: c, fontSize: `${Math.round(size * 0.42)}px` }}>{(name || "?").slice(0, 1).toUpperCase()}</span>;
 }
 
+/** 168Railway (26 Nov): a game's size and riders a day, "28 lini · 312 stasiun · 1,2 jt penumpang/hari"; "" before its game sent them */
+export function netStats(g: { lines?: number; stations?: number; riders?: number }): string {
+  const out: string[] = [];
+  if (g.lines !== undefined) out.push(t("savesPanel.lines", { count: g.lines }));
+  if (g.stations !== undefined) out.push(t("savesPanel.stations", { count: g.stations }));
+  if (g.riders) out.push(t("player.riders", { count: pointsShort(g.riders) }));
+  return out.join(" · ");
+}
+
 function Row({ r, board, mine }: { r: BoardRow; board: string; mine: boolean }) {
   return <li class={(mine ? "me" : "") + (r.id ? " lb-click" : "")} onClick={r.id ? () => (playerShown.value = r.id!) : undefined}>
     <span class="lb-rank num">{r.rank}</span>
     <Avatar name={r.name} photo={r.photo} size={28} cls="lb-av" />
-    <span class="lb-name">{r.id ? <button type="button" class="lb-who" aria-label={t("player.open", { name: r.name })}><Named name={r.name} flag={r.flag} /></button> : <Named name={r.name} flag={r.flag} />}</span>
+    <span class="lb-name">{r.id ? <button type="button" class="lb-who" aria-label={t("player.open", { name: r.name })}><Named name={r.name} flag={r.flag} /></button> : <Named name={r.name} flag={r.flag} />}
+      {netStats(r) && <small class="lb-stats num">{netStats(r)}</small>}</span>
     <span class="lb-value num" data-tip={t("leaderboard.valueTip", { points: exact(r.value), world: board === WORLD, city: board === WORLD ? "" : board.startsWith(COUNTRY) ? countryLabel(board.slice(COUNTRY.length)) : cityName(board.slice(WORLD.length + 1)) }) + "\n" + t("leaderboard.pointsRule", { trip: POINTS_PER_TRIP, km: POINTS_PER_KM })}>{t("leaderboard.value", { points: pointsShort(r.value) })}</span>
   </li>;
 }
@@ -203,6 +213,7 @@ function Player({ id }: { id: string }) {
           <div class="pl-g-top"><b>{g.cities.length ? g.cities.map((c) => shownName(c)).join(" · ") : t("player.noCity")}</b>
             <span class="pl-kind">{g.kind === "tpl" ? "Template" : "Dari nol"}</span></div>
           <div class="small muted num">{t("savesPanel.day", { day: g.day })} · {t("leaderboard.value", { points: pointsShort(g.points) })} · {t("player.lastPlayed", { date: day(g.at) })}</div>
+          {netStats(g) && <div class="pl-stats small num">{netStats(g)}</div>}
         </li>)}
       </ul>}
       {big && <button type="button" class="pl-big" aria-label={t("player.close")} onClick={() => setBig(null)}><img src={big} alt="" /></button>}

@@ -37,7 +37,7 @@ import { RailwayBrand } from "./RailwayBrand";
 import { Card, CommunityButton } from "./Community";
 import { communityOn, communityOpen, fetchShares, linkedShare, type ShareRow } from "../game/community";
 import { accountState, boards, boardsOpen, fetchBoards, playerShown, type Board, type BoardKind } from "../game/account";
-import { Avatar, WORLD } from "./Leaderboard";
+import { Avatar, WORLD, netStats } from "./Leaderboard";
 import { Named } from "./Flag";
 import { pointsShort } from "../game/points";
 import { dismissUpdate, updateToShow } from "./updates";
@@ -341,11 +341,15 @@ function CommunityPeek() {
 /** Papan peringkat: the world board's top three on a podium, the next two, and the player's own place */
 function BoardPeek() {
   const [kind, setKind] = useState<BoardKind>("tpl");
+  // 168Railway (26 Nov): the world board or one city's, the cities with the most players as chips
+  const [key, setKey] = useState(WORLD);
   const on = accountState.value === "on" || MOCK;
-  useEffect(() => { if (on && !MOCK) void fetchBoards(WORLD, kind); }, [on, kind]);
+  useEffect(() => { if (on) void fetchBoards(key, kind); }, [on, kind, key]);
   if (!on) return null;
-  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395], ["dipo_bukit", 380], ["loko_cc206", 344], ["krl_mania", 300], ["rel_ganda", 287], ["nusantara_rail", 260]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000, id: "a0000000000" + i })), me: { rank: 27, name: "kamu", value: 120000 } }
-    : b.key === WORLD && b.kind === kind ? b.data : null;
+  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395], ["dipo_bukit", 380], ["loko_cc206", 344], ["krl_mania", 300], ["rel_ganda", 287], ["nusantara_rail", 260]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000, id: "a0000000000" + i, lines: 30 - i * 2, stations: 320 - i * 25, riders: (12 - i) * 180_000 })), me: { rank: 27, name: "kamu", value: 120000 } }
+    : b.key === key && b.kind === kind && b.data?.board === key ? b.data : null;
+  const cityKeys = Object.entries(b.list).filter(([k]) => k.startsWith(WORLD + "_")).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([k]) => k);
+  if (key !== WORLD && !cityKeys.includes(key)) cityKeys.unshift(key);
   const rows = d?.rows ?? [];
   const top = [rows[1], rows[0], rows[2]];
   const me = d?.me;
@@ -357,15 +361,20 @@ function BoardPeek() {
         <button role="tab" aria-selected={kind === "nol"} class={kind === "nol" ? "on" : ""} onClick={() => setKind("nol")}>{t("launch.fromScratch")}</button>
       </div>
       <button type="button" class="lsec-more" onClick={() => { playerShown.value = null; boardsOpen.value = true; }}>{t("launch.full")} →</button></div>
+    {cityKeys.length > 0 && <div class="bp-cities" role="tablist" aria-label={t("launch.boardCity")}>
+      {[WORLD, ...cityKeys].map((k) => <button type="button" role="tab" aria-selected={key === k} class={key === k ? "on" : ""} onClick={() => setKey(k)}>
+        {k === WORLD ? t("leaderboard.world") : tPlace(k.slice(WORLD.length + 1), cityById(k.slice(WORLD.length + 1))?.name ?? k.slice(WORLD.length + 1))}</button>)}
+    </div>}
     <div class="bp">
       {!d ? <p class="muted small">{b.error || t("leaderboard.loading")}</p> : !rows.length ? <p class="muted small">{t("leaderboard.nobody")}</p> : <>
         <div class="bp-pod">{top.map((r, i) => r ? <div class={"bp-p p" + r.rank} key={i}>
           <Avatar name={r.name} photo={r.photo} size={r.rank === 1 ? 54 : 42} cls="bp-av" />
           <button type="button" class="bp-nm" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><Named name={r.name} flag={r.flag} small /></button>
           <span class="bp-pts num">{pointsShort(r.value)}</span>
+          {netStats(r) && <small class="bp-st num">{netStats(r)}</small>}
           <span class="bp-blk">{r.rank}</span>
         </div> : <div key={i} />)}</div>
-        {rows.slice(3, 10).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Avatar name={r.name} photo={r.photo} size={26} /><Named name={r.name} flag={r.flag} small /><b class="num">{pointsShort(r.value)}</b></button>)}
+        {rows.slice(3, 10).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Avatar name={r.name} photo={r.photo} size={26} /><span class="bp-nmw"><Named name={r.name} flag={r.flag} small />{netStats(r) && <small class="num">{netStats(r)}</small>}</span><b class="num">{pointsShort(r.value)}</b></button>)}
       </>}
       {me ? <div class="bp-me"><div><span class="bp-rk num">{me.rank}</span><span>{t("launch.you")}</span><b class="num">{pointsShort(me.value)}</b></div>
         {meAbove && <small class="muted">{t("launch.toNext", { points: pointsShort(meAbove.value - me.value), rank: meAbove.rank })}</small>}</div>
