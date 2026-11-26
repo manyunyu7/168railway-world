@@ -43,7 +43,7 @@ export interface AccountConfig { googleClientId: string; dev: boolean; password:
 export interface BoardSetting { on: boolean; name: string; /** set when a moderator hid the display name; absent on a server that does not say */ nameHidden?: boolean; /** T-3269: the flag beside the name, game/flags.ts */ flag?: string }
 export interface BoardRow { rank: number; name: string; value: number; flag?: string; /** 168Railway: the player's stand-in id, for their profile */ id?: string; /** 168Railway: their profile photo */ photo?: string | null }
 /** 168Railway (26 Nov): a leaderboard player's profile, `GET trainworld/player/<id>` (web StudioWorldBoards::player) */
-export interface PlayerGame { kind: BoardKind; points: number; day: number; cities: string[]; at: number }
+export interface PlayerGame { kind: BoardKind; points: number; day: number; cities: string[]; at: number; /** its network picture, when its owner's game has sent one */ thumb?: string | null }
 export interface PlayerProfile { id: string; name: string; photo?: string | null; joinedAt: number | null; since: number | null; games: PlayerGame[]; gameCount: number; sandboxCount: number }
 /** the profile open in the leaderboards, by its id */
 export const playerShown = signal<string | null>(null);
@@ -332,7 +332,9 @@ export async function fetchBoards(key = boards.peek().key, kind: BoardKind = boa
 
 /** Each browser slot's game id, the account it last sent to, what it sent, and whether its
  * sandbox notice went. */
-interface GameEntry { id: string; acct?: string; sent?: string; at?: number; sandbox?: boolean; shared?: boolean }
+interface GameEntry { id: string; acct?: string; sent?: string; at?: number; sandbox?: boolean; shared?: boolean; /** 168Railway: the picture last sent, and when */ thumbSig?: string; thumbAt?: number }
+/** 168Railway: the network's picture goes with its figures at most this often (player profiles show it) */
+const THUMB_GAP_MS = 20 * 60_000;
 const games = (): Record<string, GameEntry> => lsGet<Record<string, GameEntry>>(GAMES_KEY) ?? {};
 
 /** The playing game's slot, when it is a stored one this tab writes (not a `?new=1` page). */
@@ -401,6 +403,19 @@ function figures(): { day: number; points: number; cities: Record<string, number
 const unranked = (m: { mode: string; copy?: boolean }) => m.mode === "sandbox" || m.copy === true;
 
 let sending = false;
+/** 168Railway (26 Nov): the game's own network picture (its save card's) for its owner's profile on the leaderboards,
+ * when it changed and the gap has passed; a failure waits for the next send */
+async function sendThumb(slot: string, e: GameEntry) {
+  const th = saveSlotsState.peek().slots.find((x) => x.key === slot)?.thumb;
+  if (!th || !th.startsWith("data:image/png;base64,") || th.length > 440_000) return;
+  const sig = `${th.length}:${th.slice(-48)}`;
+  if (e.thumbSig === sig || Date.now() - (e.thumbAt ?? 0) < THUMB_GAP_MS) return;
+  try {
+    await api("PUT", `trainworld/score/${e.id}/thumb`, { png: th });
+    lsSet(GAMES_KEY, { ...games(), [slot]: { ...(games()[slot] ?? e), thumbSig: sig, thumbAt: Date.now() } });
+  } catch { /* the next send tries again */ }
+}
+
 /** Send the playing game's figures if they changed and the gap has passed (`now` skips the gap). */
 export async function sendScores(now = false) {
   const s = session.peek(), slot = playingSlot(), m = moneyState.peek();
@@ -434,6 +449,7 @@ export async function sendScores(now = false) {
     e.at = Date.now();
     lsSet(GAMES_KEY, { ...games(), [slot]: e });
     if (boards.peek().at) boards.value = { ...boards.peek(), at: 0 }; // the boards may have moved
+    if (!unranked(m)) void sendThumb(slot, e);
   } catch (err) {
     // a game the server knows as a sandbox: it stays unlisted, so stop asking
     if ((err as ApiError).status === 403) lsSet(GAMES_KEY, { ...games(), [slot]: { ...e, sandbox: true, acct } });

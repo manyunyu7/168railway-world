@@ -574,3 +574,12 @@
 .lb-more .btn { width: 100%; }
 .pl-av.av { box-shadow: 0 4px 14px rgb(15 31 61 / 18%); }
 .launch-row button.bp-row { gap: 10px; }
+
+/* profile: each network's picture, tap for a bigger one */
+.pl-games li { gap: 6px; }
+.pl-pic { display: block; width: 100%; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: #eef3fb; cursor: zoom-in; }
+.pl-pic img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: cover; }
+.pl-nopic { cursor: default; aspect-ratio: 6 / 1; display: grid; place-items: center; text-align: center; padding: 6px 10px; }
+.pl-big { position: fixed; inset: 0; z-index: 1000; border: 0; padding: 4vmin; background: rgb(10 18 35 / 82%); display: grid; place-items: center; cursor: zoom-out; }
+.pl-big img { max-width: 100%; max-height: 100%; border-radius: 14px; background: #fff; box-shadow: 0 20px 60px rgb(0 0 0 / 40%); image-rendering: auto; }
+.lb-panel:has(.pl) { width: min(520px, 94vw); }

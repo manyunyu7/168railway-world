@@ -181,6 +181,7 @@ function Player({ id }: { id: string }) {
     return () => { live = false; };
   }, [id]);
   const day = (s: number | null) => s ? tDate(s * 1000, { day: "numeric", month: "long", year: "numeric" }) : "—";
+  const [big, setBig] = useState<string | null>(null);
   const best = p?.games[0]?.points ?? 0;
   return <div class="pl">
     <button type="button" class="btn text pl-back" onClick={() => (playerShown.value = null)}><Icon.goBack />{t("player.back")}</button>
@@ -198,11 +199,14 @@ function Player({ id }: { id: string }) {
       <h4 class="pl-sub">{t("player.maps")}</h4>
       {p.games.length === 0 ? <p class="small muted">{t("player.noGames")}</p> : <ul class="pl-games">
         {p.games.map((g) => <li>
+          {g.thumb ? <button type="button" class="pl-pic" aria-label={t("player.bigger")} onClick={() => setBig(g.thumb!)}><img src={g.thumb} alt="" loading="lazy" width={480} height={320} /></button>
+            : <div class="pl-pic pl-nopic small muted">{t("player.noPic")}</div>}
           <div class="pl-g-top"><b>{g.cities.length ? g.cities.map((c) => shownName(c)).join(" · ") : t("player.noCity")}</b>
             <span class="pl-kind">{g.kind === "tpl" ? "Template" : "Dari nol"}</span></div>
           <div class="small muted num">{t("savesPanel.day", { day: g.day })} · {t("leaderboard.value", { points: pointsShort(g.points) })} · {t("player.lastPlayed", { date: day(g.at) })}</div>
         </li>)}
       </ul>}
+      {big && <button type="button" class="pl-big" aria-label={t("player.close")} onClick={() => setBig(null)}><img src={big} alt="" /></button>}
     </>}
   </div>;
 }
