@@ -404,6 +404,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
             return <li key={g.origin} data-origin={g.origin} class={"row-card row-card-map" + (last ? " is-last" : "")}>
               <div class="row-card-bg" aria-hidden="true"><SlotThumb slot={s} /></div>
               <div class="row-card-body">
+                <div class="row-card-info">
                 <div class="row-card-top">
                   <span class="row-chip">{last ? t("launch.lastPlayed") : s.mode === "sandbox" ? t("newGame.sandbox") : t("newGame.normal")}</span>
                   <span class="row-when small">{savedWhen(s.at, now)}</span>
@@ -411,6 +412,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
                 <h2 class="row-card-title"><SlotTitle slot={s} /></h2>
                 {!s.unreadable && <p class="row-figures">{figures}</p>}
                 {s.mode !== "sandbox" && s.cash !== undefined && <span class="row-cash">{t("launch.statCash")} <Money dollars={s.cash * 1e6} /></span>}
+                </div>
                 {/* a damaged or refused copy says so, as the saves panel does */}
                 {(s.damaged || s.unreadable || s.cloud?.error) && <div class="row-facts"><SlotFacts slot={s} now={now} /></div>}
                 {memWarn?.key === s.key && <MemoryWarn stations={memWarn.stations} onGo={() => { setMemWarn(null); void open(s.key); }} onCancel={() => setMemWarn(null)} />}

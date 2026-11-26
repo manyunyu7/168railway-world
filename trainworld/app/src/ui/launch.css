@@ -349,3 +349,20 @@
 @media (max-width: 860px) {
   .launch-row .row-card-map, .launch-row .row-card-map.is-last { flex-basis: min(84vw, 360px); }
 }
+
+/* the lines clear (owner: "masih samar"): the picture at full strength, the name and figures on a small frosted panel */
+.row-card-bg .save-thumb img { opacity: 1; }
+.row-card-info { align-self: flex-start; max-width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px;
+  border-radius: 16px; background: color-mix(in srgb, var(--bg) 82%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px rgb(20 40 30 / 10%); }
+.row-card-info .row-card-top { gap: 12px; }
+.row-card-map :is(.row-card-title, .row-figures, .row-when) { text-shadow: none; }
+/* more map in view: a taller card, a tighter panel whose top row never wraps */
+.launch-row .row-card-map { min-height: 380px; }
+.row-card-info { gap: 5px; padding: 10px 12px; }
+.row-card-info .row-card-top { flex-wrap: nowrap; gap: 8px; }
+.row-card-info :is(.row-chip, .row-when) { white-space: nowrap; }
+.row-card-info .row-when { font-size: 12px; }
+.row-card-map .row-card-title { font-size: 22px; }
+.row-card-info .row-figures { font-size: 14px; }
+.row-card-info .row-cash { padding: 2px 9px; font-size: 12px; }
