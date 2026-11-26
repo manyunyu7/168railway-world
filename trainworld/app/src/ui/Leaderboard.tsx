@@ -12,7 +12,7 @@ import { CITIES, zoneCountry } from "../game/cities";
 import { accountOpen, accountState, boardSetting, boards, boardsOpen, fetchBoardPage, fetchBoards, fetchPlayer, HOST_ACCOUNTS, playerShown, playingKind, session, setBoard, type BoardRow, type PlayerProfile } from "../game/account";
 import { CAN_SIGN_IN_THROUGH_APP, HOST_LOGIN, signInThroughApp } from "../game/hostSession";
 import { exact } from "../game/format";
-import { t, tCountry, tDate } from "../i18n";
+import { language, t, tCountry, tDate } from "../i18n";
 import { countryName } from "../i18n/intl";
 import { moneyState } from "../game/money";
 import { POINTS_PER_KM, POINTS_PER_TRIP, pointsScore, pointsShort } from "../game/points";
@@ -48,6 +48,25 @@ export function netStats(g: { lines?: number; stations?: number; riders?: number
   return out.join(" · ");
 }
 
+/** 168Railway (26 Nov): "2 jam lalu" for a unix time */
+export function ago(at: number): string {
+  const s = Math.max(0, Date.now() / 1000 - at);
+  const f = new Intl.RelativeTimeFormat(language.value, { numeric: "auto", style: "short" });
+  if (s < 3600) return f.format(-Math.max(1, Math.round(s / 60)), "minute");
+  if (s < 86400) return f.format(-Math.round(s / 3600), "hour");
+  if (s < 86400 * 30) return f.format(-Math.round(s / 86400), "day");
+  return f.format(-Math.round(s / (86400 * 30)), "month");
+}
+/** played in the last 15 minutes */
+export const playingNow = (r: { at?: number }) => !!r.at && Date.now() / 1000 - r.at < 900;
+/** a board row's game at a glance: "Jakarta · Bandung · Hari 218 · 2 jam lalu" */
+export function rowSub(r: BoardRow, cities = 2, when = true): string {
+  const out = (r.cities ?? []).slice(0, cities).map((c) => shownName(c));
+  if (r.day) out.push(t("savesPanel.day", { day: r.day }));
+  if (when && r.at && !playingNow(r)) out.push(ago(r.at));
+  return out.join(" · ");
+}
+
 /** the podium's two short lines: "30 lini · 320 stasiun" and "2,2 jt/hari" */
 export function netStatsShort(g: { lines?: number; stations?: number; riders?: number }): [string, string] {
   return [netStats({ lines: g.lines, stations: g.stations }), g.riders ? t("player.ridersShort", { count: pointsShort(g.riders) }) : ""];
@@ -58,7 +77,9 @@ function Row({ r, board, mine }: { r: BoardRow; board: string; mine: boolean }) 
     <span class="lb-rank num">{r.rank}</span>
     <Avatar name={r.name} photo={r.photo} size={28} cls="lb-av" />
     <span class="lb-name">{r.id ? <button type="button" class="lb-who" aria-label={t("player.open", { name: r.name })}><Named name={r.name} flag={r.flag} /></button> : <Named name={r.name} flag={r.flag} />}
+      {rowSub(r) && <small class="lb-sub">{playingNow(r) && <i class="live-dot" />}{rowSub(r)}</small>}
       {netStats(r) && <small class="lb-stats num">{netStats(r)}</small>}</span>
+    {r.thumb && <img class="lb-th" src={r.thumb} alt="" loading="lazy" width={60} height={40} />}
     <span class="lb-value num" data-tip={t("leaderboard.valueTip", { points: exact(r.value), world: board === WORLD, city: board === WORLD ? "" : board.startsWith(COUNTRY) ? countryLabel(board.slice(COUNTRY.length)) : cityName(board.slice(WORLD.length + 1)) }) + "\n" + t("leaderboard.pointsRule", { trip: POINTS_PER_TRIP, km: POINTS_PER_KM })}>{t("leaderboard.value", { points: pointsShort(r.value) })}</span>
   </li>;
 }

@@ -37,7 +37,7 @@ import { RailwayBrand } from "./RailwayBrand";
 import { Card, CommunityButton } from "./Community";
 import { communityOn, communityOpen, fetchShares, linkedShare, type ShareRow } from "../game/community";
 import { accountState, boards, boardsOpen, fetchBoards, playerShown, type Board, type BoardKind } from "../game/account";
-import { Avatar, WORLD, netStats, netStatsShort } from "./Leaderboard";
+import { Avatar, WORLD, netStats, netStatsShort, playingNow, rowSub } from "./Leaderboard";
 import { Named } from "./Flag";
 import { pointsShort } from "../game/points";
 import { dismissUpdate, updateToShow } from "./updates";
@@ -346,7 +346,7 @@ function BoardPeek() {
   const on = accountState.value === "on" || MOCK;
   useEffect(() => { if (on) void fetchBoards(key, kind); }, [on, kind, key]);
   if (!on) return null;
-  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395], ["dipo_bukit", 380], ["loko_cc206", 344], ["krl_mania", 300], ["rel_ganda", 287], ["nusantara_rail", 260]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000, id: "a0000000000" + i, lines: 30 - i * 2, stations: 320 - i * 25, riders: (12 - i) * 180_000 })), me: { rank: 27, name: "kamu", value: 120000 } }
+  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395], ["dipo_bukit", 380], ["loko_cc206", 344], ["krl_mania", 300], ["rel_ganda", 287], ["nusantara_rail", 260]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000, id: "a0000000000" + i, ...(i % 3 === 1 ? {} : { lines: 30 - i * 2, stations: 320 - i * 25, riders: (12 - i) * 180_000 }), cities: [["jak", "bad"], ["sur"], ["jak", "lek", "bad"], ["sem"], ["yog", "sol"]][i % 5], day: 40 + i * 37, at: Date.now() / 1000 - i * i * 2400 })), me: { rank: 27, name: "kamu", value: 120000 } }
     : b.key === key && b.kind === kind && b.data?.board === key ? b.data : null;
   const cityKeys = Object.entries(b.list).filter(([k]) => k.startsWith(WORLD + "_")).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([k]) => k);
   if (key !== WORLD && !cityKeys.includes(key)) cityKeys.unshift(key);
@@ -371,10 +371,11 @@ function BoardPeek() {
           <Avatar name={r.name} photo={r.photo} size={r.rank === 1 ? 54 : 42} cls="bp-av" />
           <button type="button" class="bp-nm" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><Named name={r.name} flag={r.flag} small /></button>
           <span class="bp-pts num">{pointsShort(r.value)}</span>
+          {rowSub(r, 1, false) && <small class="bp-sub">{playingNow(r) && <i class="live-dot" />}{rowSub(r, 1, false)}</small>}
           {netStats(r) && <small class="bp-st num">{netStatsShort(r).filter(Boolean).map((l) => <span>{l}</span>)}</small>}
           <span class="bp-blk">{r.rank}</span>
         </div> : <div key={i} />)}</div>
-        {rows.slice(3, 10).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Avatar name={r.name} photo={r.photo} size={26} /><span class="bp-nmw"><Named name={r.name} flag={r.flag} small />{netStats(r) && <small class="num">{netStats(r)}</small>}</span><b class="num">{pointsShort(r.value)}</b></button>)}
+        {rows.slice(3, 10).map((r) => <button type="button" class="bp-row" disabled={!r.id} onClick={() => { if (r.id) { playerShown.value = r.id; boardsOpen.value = true; } }}><span class="num">{r.rank}</span><Avatar name={r.name} photo={r.photo} size={26} /><span class="bp-nmw"><Named name={r.name} flag={r.flag} small />{rowSub(r, 1) && <small class="bp-sub">{playingNow(r) && <i class="live-dot" />}{rowSub(r, 1)}</small>}{netStats(r) && <small class="bp-net num">{netStats(r)}</small>}</span>{r.thumb ? <img class="bp-th" src={r.thumb} alt="" loading="lazy" width={60} height={40} /> : <span />}<span class="bp-val"><b class="num">{pointsShort(r.value)}</b><i class="bp-bar"><i style={{ width: `${Math.max(4, Math.round(100 * r.value / (rows[0]?.value || 1)))}%` }} /></i></span></button>)}
       </>}
       {me ? <div class="bp-me"><div><span class="bp-rk num">{me.rank}</span><span>{t("launch.you")}</span><b class="num">{pointsShort(me.value)}</b></div>
         {meAbove && <small class="muted">{t("launch.toNext", { points: pointsShort(meAbove.value - me.value), rank: meAbove.rank })}</small>}</div>
