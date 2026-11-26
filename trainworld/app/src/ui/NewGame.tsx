@@ -31,7 +31,7 @@ const REAL_NETWORKS = new Set<string>(realNetworks);
  * the cash the usual start's): `packs/real/<id>.save`, from pipeline/realnet.py's Jakarta scenarios. The first is
  * the Red (Bogor) and Brown (Tangerang) KRL lines with TransJakarta, then `jak`, the whole network (KRL from GAPEKA 2026,
  * MRT, LRT, Kalayang, TransJakarta BRT 1-14). */
-const JABO_SCENARIOS = ["jak_mulai", "indo", "jak", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
+export const JABO_SCENARIOS = ["jak_mulai", "indo", "jak", "jak_2019", "jak_krl", "jak_tj", "jak_bogor"] as const;
 export type JaboScenario = (typeof JABO_SCENARIOS)[number];
 /** 168Railway launcher: which start the sheet shows, for the map stage beside it (StartMenu.tsx) */
 export type NewGameView = { tab: "real" | "blank"; jabo: JaboScenario };
@@ -148,7 +148,7 @@ async function realNetwork(id: string): Promise<ArrayBuffer> {
 }
 
 /** The sheet. `onStart` gets the new game, with its real network downloaded when chosen. */
-export function NewGameSheet({ onStart, onBack, heading = true, tab: tab0 = "real", onView, back = true }: { onStart: (spec: NewGameSpec) => void; onBack: () => void; heading?: boolean; tab?: NewGameView["tab"]; onView?: (v: NewGameView) => void; back?: boolean }) {
+export function NewGameSheet({ onStart, onBack, heading = true, tab: tab0 = "real", jabo: jabo0 = "jak_mulai", onView, back = true }: { onStart: (spec: NewGameSpec) => void; onBack: () => void; heading?: boolean; tab?: NewGameView["tab"]; jabo?: JaboScenario; onView?: (v: NewGameView) => void; back?: boolean }) {
   // 168Railway launcher: the real networks and the empty map on two tabs
   const [tab, setTab] = useState<NewGameView["tab"]>(tab0);
   const [mode, setMode] = useState<GameMode>("normal");
@@ -175,7 +175,7 @@ export function NewGameSheet({ onStart, onBack, heading = true, tab: tab0 = "rea
   const startId = located ? located.zone : start;
   const city = startId ? cityById(startId) : null;
   const realOffered = mode === "sandbox" && !!startId && REAL_NETWORKS.has(startId);
-  const [jabo, setJabo] = useState<JaboScenario>("jak_mulai");
+  const [jabo, setJabo] = useState<JaboScenario>(jabo0);
   useEffect(() => { onView?.({ tab, jabo }); }, [tab, jabo]);
   // T-3225: the real networks by name, for the sandbox's list
   const realCities = useMemo(() => [...REAL_NETWORKS].filter((id) => isCity(id)).map((id) => cityById(id))

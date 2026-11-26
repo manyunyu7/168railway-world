@@ -23,7 +23,7 @@ import { saveRefusal } from "../game/memoryCheck";
 import { overBudget } from "../game/memoryEstimate";
 import { MemoryWarn } from "./MemoryWarn";
 import { blockKeysOutside } from "./keys";
-import { NewGameSheet, type NewGameView } from "./NewGame";
+import { JABO_SCENARIOS, NewGameSheet, type JaboScenario, type NewGameView } from "./NewGame";
 import { newGameEnd, setStartAt } from "./locate";
 
 
@@ -34,7 +34,12 @@ import { Icon } from "./widgets";
 import { Money } from "./MoneyText";
 import { Changelog } from "./Changelog";
 import { RailwayBrand } from "./RailwayBrand";
-import { CommunityButton } from "./Community";
+import { Card, CommunityButton } from "./Community";
+import { communityOn, communityOpen, fetchShares, linkedShare, type ShareRow } from "../game/community";
+import { accountState, boards, boardsOpen, fetchBoards, type Board, type BoardKind } from "../game/account";
+import { WORLD } from "./Leaderboard";
+import { Named } from "./Flag";
+import { pointsShort } from "../game/points";
 import { dismissUpdate, updateToShow } from "./updates";
 import { accountBackupFile, accountList, accountOnly, cardOf, damagedAccount, deleteOwed, deleteVersions, downloadAccountGame, downloadFailure, pinnedFile, settleOnStart, slotsChanged, stopStartSettle } from "../game/accountGames";
 import { t, type MessageKey } from "../i18n";
@@ -260,13 +265,89 @@ function useAccent(thumb?: string): string | null {
   return accent;
 }
 
-/** One saved game's card on the launcher's row (option 6, with its own accent colour) */
+/** One saved game's card on the launcher's row (2026-11-26 option 14 "Biru MRT"): a stripe in its network's own
+ * colour across the top, then a badge with its initial, its picture, its figures and the open button */
 function GameCard({ origin, accentOf, children, last }: { origin: string; accentOf?: string; children: ComponentChildren; last: boolean }) {
   const accent = useAccent(accentOf);
-  return <li data-origin={origin} class={"row-card row-card-map" + (last ? " is-last" : "")} style={accent ? { "--acc": accent } : undefined}>
-    <div class="row-route" aria-hidden="true"><i /><i /><i /></div>
+  return <li data-origin={origin} class={"row-card sc" + (last ? " is-last" : "")} style={accent ? { "--acc": accent } : undefined}>
+    <div class="sc-stripe" aria-hidden="true" />
     {children}
   </li>;
+}
+
+/** Mulai baru: the Jabodetabek starts as stations on one metro line, the empty map the last stop */
+function StartLine({ onPick }: { onPick: (tab: NewGameView["tab"], jabo?: JaboScenario) => void }) {
+  const big = new Set<JaboScenario>(["jak", "indo"]);
+  return <div class="sl">
+    <div class="sl-track" aria-hidden="true" />
+    {JABO_SCENARIOS.map((id) => <button type="button" class={"sl-st" + (big.has(id) ? " big" : "")} data-scenario={id} onClick={() => onPick("real", id)}>
+      <span class="sl-dot" aria-hidden="true" /><b>{t(`newGame.jabo.${id}` as MessageKey)}</b>
+    </button>)}
+    <button type="button" class="sl-st end" onClick={() => onPick("blank")}>
+      <span class="sl-dot" aria-hidden="true"><Icon.plus /></span><b>{t("launch.welcomeBlank")}</b><i>{t("launch.blankShort")}</i>
+    </button>
+  </div>;
+}
+
+/** dev server only: `?mock=launch` fills Komunitas and Papan peringkat with made-up rows, to see their layout */
+const MOCK = import.meta.env.DEV && new URLSearchParams(location.search).get("mock") === "launch";
+const MOCK_ROWS: ShareRow[] = MOCK ? ["Jabodetabek Loop Ekspres", "KRL Lingkar Dalam", "Busway 2030", "Red Line ke Puncak"].map((title, i) =>
+  ({ id: "mock000" + i, rev: 1, name: ["masinis_bdg", "rara.rail", "andi_tj", "sinta"][i], title, city: "jak", points: [1240, 890, 760, 420][i] * 1000, lines: [31, 12, 22, 6][i], stations: [412, 186, 264, 98][i], day: 10, likes: [24, 12, 9, 3][i], at: 0 })) : [];
+
+/** Komunitas: the biggest shared networks, two by two, each opening in Community; nothing while Community is off */
+function CommunityPeek() {
+  const [rows, setRows] = useState<ShareRow[] | null>(null);
+  const on = communityOn() || MOCK;
+  useEffect(() => {
+    if (MOCK) { setRows(MOCK_ROWS); return; }
+    if (!on) return;
+    let live = true;
+    fetchShares("top", "", "").then((l) => { if (live) setRows(l.rows.slice(0, 4)); }, () => { if (live) setRows([]); });
+    return () => { live = false; };
+  }, [on]);
+  if (!on || (rows && !rows.length)) return null;
+  return <section class="lsec">
+    <div class="lsec-head"><h2>{t("community.title")}</h2><span class="muted">{t("community.biggest")}</span>
+      <button type="button" class="lsec-more" onClick={() => (communityOpen.value = true)}>{t("launch.seeAll")} →</button></div>
+    <ul class="cp-grid">{rows ? rows.map((r) => <Card row={r} onOpen={() => { linkedShare.value = r.id; communityOpen.value = true; }} />)
+      : [0, 1, 2, 3].map(() => <li class="cp-wait" />)}</ul>
+  </section>;
+}
+
+/** Papan peringkat: the world board's top three on a podium, the next two, and the player's own place */
+function BoardPeek() {
+  const [kind, setKind] = useState<BoardKind>("tpl");
+  const on = accountState.value === "on" || MOCK;
+  useEffect(() => { if (on && !MOCK) void fetchBoards(WORLD, kind); }, [on, kind]);
+  if (!on) return null;
+  const b = boards.value, d: Board | null = MOCK ? { board: WORLD, count: 40, rows: [["masinis_bdg", 1240], ["rara.rail", 890], ["andi_tj", 760], ["sinta", 420], ["kereta_kita", 395]].map(([name, v], i) => ({ rank: i + 1, name: name as string, value: (v as number) * 1000 })), me: { rank: 27, name: "kamu", value: 120000 } }
+    : b.key === WORLD && b.kind === kind ? b.data : null;
+  const rows = d?.rows ?? [];
+  const top = [rows[1], rows[0], rows[2]];
+  const me = d?.me;
+  const meAbove = me ? rows.find((r) => r.rank === me.rank - 1) : undefined;
+  return <section class="lsec">
+    <div class="lsec-head"><h2>{t("leaderboard.title")}</h2>
+      <div class="lb-kinds" role="tablist">
+        <button role="tab" aria-selected={kind === "tpl"} class={kind === "tpl" ? "on" : ""} onClick={() => setKind("tpl")}>{t("newGame.tabReal")}</button>
+        <button role="tab" aria-selected={kind === "nol"} class={kind === "nol" ? "on" : ""} onClick={() => setKind("nol")}>{t("launch.fromScratch")}</button>
+      </div>
+      <button type="button" class="lsec-more" onClick={() => (boardsOpen.value = true)}>{t("launch.full")} →</button></div>
+    <div class="bp">
+      {!d ? <p class="muted small">{b.error || t("leaderboard.loading")}</p> : !rows.length ? <p class="muted small">{t("leaderboard.nobody")}</p> : <>
+        <div class="bp-pod">{top.map((r, i) => r ? <div class={"bp-p p" + r.rank} key={i}>
+          <span class="bp-av" aria-hidden="true">{(r.name || "?").slice(0, 1).toUpperCase()}</span>
+          <span class="bp-nm"><Named name={r.name} flag={r.flag} small /></span>
+          <span class="bp-pts num">{pointsShort(r.value)}</span>
+          <span class="bp-blk">{r.rank}</span>
+        </div> : <div key={i} />)}</div>
+        {rows.slice(3, 5).map((r) => <div class="bp-row"><span class="num">{r.rank}</span><Named name={r.name} flag={r.flag} small /><b class="num">{pointsShort(r.value)}</b></div>)}
+      </>}
+      {me ? <div class="bp-me"><div><span class="bp-rk num">{me.rank}</span><span>{t("launch.you")}</span><b class="num">{pointsShort(me.value)}</b></div>
+        {meAbove && <small class="muted">{t("launch.toNext", { points: pointsShort(meAbove.value - me.value), rank: meAbove.rank })}</small>}</div>
+        : d && <p class="muted small bp-join">{t("launch.joinBoard")}</p>}
+    </div>
+  </section>;
 }
 
 function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest: guest0 = false }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void>; guest?: boolean }) {
@@ -287,7 +368,11 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
   // 168Railway: behind the sign-in and the signed-in home, a metro map drawing itself (as PPKA Simulator's opening screen)
   const metro = useRef<HTMLCanvasElement>(null);
   useEffect(() => (metro.current ? startMetroBackdrop(metro.current) : undefined), [guest, sheet]);
-  const openSheet = (tab: NewGameView["tab"]) => { setSheetTab(tab); setView((v) => ({ ...v, tab })); setSheet(true); };
+  const [sheetJabo, setSheetJabo] = useState<JaboScenario>("jak_mulai");
+  const openSheet = (tab: NewGameView["tab"], jabo?: JaboScenario) => {
+    setSheetTab(tab); if (jabo) setSheetJabo(jabo);
+    setView((v) => ({ tab, jabo: jabo ?? v.jabo })); setSheet(true);
+  };
   // T-988: the slots again once the account has settled them (downloads, deletions, forks)
   const [slots, setSlotsOnly] = useState(first0);
   // T-2705: the saved games could not be read (storage kept failing), as against there being none
@@ -413,7 +498,7 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
           {/* T-2753: the language on the first row, so a new player (who lands on the sheet) sets it first */}
           <div class="start-top"><LanguageSelect /><AccountButton kind="start" /></div>
         </div>
-        <NewGameSheet heading={false} back={false} tab={sheetTab} onView={setView} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
+        <NewGameSheet heading={false} back={false} tab={sheetTab} jabo={sheetJabo} onView={setView} onBack={() => setSheet(false)} onStart={(game) => pick({ newGame: true, newSlot: newGameName(slots, game), game })} />
       </section>
       <div class="launch-stage">
         <StageSnap id={view.tab === "real" ? view.jabo : "base-jak"} />
@@ -441,36 +526,30 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
           {ordered.map((g) => {
             const s = g.top.kind === "slot" ? g.top.slot : cardOf(g.top.game);
             const last = g === resume;
-            // option 6: the game's own picture behind the card, its name big, one line of figures, a round play button
-            const figures = [t("savesPanel.day", { day: s.day }), s.lines !== undefined ? t("savesPanel.lines", { count: s.lines }) : null,
-              s.stations !== undefined ? t("savesPanel.stations", { count: s.stations }) : null].filter(Boolean).join(" · ");
+            const tag = last ? t("launch.lastPlayed") : s.mode === "sandbox" ? t("newGame.sandbox") : t("newGame.normal");
             return <GameCard key={g.origin} origin={g.origin} accentOf={s.thumb} last={last}>
-              <div class="row-card-bg" aria-hidden="true"><SlotThumb slot={s} /></div>
-              <div class="row-card-body">
-                <div class="row-card-info">
-                <div class="row-card-top">
-                  <span class="row-chip">{last ? t("launch.lastPlayed") : s.mode === "sandbox" ? t("newGame.sandbox") : t("newGame.normal")}</span>
-                  <span class="row-when small">{savedWhen(s.at, now)}</span>
-                </div>
-                <h2 class="row-card-title"><SlotTitle slot={s} /></h2>
-                {!s.unreadable && <p class="row-figures">{figures}</p>}
-                {s.mode !== "sandbox" && s.cash !== undefined && <span class="row-cash">{t("launch.statCash")} <Money dollars={s.cash * 1e6} /></span>}
-                </div>
-                {/* a damaged or refused copy says so, as the saves panel does */}
-                {(s.damaged || s.unreadable || s.cloud?.error) && <div class="row-facts"><SlotFacts slot={s} now={now} /></div>}
-                {memWarn?.key === s.key && <MemoryWarn stations={memWarn.stations} onGo={() => { setMemWarn(null); void open(s.key); }} onCancel={() => setMemWarn(null)} />}
-                <div class="row-card-foot">
-                  <div class="row-card-actions">
-                    <VersionsLine group={g} now={now} act={actions(g)} />
-                    <button class="btn icon row-delete start-delete" data-tip={t("startMenu.delete")} aria-label={t("startMenu.deleteGame", { name: s.name })} onClick={() => setRemoving(g.origin)}><Icon.bin /></button>
-                  </div>
-                  <button class={"row-play start-save" + (last ? " railway-resume" : "")} data-slot={s.key} data-tip={last ? t("railway.continue") : t("launch.open")}
-                    aria-label={(last ? t("railway.continue") : t("launch.open")) + " " + s.name} onClick={() => openCard(s)}><Icon.play1 /></button>
-                </div>
-                {removing === g.origin && <div class="callout bad">
-                  <DeleteAsk group={g} yesLabel={t("startMenu.deleteSave")} keepLabel={t("startMenu.keepIt")} yesClass="start-delete-yes" onYes={() => void remove(groupHeads(g))} onKeep={() => setRemoving(null)} />
-                </div>}
+              <div class="sc-head">
+                <span class="sc-badge" aria-hidden="true">{(s.name || "?").slice(0, 1).toUpperCase()}</span>
+                <div class="sc-name"><h2 class="row-card-title"><SlotTitle slot={s} /></h2><span class="muted small">{tag} · {savedWhen(s.at, now)}</span></div>
               </div>
+              <button class="sc-pic start-save" data-slot={s.key} tabIndex={-1} aria-hidden="true" onClick={() => openCard(s)}><SlotThumb slot={s} /></button>
+              {!s.unreadable && <div class="sc-pills num">
+                <span><i>{t("launch.statDay")}</i> {s.day}</span>
+                {s.lines !== undefined && <span><i>{t("launch.statLines")}</i> {s.lines}</span>}
+                {s.stations !== undefined && <span><i>{t("launch.statStationsShort")}</i> {s.stations}</span>}
+                {s.mode !== "sandbox" && s.cash !== undefined && <span><i>{t("launch.statCash")}</i> <Money dollars={s.cash * 1e6} /></span>}
+              </div>}
+              {/* a damaged or refused copy says so, as the saves panel does */}
+              {(s.damaged || s.unreadable || s.cloud?.error) && <div class="row-facts"><SlotFacts slot={s} now={now} /></div>}
+              {memWarn?.key === s.key && <MemoryWarn stations={memWarn.stations} onGo={() => { setMemWarn(null); void open(s.key); }} onCancel={() => setMemWarn(null)} />}
+              <button class={"btn sc-go" + (last ? " railway-resume" : "")} onClick={() => openCard(s)}><Icon.play1 />{last ? t("railway.continue") : t("launch.open")}</button>
+              <div class="row-card-actions">
+                <VersionsLine group={g} now={now} act={actions(g)} />
+                <button class="btn icon row-delete start-delete" data-tip={t("startMenu.delete")} aria-label={t("startMenu.deleteGame", { name: s.name })} onClick={() => setRemoving(g.origin)}><Icon.bin /></button>
+              </div>
+              {removing === g.origin && <div class="callout bad">
+                <DeleteAsk group={g} yesLabel={t("startMenu.deleteSave")} keepLabel={t("startMenu.keepIt")} yesClass="start-delete-yes" onYes={() => void remove(groupHeads(g))} onKeep={() => setRemoving(null)} />
+              </div>}
             </GameCard>;
           })}
         </ul> : <div class="row-cards row-welcome">
@@ -483,6 +562,11 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
             <strong>{t("launch.welcomeBlank")}</strong><span class="muted">{t("launch.welcomeBlankText")}</span>
           </button>
         </div>}
+        <section class="lsec">
+          <div class="lsec-head"><h2>{t("launch.startNew")}</h2><span class="muted">{t("launch.startNewSub")}</span></div>
+          <StartLine onPick={openSheet} />
+        </section>
+        <div class="lsec-two"><CommunityPeek /><BoardPeek /></div>
         <HostWorlds openFile={openHostFile} />
         <footer class="row-foot">
           <button class="btn start-file" onClick={load}><Icon.download />{t("startMenu.loadFile")}</button>

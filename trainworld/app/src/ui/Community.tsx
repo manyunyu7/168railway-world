@@ -108,7 +108,7 @@ function Heading({ row }: { row: ShareRow }) {
   return <span class="cm-heading"><strong>{row.title}</strong>{row.name && <span class="cm-by"><Named name={row.name} flag={row.flag} small /></span>}</span>;
 }
 
-function Card({ row, onOpen }: { row: ShareRow; onOpen: () => void }) {
+export function Card({ row, onOpen }: { row: ShareRow; onOpen: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const { s, failed } = useDrawing(row);
   const sh = shade.value, th = colourTheme.value;
