@@ -29,8 +29,9 @@ import { newGameEnd, setStartAt } from "./locate";
 
 import { AccountButton, startAccountUi } from "./AccountPanel";
 import { LanguageSelect } from "./LanguageSelect";
-import { DeleteAsk, pickSaveFile, savedWhen, SlotFacts, SlotStats, SlotThumb, SlotTitle, useBackups, VersionsLine, type VersionActions } from "./SavesPanel";
+import { DeleteAsk, pickSaveFile, savedWhen, SlotFacts, SlotThumb, SlotTitle, useBackups, VersionsLine, type VersionActions } from "./SavesPanel";
 import { Icon } from "./widgets";
+import { Money } from "./MoneyText";
 import { Changelog } from "./Changelog";
 import { RailwayBrand } from "./RailwayBrand";
 import { CommunityButton } from "./Community";
@@ -397,25 +398,34 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
           {ordered.map((g) => {
             const s = g.top.kind === "slot" ? g.top.slot : cardOf(g.top.game);
             const last = g === resume;
-            return <li key={g.origin} data-origin={g.origin} class={"row-card" + (last ? " is-last" : "")}>
-              <div class="row-card-top">
-                <span class="row-chip">{last ? t("launch.lastPlayed") : s.mode === "sandbox" ? t("newGame.sandbox") : t("newGame.normal")}</span>
-                <span class="row-when muted small">{savedWhen(s.at, now)}</span>
+            // option 6: the game's own picture behind the card, its name big, one line of figures, a round play button
+            const figures = [t("savesPanel.day", { day: s.day }), s.lines !== undefined ? t("savesPanel.lines", { count: s.lines }) : null,
+              s.stations !== undefined ? t("savesPanel.stations", { count: s.stations }) : null].filter(Boolean).join(" · ");
+            return <li key={g.origin} data-origin={g.origin} class={"row-card row-card-map" + (last ? " is-last" : "")}>
+              <div class="row-card-bg" aria-hidden="true"><SlotThumb slot={s} /></div>
+              <div class="row-card-body">
+                <div class="row-card-top">
+                  <span class="row-chip">{last ? t("launch.lastPlayed") : s.mode === "sandbox" ? t("newGame.sandbox") : t("newGame.normal")}</span>
+                  <span class="row-when small">{savedWhen(s.at, now)}</span>
+                </div>
+                <h2 class="row-card-title"><SlotTitle slot={s} /></h2>
+                {!s.unreadable && <p class="row-figures">{figures}</p>}
+                {s.mode !== "sandbox" && s.cash !== undefined && <span class="row-cash">{t("launch.statCash")} <Money dollars={s.cash * 1e6} /></span>}
+                {/* a damaged or refused copy says so, as the saves panel does */}
+                {(s.damaged || s.unreadable || s.cloud?.error) && <div class="row-facts"><SlotFacts slot={s} now={now} /></div>}
+                {memWarn?.key === s.key && <MemoryWarn stations={memWarn.stations} onGo={() => { setMemWarn(null); void open(s.key); }} onCancel={() => setMemWarn(null)} />}
+                <div class="row-card-foot">
+                  <div class="row-card-actions">
+                    <VersionsLine group={g} now={now} act={actions(g)} />
+                    <button class="btn icon row-delete start-delete" data-tip={t("startMenu.delete")} aria-label={t("startMenu.deleteGame", { name: s.name })} onClick={() => setRemoving(g.origin)}><Icon.bin /></button>
+                  </div>
+                  <button class={"row-play start-save" + (last ? " railway-resume" : "")} data-slot={s.key} data-tip={last ? t("railway.continue") : t("launch.open")}
+                    aria-label={(last ? t("railway.continue") : t("launch.open")) + " " + s.name} onClick={() => openCard(s)}><Icon.play1 /></button>
+                </div>
+                {removing === g.origin && <div class="callout bad">
+                  <DeleteAsk group={g} yesLabel={t("startMenu.deleteSave")} keepLabel={t("startMenu.keepIt")} yesClass="start-delete-yes" onYes={() => void remove(groupHeads(g))} onKeep={() => setRemoving(null)} />
+                </div>}
               </div>
-              <h2 class="row-card-title"><SlotTitle slot={s} /></h2>
-              <button class="row-thumb start-save" data-slot={s.key} aria-label={s.name} onClick={() => openCard(s)}><SlotThumb slot={s} /></button>
-              <SlotStats slot={s} compact />
-              {/* a damaged or refused copy says so, as the saves panel does */}
-              {(s.damaged || s.unreadable || s.cloud?.error) && <div class="row-facts"><SlotFacts slot={s} now={now} /></div>}
-              {memWarn?.key === s.key && <MemoryWarn stations={memWarn.stations} onGo={() => { setMemWarn(null); void open(s.key); }} onCancel={() => setMemWarn(null)} />}
-              <button class={"btn row-open" + (last ? " railway-resume" : "")} onClick={() => openCard(s)}><Icon.play1 />{last ? t("railway.continue") : t("launch.open")}</button>
-              <div class="row-card-actions">
-                <VersionsLine group={g} now={now} act={actions(g)} />
-                <button class="btn icon row-delete start-delete" data-tip={t("startMenu.delete")} aria-label={t("startMenu.deleteGame", { name: s.name })} onClick={() => setRemoving(g.origin)}><Icon.bin /></button>
-              </div>
-              {removing === g.origin && <div class="callout bad">
-                <DeleteAsk group={g} yesLabel={t("startMenu.deleteSave")} keepLabel={t("startMenu.keepIt")} yesClass="start-delete-yes" onYes={() => void remove(groupHeads(g))} onKeep={() => setRemoving(null)} />
-              </div>}
             </li>;
           })}
         </ul> : <div class="row-cards row-welcome">
