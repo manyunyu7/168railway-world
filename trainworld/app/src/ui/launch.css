@@ -243,3 +243,79 @@
   .is-card.launch-new .launch-side { margin-top: 0; border-radius: 0; }
   .is-card .launch-panel { zoom: 1; width: auto; left: auto; right: auto; bottom: auto; margin: 150px 0 0; }
 }
+
+/* ---- 2026-11-26: signed-in home, Stitch option 8 in calm colours: a row of game cards (StartMenu.tsx .launch-row).
+   Neutral ground, white cards with a hairline, a muted forest green for the one main action; no lime, no mint. */
+.start-menu.launch-menu:has(> .launch-row) { display: block; padding: 0; overflow: auto; background: color-mix(in srgb, var(--bg) 94%, var(--text)); }
+.start-menu.launch-menu > .launch.launch-row { position: relative; inset: auto; display: block; width: 100%; min-height: 100%;
+  --row-ink: color-mix(in srgb, var(--text) 92%, #000); --row-soft: color-mix(in srgb, var(--bg) 92%, var(--text));
+  --row-line: color-mix(in srgb, var(--bg) 85%, var(--text)); --row-go: #2f6f4e; --row-go-edge: #24573c; --row-go-hover: #367c58; }
+:root[data-shade="dark"] .launch-row { --row-go: #3f8a63; --row-go-edge: #2c6447; --row-go-hover: #4a9870; }
+.row-head { display: flex; align-items: center; gap: 12px; max-width: 1320px; margin: 0 auto; box-sizing: border-box; padding: max(18px, env(safe-area-inset-top)) clamp(16px, 4vw, 56px) 0; zoom: var(--ui, 1); }
+.row-brand { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 900; letter-spacing: -.3px; color: var(--row-ink); }
+.row-brand strong { color: var(--row-go); font-weight: inherit; }
+.row-brand .railway-mark { width: 34px; height: 34px; border-radius: 10px; background: var(--row-go); color: #fff; box-shadow: 0 2px 0 var(--row-go-edge); }
+.row-head .start-top { margin-left: auto; }
+.row-main { max-width: 1320px; box-sizing: border-box; margin: 0 auto; padding: 22px clamp(16px, 4vw, 56px) max(24px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 18px; zoom: var(--ui, 1); }
+.row-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.row-title h1 { margin: 0; font-size: clamp(24px, 3vw, 30px); font-weight: 900; letter-spacing: -.6px; color: var(--row-ink); }
+.launch-row .btn { height: auto; min-height: 42px; padding-inline: 16px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; }
+.launch-row .btn svg { width: 16px; height: 16px; }
+.launch-row .row-new, .launch-row .row-open { background: var(--row-go); color: #fff; border: 1px solid var(--row-go-edge); border-bottom-width: 3px; }
+.launch-row .row-new:hover, .launch-row .row-open:hover { background: var(--row-go-hover); }
+.launch-row .row-new:active, .launch-row .row-open:active { transform: translateY(1px); border-bottom-width: 2px; }
+.launch-row .start-update { position: static; max-width: none; border: 1px solid var(--row-line); border-radius: 14px; background: var(--bg); color: var(--row-ink); padding: 8px 8px 8px 14px; font-size: 14px; zoom: 1; }
+.launch-row .start-update .btn { min-height: 32px; height: 32px; padding: 0 10px; border-radius: 9px; }
+
+/* the row: cards side by side, scrolling sideways with a snap when there are more than fit */
+.launch-row .row-cards { list-style: none; margin: 0 -4px; padding: 4px 4px 14px; display: flex; flex-direction: row; align-items: stretch; gap: 16px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: thin; }
+.row-card { flex: 0 0 300px; scroll-snap-align: start; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 16px;
+  border-radius: 20px; background: var(--bg); border: 1px solid var(--row-line); box-shadow: 0 1px 2px rgb(0 0 0 / 4%); }
+.row-card.is-last { flex-basis: 340px; border-color: color-mix(in srgb, var(--row-go) 45%, var(--row-line)); box-shadow: 0 6px 20px rgb(20 40 30 / 8%); }
+.row-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row-chip { padding: 3px 10px; border-radius: 999px; background: var(--row-soft); color: color-mix(in srgb, var(--text) 75%, var(--bg)); font-size: 12px; font-weight: 800; }
+.row-card.is-last .row-chip { background: color-mix(in srgb, var(--row-go) 12%, var(--bg)); color: var(--row-go); }
+.row-card-title { margin: 0; font-size: 19px; font-weight: 900; line-height: 1.2; color: var(--row-ink); overflow-wrap: anywhere; }
+.row-card-title .save-sandbox { font-size: 11px; margin-left: 6px; vertical-align: middle; }
+.launch-row .row-thumb { display: block; padding: 0; border: 0; border-radius: 14px; overflow: hidden; background: var(--row-soft); cursor: pointer; }
+.launch-row .row-thumb .save-thumb { width: 100%; height: auto; aspect-ratio: 3 / 2; border: 0; }
+.launch-row .row-thumb .save-thumb img { object-fit: cover; }
+.launch-row .launch-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.launch-row .launch-stat { padding: 8px 10px; border-radius: 10px; background: var(--row-soft); }
+.launch-row .launch-stat span { font-size: 11px; font-weight: 700; color: color-mix(in srgb, var(--text) 65%, var(--bg)); }
+.launch-row .launch-stat strong { font-size: 16px; font-weight: 900; color: var(--row-ink); }
+.launch-row .row-open { min-height: 46px; margin-top: auto; font-size: 15px; }
+.row-card-actions { display: flex; align-items: flex-start; gap: 6px; }
+.row-card-actions .save-versions { flex: 1; min-width: 0; margin: 0; font-size: 13px; }
+.launch-row .row-delete { position: static; margin-left: auto; width: 38px; min-width: 38px; min-height: 38px; padding: 0; background: transparent; border: 1px solid var(--row-line); color: color-mix(in srgb, var(--text) 70%, var(--bg)); }
+.launch-row .row-delete:hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--row-line)); }
+.row-facts { font-size: 13px; }
+.launch-row .callout.bad { border-radius: 12px; }
+
+/* no game yet: two picks as cards */
+.row-welcome .row-pick { cursor: pointer; text-align: left; font: inherit; color: var(--row-ink); flex-basis: 340px; }
+.row-pick-img { width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 14px; display: block; }
+.row-pick strong { font-size: 19px; font-weight: 900; }
+.row-pick:hover { border-color: color-mix(in srgb, var(--row-go) 45%, var(--row-line)); }
+
+.launch-row .host-worlds { background: var(--bg); border: 1px solid var(--row-line); border-radius: 16px; max-width: 640px; }
+.row-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding-top: 14px; border-top: 1px solid var(--row-line); }
+.row-foot .btn { background: var(--bg); border: 1px solid var(--row-line); color: var(--row-ink); }
+.row-foot-gap { flex: 1; }
+.row-foot a { color: var(--rail-blue); font-size: 13px; font-weight: 700; text-underline-offset: 3px; }
+.row-foot .start-version { position: static; zoom: 1; }
+
+@media (max-width: 860px) {
+  .row-main { padding-top: 16px; gap: 14px; }
+  .row-card, .row-card.is-last, .row-welcome .row-pick { flex-basis: min(84vw, 340px); }
+  .row-title .row-new { padding-inline: 12px; }
+  .row-foot-gap { flex-basis: 100%; height: 0; }
+}
+
+/* the metro map drawing itself behind the signed-in home (metroBackdrop.ts): clearer than the old menu's, still
+   quiet behind the white cards */
+.start-menu.launch-menu:has(> .launch-row) > .start-metro { filter: blur(1px); opacity: .4; }
+/* the sign-in: the lines move behind the left panel, which lets them through a little */
+.start-menu.launch-menu:has(> .launch-guest) > .start-metro { filter: blur(1px); opacity: .6; }
+.start-menu.launch-menu:has(> .launch-guest) { background: var(--bg); }
+.launch-guest .launch-side { background: color-mix(in srgb, var(--bg) 80%, transparent); }

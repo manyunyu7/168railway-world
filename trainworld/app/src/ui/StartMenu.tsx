@@ -9,6 +9,7 @@ import {HostWorlds} from "./HostWorlds";
 
 import { h, render, type ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { startMetroBackdrop } from "./metroBackdrop";
 import { noteVisit } from "../game/visitNote";
 import { hostSignedIn } from "../game/account";
 import { CAN_SIGN_IN_THROUGH_APP, checkHostAuth, finishSignInWindow, HOST_REGISTER, IN_RAILWAY_APP, signInHere, signInThroughApp, signInWithGoogle } from "../game/hostSession";
@@ -28,7 +29,7 @@ import { newGameEnd, setStartAt } from "./locate";
 
 import { AccountButton, startAccountUi } from "./AccountPanel";
 import { LanguageSelect } from "./LanguageSelect";
-import { DeleteAsk, pickSaveFile, savedWhen, SlotFacts, SlotStats, SlotWhere, SlotThumb, SlotTitle, useBackups, VersionsLine, type VersionActions } from "./SavesPanel";
+import { DeleteAsk, pickSaveFile, savedWhen, SlotFacts, SlotStats, SlotThumb, SlotTitle, useBackups, VersionsLine, type VersionActions } from "./SavesPanel";
 import { Icon } from "./widgets";
 import { Changelog } from "./Changelog";
 import { RailwayBrand } from "./RailwayBrand";
@@ -224,19 +225,6 @@ function StageSnap({ id, alt = "", eager = false, class: cls = "launch-stage-img
     width={2100} height={1500} alt={alt} decoding="async" {...{ fetchpriority: eager ? "high" : "auto" }} />;
 }
 
-/** cities with a plain base map for the stage (`snapshots/hd/base-<city>.jpg`, no network on it) */
-const STAGE_BASES = new Set(["jak"]);
-/** The stage behind the launcher's panel: a saved game's own picture as a framed card, over its city's base map
- * when there is one; else the Jabodetabek snapshot */
-function StageImage({ slot }: { slot?: ReturnType<typeof cardOf> | SaveSlot | null }) {
-  if (!slot?.thumb) return <StageSnap id="jak" eager />;
-  const base = slot.cities?.find((c) => STAGE_BASES.has(c));
-  return <div class={"launch-stage-img launch-stage-thumb" + (base ? " on-base" : "")}>
-    {base && <StageSnap id={`base-${base}`} class="launch-stage-base" eager />}
-    <SlotThumb slot={slot} />
-  </div>;
-}
-
 function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest: guest0 = false }: { slots: SaveSlot[]; unread: boolean; pick: (c: GameChoice) => void; settling: Promise<void>; guest?: boolean }) {
   // 168Railway: a guest signs in on the card, and the menu opens in place
   const [guest, setGuest] = useState(guest0);
@@ -249,10 +237,12 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
   // T-1441: a first visit, with no saved game to pick, opens on the new game sheet
   const [sheet, setSheet] = useState(false);
   useEffect(() => { if (!sheet) first.current?.focus(); }, [sheet]);
-  // 168Railway launcher: the game shown on the stage (its card's origin), and the new game sheet's tab and pick
-  const [picked, setPicked] = useState<string | null>(null);
+  // 168Railway launcher: the new game sheet's tab and pick
   const [sheetTab, setSheetTab] = useState<NewGameView["tab"]>("real");
   const [view, setView] = useState<NewGameView>({ tab: "real", jabo: "jak_mulai" });
+  // 168Railway: behind the sign-in and the signed-in home, a metro map drawing itself (as PPKA Simulator's opening screen)
+  const metro = useRef<HTMLCanvasElement>(null);
+  useEffect(() => (metro.current ? startMetroBackdrop(metro.current) : undefined), [guest, sheet]);
   const openSheet = (tab: NewGameView["tab"]) => { setSheetTab(tab); setView((v) => ({ ...v, tab })); setSheet(true); };
   // T-988: the slots again once the account has settled them (downloads, deletions, forks)
   const [slots, setSlotsOnly] = useState(first0);
@@ -364,12 +354,12 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
   // T-728: the new game sheet; its game gets a slot of its own named after its start, so no saved game is replaced
   // T-1567: the logo stays mounted over both, so its trains run on when the sheet opens
   // with the logo the welcome heading goes (Anita), the logo naming the menu
-  // 168Railway launcher (2026-11 redesign, option A): the games on the left, the picked one's map as the stage,
-  // with its facts, Continue, its versions and delete on the panel over it
-  const shown = groups.find((g) => g.origin === picked) ?? resume ?? groups[0] ?? null;
-  const shownCard = shown ? (shown.top.kind === "slot" ? shown.top.slot : cardOf(shown.top.game)) : null;
+  // 168Railway launcher (2026-11-26, Stitch option 8, calm colours): the saved games as a row of cards, the one
+  // played last first with Continue; each card its picture, four figures, open, versions and delete
+  const ordered = resume ? [resume, ...groups.filter((g) => g !== resume)] : groups;
   const scenTip = view.tab === "real" ? t(`newGame.jaboTip.${view.jabo}` as MessageKey) : t("newGame.blankStageTip");
   return <div class="start-menu launch-menu" role="dialog" aria-modal="true" aria-labelledby="start-title">
+    {!sheet && <canvas ref={metro} class="start-metro" aria-hidden="true" />}
     {guest ? <GuestGate first={first} onIn={() => { setGuest(false); void listSlots().then(setSlots, () => {}); }} /> : sheet ? <div class="launch launch-new is-card">
       <LaunchStrip />
       <section class="launch-side new-game-box">
@@ -389,79 +379,65 @@ function Menu({ slots: first0, unread: unread0, pick: pickGame, settling, guest:
           <p>{scenTip}</p>
         </div>
       </div>
-    </div> : <div class="launch launch-home is-card">
-      <LaunchStrip />
-      <section class="launch-side">
-        <LaunchBrand><div class="start-top"><AccountButton kind="start" /></div></LaunchBrand>
-        <div class="launch-games-head">
-          <h1 id="start-title">{groups.length ? t("launch.myGames") : t("launch.welcomeKicker")}</h1>
-          <button ref={first} class="btn start-new launch-new-btn" onClick={() => openSheet("real")}><Icon.plus />{t("startMenu.newGame")}</button>
+    </div> : <div class="launch launch-row">
+      <header class="row-head">
+        <span class="row-brand"><span class="railway-mark" aria-hidden="true"><Icon.train /></span>168Railway <strong>World</strong></span>
+        <div class="start-top"><AccountButton kind="start" /></div>
+      </header>
+      <main class="row-main">
+        <UpdateRow onChangelog={() => setChangelog(true)} />
+        <div class="row-title">
+          <h1 id="start-title">{groups.length ? t("launch.myGames") : t("launch.welcomeTitle")}</h1>
+          <button ref={first} class="btn row-new" onClick={() => openSheet("real")}><Icon.plus />{t("startMenu.newGame")}</button>
         </div>
         {(refused || deleteOwed.value) && <p class="muted small start-refused" role="alert">{refused || t("cloud.deleteOwed")}</p>}
         {warned && !refused && <p class="muted small start-refused" role="alert">{warned.text} <button class="btn" onClick={() => { setWarned(null); warned.go(); }}>{t("startMenu.loadAnyway")}</button> <button class="btn" onClick={() => { setWarned(null); warned.go(true); }}>{t("startMenu.loadWithoutIntercity")}</button></p>}
         {unread && <p class="muted small start-refused start-unread" role="alert">{t("startMenu.savesUnreadable")}</p>}
-        <div class="launch-scroll">
-          {groups.length > 0 && <ul class="launch-games start-saves" aria-label={t("startMenu.savedGames")}>
-            {groups.map((g) => {
-              const s = g.top.kind === "slot" ? g.top.slot : cardOf(g.top.game);
-              const on = g === shown;
-              return <li key={g.origin} data-origin={g.origin}>
-                {/* one tap shows the game on the stage, a second (or a double click) opens it */}
-                <button class={"launch-game start-save" + (on ? " on" : "")} data-slot={s.key} aria-pressed={on}
-                  onClick={() => { if (on) openCard(s); else { setPicked(g.origin); setRemoving(null); } }} onDblClick={() => openCard(s)}>
-                  <SlotThumb slot={s} />
-                  <span class="save-info"><SlotTitle slot={s} />
-                    <span class="muted small">{savedWhen(s.at, now)}{s.day !== undefined && <> · {t("savesPanel.day", { day: s.day })}</>}</span>
-                  </span>
-                </button>
-              </li>;
-            })}
-          </ul>}
-          <HostWorlds openFile={openHostFile} />
-        </div>
-        <div class="launch-foot">
-          <div class="launch-foot-row">
-            <button class="btn start-file" onClick={load}><Icon.download />{t("startMenu.loadFile")}</button>
-            <CommunityButton start />
-            <LanguageSelect />
-          </div>
-          <div class="launch-foot-row">
-            <a href="./about.html" target="_blank" rel="noopener">{t("railway.credits")}</a>
-            <span class="start-version muted small">{t("startMenu.build", { version: VERSION })}</span>
-          </div>
-        </div>
-      </section>
-      <div class="launch-stage">
-        <StageImage slot={shownCard} />
-        <UpdateRow onChangelog={() => setChangelog(true)} />
-        {shown && shownCard ? <div class="launch-panel">
-          <div class="launch-panel-top">
-            <div class="launch-panel-text">
-              <span class="launch-kicker">{shown === resume ? t("launch.lastPlayed") : t("launch.games")}</span>
-              <h2 class="launch-panel-title"><SlotTitle slot={shownCard} /></h2>
-              <p class="launch-where muted"><SlotWhere slot={shownCard} now={now} /></p>
-            </div>
-            <button class="btn start-new launch-play railway-resume" onClick={() => openCard(shownCard)}><Icon.play1 />{t("railway.continue")}</button>
-          </div>
-          <SlotStats slot={shownCard} />
-          {/* a damaged or refused copy says so, as the saves panel does */}
-          {(shownCard.damaged || shownCard.unreadable || shownCard.cloud?.error) && <div class="launch-facts"><SlotFacts slot={shownCard} now={now} /></div>}
-          {memWarn?.key === shownCard.key && <MemoryWarn stations={memWarn.stations} onGo={() => { setMemWarn(null); void open(shownCard.key); }} onCancel={() => setMemWarn(null)} />}
-          <div class="launch-panel-actions">
-            <VersionsLine group={shown} now={now} act={actions(shown)} />
-            <button class="btn start-delete launch-delete" aria-label={t("startMenu.deleteGame", { name: shownCard.name })} onClick={() => setRemoving(shown.origin)}><Icon.bin />{t("startMenu.delete")}</button>
-          </div>
-          {removing === shown.origin && <div class="callout bad">
-            <DeleteAsk group={shown} yesLabel={t("startMenu.deleteSave")} keepLabel={t("startMenu.keepIt")} yesClass="start-delete-yes" onYes={() => void remove(groupHeads(shown))} onKeep={() => setRemoving(null)} />
-          </div>}
-        </div> : <div class="launch-panel launch-welcome">
-          <h2 class="launch-panel-title">{t("launch.welcomeTitle")}</h2>
-          <div class="launch-welcome-picks">
-            <button class="btn start-new" onClick={() => openSheet("real")}><strong>{t("launch.welcomeJabo")}</strong><span>{t("launch.welcomeJaboText")}</span></button>
-            <button class="btn launch-blank" onClick={() => openSheet("blank")}><strong>{t("launch.welcomeBlank")}</strong><span>{t("launch.welcomeBlankText")}</span></button>
-          </div>
+        {ordered.length > 0 ? <ul class="row-cards start-saves" aria-label={t("startMenu.savedGames")}>
+          {ordered.map((g) => {
+            const s = g.top.kind === "slot" ? g.top.slot : cardOf(g.top.game);
+            const last = g === resume;
+            return <li key={g.origin} data-origin={g.origin} class={"row-card" + (last ? " is-last" : "")}>
+              <div class="row-card-top">
+                <span class="row-chip">{last ? t("launch.lastPlayed") : s.mode === "sandbox" ? t("newGame.sandbox") : t("newGame.normal")}</span>
+                <span class="row-when muted small">{savedWhen(s.at, now)}</span>
+              </div>
+              <h2 class="row-card-title"><SlotTitle slot={s} /></h2>
+              <button class="row-thumb start-save" data-slot={s.key} aria-label={s.name} onClick={() => openCard(s)}><SlotThumb slot={s} /></button>
+              <SlotStats slot={s} compact />
+              {/* a damaged or refused copy says so, as the saves panel does */}
+              {(s.damaged || s.unreadable || s.cloud?.error) && <div class="row-facts"><SlotFacts slot={s} now={now} /></div>}
+              {memWarn?.key === s.key && <MemoryWarn stations={memWarn.stations} onGo={() => { setMemWarn(null); void open(s.key); }} onCancel={() => setMemWarn(null)} />}
+              <button class={"btn row-open" + (last ? " railway-resume" : "")} onClick={() => openCard(s)}><Icon.play1 />{last ? t("railway.continue") : t("launch.open")}</button>
+              <div class="row-card-actions">
+                <VersionsLine group={g} now={now} act={actions(g)} />
+                <button class="btn icon row-delete start-delete" data-tip={t("startMenu.delete")} aria-label={t("startMenu.deleteGame", { name: s.name })} onClick={() => setRemoving(g.origin)}><Icon.bin /></button>
+              </div>
+              {removing === g.origin && <div class="callout bad">
+                <DeleteAsk group={g} yesLabel={t("startMenu.deleteSave")} keepLabel={t("startMenu.keepIt")} yesClass="start-delete-yes" onYes={() => void remove(groupHeads(g))} onKeep={() => setRemoving(null)} />
+              </div>}
+            </li>;
+          })}
+        </ul> : <div class="row-cards row-welcome">
+          <button class="row-card row-pick" onClick={() => openSheet("real")}>
+            <StageSnap id="jak" class="row-pick-img" />
+            <strong>{t("launch.welcomeJabo")}</strong><span class="muted">{t("launch.welcomeJaboText")}</span>
+          </button>
+          <button class="row-card row-pick" onClick={() => openSheet("blank")}>
+            <StageSnap id="base-jak" class="row-pick-img" />
+            <strong>{t("launch.welcomeBlank")}</strong><span class="muted">{t("launch.welcomeBlankText")}</span>
+          </button>
         </div>}
-      </div>
+        <HostWorlds openFile={openHostFile} />
+        <footer class="row-foot">
+          <button class="btn start-file" onClick={load}><Icon.download />{t("startMenu.loadFile")}</button>
+          <CommunityButton start />
+          <LanguageSelect />
+          <span class="row-foot-gap" />
+          <a href="./about.html" target="_blank" rel="noopener">{t("railway.credits")}</a>
+          <span class="start-version muted small">{t("startMenu.build", { version: VERSION })}</span>
+        </footer>
+      </main>
     </div>}
     <Changelog open={changelog} onClose={() => setChangelog(false)} />
   </div>;

@@ -120,14 +120,14 @@ export function SlotFacts({ slot, now, autosaved, mark, unsaved }: { slot: SaveS
  * start menu's. While the account keeps games (T-988), a cloud marks a game only on the account and a crossed cloud
  * one only in this browser. `panel`: the saves panel's, where that crossed cloud adds the game to the account. */
 /** 168Railway launcher: a saved game's figures as tiles, and where and when it was saved (StartMenu.tsx) */
-export function SlotStats({ slot }: { slot: SaveSlot }) {
+export function SlotStats({ slot, compact = false }: { slot: SaveSlot; /** the four figures alone, no play time */ compact?: boolean }) {
   if (slot.unreadable) return null;
   const played = slot.key ? gameSeconds(slot.key) : undefined;
   const tiles: [string, ComponentChildren][] = [[t("launch.statDay"), String(slot.day)]];
   if (slot.lines !== undefined) tiles.push([t("launch.statLines"), String(slot.lines)]);
   if (slot.stations !== undefined) tiles.push([t("launch.statStations"), String(slot.stations)]);
   if (slot.mode !== "sandbox" && slot.cash !== undefined) tiles.push([t("launch.statCash"), <Money dollars={slot.cash * 1e6} />]);
-  if (played !== undefined) tiles.push([t("launch.statPlayed"), playedText(played)]);
+  if (played !== undefined && !compact) tiles.push([t("launch.statPlayed"), playedText(played)]);
   return <div class="launch-stats">{tiles.map(([k, v]) => <div class="launch-stat"><span>{k}</span><strong class="num">{v}</strong></div>)}</div>;
 }
 export function SlotWhere({ slot, now }: { slot: SaveSlot; now: number }) {
