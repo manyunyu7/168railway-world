@@ -6,16 +6,20 @@
 // T-1635: not stored in the browser cache either: Chrome could not answer the whole file that follows from a
 // partly stored one, and the retry logged a console error (net::ERR_CACHE_OPERATION_NOT_SUPPORTED).
 
-// T-3196: given up after `timeoutMs`, so a stalled connection never holds the clock worker's queue for ever.
+// T-3196: given up when no byte has come for `stallMs`, so a stalled connection never holds the clock worker's queue for ever.
+// 168Railway: a limit on silence (patientFetch), not on the whole download: a range crawling on a busy phone line
+// used to be given up at 60 s and asked for again from nothing, for ever.
 
-export async function fetchRange(url: string, start: number, end: number, timeoutMs = 60_000): Promise<ArrayBuffer> {
+import { patientFetch, STALL_MS } from "./patientFetch";
+
+export async function fetchRange(url: string, start: number, end: number, stallMs = STALL_MS): Promise<ArrayBuffer> {
   const range = `${start}-${end - 1}`;
   const native = url.startsWith("https://studio-clock.invalid/clock/packs/");
   // Android WebView applies the HTTP Range a second time to an intercepted response.
   // Ask its APK resource provider for the slice explicitly and receive an ordinary 200.
   const requestUrl = native ? new URL(url) : null;
   requestUrl?.searchParams.set("studioRange", range);
-  const res = await fetch(requestUrl?.href ?? url, { headers: native ? undefined : { Range: `bytes=${range}` }, cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
+  const res = await patientFetch(requestUrl?.href ?? url, { headers: native ? undefined : { Range: `bytes=${range}` }, cache: "no-store" }, stallMs);
   if (!res.ok) throw new Error(`${res.status} ${url}`);
   const buf = await res.arrayBuffer();
   const want = end - start;

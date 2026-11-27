@@ -42,6 +42,8 @@ import { buildingMembers, buildingsFrom, withBuildingLinks } from "../game/build
 import { IN_BUILDING, UPGRADE, UPGRADE_BITS } from "../game/upgrades";
 import { saveNetKey } from "./demandCache";
 import { fetchRange } from "./rangeFetch";
+import { patientFetch } from "./patientFetch";
+import { FetchGate, Urgency } from "./fetchGate";
 import { newDay, newHour, addEntry, currentZones, decodeSave, encodeSave, isThisWorld, isRetiredTrackFormat, trackFrameKind, readStored, failReads, StorageReadError, SAVE_FORMAT, START_CASH, NEW_LINE_CARS, START_CLOCK, writeStored, listSlots, writeSlot, renameSlot, leaseSlot, ORIGINAL_SLOT, SAVE_DAMAGED, isDamagedError, unreadableKey, setNetworkCheck, markDamaged, rescueGood, listBackups, writeBackup, backupSlot, BACKUP_STEPS, headerUnread, nextGameName, newGameName, slotName, takePending, writePending, readSync, writeSync, sweepDeleted, makeRoom, lastSync, WHOLE_PANEL, type PendingLoad, type GameMode, type NewGameSpec, type SlotBackup, type SlotLease, type SlotSummary, type StoredSave, type HostWorldSource, type DayLedger, type HourLedger, type SaveHeader, type NewHeadways, cleanNewHeadways, type GuideSave, type Achieved } from "./saveFile";
 import { StateRows, upgradesOf, type RowEnv } from "./stateRows";
 import { PlatformLines } from "./platformLines";
@@ -1069,22 +1071,22 @@ function fetchWater(id: string): Promise<WaterRaster | null> {
   let p = waterFetches.get(id);
   if (!p) {
     const url = new URL(id, packBase).href;
-    p = (async () => {
-      const res = await fetch(url + ".json", { signal: AbortSignal.timeout(GROUND_TIMEOUT_MS) });
+    p = groundGate.run(Urgency.Waited, async () => {
+      const res = await patientFetch(url + ".json", {}, GROUND_STALL_MS);
       if (res.status === 404) return null;
       const head = await res.json();
       const row = head.arrays.find((a: any) => a.name === "water_row");
       const xs = head.arrays.find((a: any) => a.name === "water_x");
       if (!head.water || !row || !xs) return null;
       const base = row.offset;
-      const buf = await fetchRange(url + ".bin", base, xs.offset + xs.count * 2);
+      const buf = await fetchRange(url + ".bin", base, xs.offset + xs.count * 2, GROUND_STALL_MS);
       const w = head.water;
       return {
         cell: w.cell_m, x0: w.origin_m[0], y0: w.origin_m[1], w: w.size[0], h: w.size[1],
         rows: new Uint32Array(buf, row.offset - base, row.count), runs: new Uint16Array(buf, xs.offset - base, xs.count),
         lon: head.origin.lon, lat: head.origin.lat,
       };
-    })();
+    });
     waterFetches.set(id, p);
     watchGround("w:" + id, p);
     // a failed fetch is tried again by the next edit or view that needs it, or by `retryGround`
@@ -1149,11 +1151,11 @@ const blockListed = (key: number) => !!terrainIndex && indexHas(terrainIndex, ke
 function terrainIndexIntoModel(): Promise<void> {
   if (terrainIndexIn) return Promise.resolve();
   if (!terrainIndexFetch) {
-    const p = (async () => {
-      const res = await fetch(new URL("index.bin", terrainBase).href, { signal: AbortSignal.timeout(GROUND_TIMEOUT_MS) });
+    const p = groundGate.run(Urgency.Waited, async () => {
+      const res = await patientFetch(new URL("index.bin", terrainBase).href, {}, GROUND_STALL_MS);
       if (!res.ok) throw new Error(`${res.status}`);
       return await res.arrayBuffer();
-    })();
+    });
     terrainIndexFetch = p;
     watchGround("index", p);
     // tried again by the next need for it or by `retryGround`; Construct waits for it
@@ -1176,8 +1178,8 @@ function terrainIndexIntoModel(): Promise<void> {
 function fetchBlock(key: number): Promise<ArrayBuffer> {
   let p = blockFetches.get(key);
   if (!p) {
-    p = (async () => {
-      const res = await fetch(new URL(blockFile(key), terrainBase).href, { signal: AbortSignal.timeout(GROUND_TIMEOUT_MS) });
+    p = groundGate.run(Urgency.Terrain, async () => {
+      const res = await patientFetch(new URL(blockFile(key), terrainBase).href, {}, GROUND_STALL_MS);
       // only listed blocks are asked for, so a missing file is a fault, never flat ground
       if (!res.ok) throw new Error(`${res.status}`);
       const b = await res.arrayBuffer();
@@ -1185,7 +1187,7 @@ function fetchBlock(key: number): Promise<ArrayBuffer> {
       const gz = new Uint8Array(b, 0, Math.min(2, b.byteLength));
       if (gz[0] !== 0x1f || gz[1] !== 0x8b) return b;
       return await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
-    })();
+    });
     blockFetches.set(key, p);
     watchGround("t:" + key, p);
     // the bytes are not kept; a failed fetch is tried again by what needs it, or by `retryGround`
@@ -1266,8 +1268,12 @@ async function terrainForLoaded() {
 // go. The page is told how many are on their way and how many failed (the status tag), and a failed
 // one still needed by the view or the blueprint is fetched again, 2 s after the failure doubling to 30 s.
 
-/** a download given up after this long (a stalled connection would hold Construct for minutes) */
-const GROUND_TIMEOUT_MS = 60_000;
+/** a download given up after this long with no byte coming (a stalled connection would hold Construct for
+ * minutes). 168Railway: on silence, not the whole download: a total limit gave up every crawling download on a
+ * busy line and asked for it again from nothing, for ever, with every edit waiting on them */
+const GROUND_STALL_MS = 30_000;
+/** 168Railway: ground downloads at a time, the masks edits wait for first (fetchGate.ts) */
+const groundGate = new FetchGate(6);
 const GROUND_RETRY_MS = [2_000, 30_000];
 /** keys ("t:<block>", "index", "w:<zone>", "world") on their way, and those whose last fetch failed */
 const groundPending = new Set<string>(), groundFailed = new Set<string>();
@@ -1348,12 +1354,12 @@ function fetchStreets(id: string): Promise<StreetData | null> {
   if (!p) {
     const url = new URL(id, packBase).href;
     p = (async () => {
-      const head = await (await fetch(url + ".json", { signal: AbortSignal.timeout(GROUND_TIMEOUT_MS) })).json();
+      const head = await groundGate.run(Urgency.Streets, async () => (await patientFetch(url + ".json", {}, GROUND_STALL_MS)).json());
       const g = head.gravity;
       const arr = (name: string) => head.arrays.find((a: any) => a.name === name);
       const need = ["pop", "jobs", "zone", "zone_gx", "zone_gy", "zone_cells9"].map(arr);
       if (!g?.grid_origin_m || !g.grid || !g.zone_m || need.some((a) => !a)) return null;
-      const get = (a: any): Promise<ArrayBuffer> => fetchRange(url + ".bin", a.offset, a.offset + a.count * DTYPE_BYTES[a.dtype]);
+      const get = (a: any): Promise<ArrayBuffer> => groundGate.run(Urgency.Streets, () => fetchRange(url + ".bin", a.offset, a.offset + a.count * DTYPE_BYTES[a.dtype], GROUND_STALL_MS));
       const size = arr("zone_size");
       const [pop, jobs, zone, gx, gy, cells9, sz] = await Promise.all([...need.map(get), size ? get(size) : Promise.resolve(new ArrayBuffer(0))]);
       return {
@@ -1407,12 +1413,12 @@ let worldWaterIn = false;
 function worldWaterIntoModel(): Promise<void> {
   if (worldWaterIn) return Promise.resolve();
   if (!worldWaterFetch) {
-    const p = (async () => {
-      const res = await fetch(new URL("world.water", packBase).href, { signal: AbortSignal.timeout(GROUND_TIMEOUT_MS) });
+    const p = groundGate.run(Urgency.Waited, async () => {
+      const res = await patientFetch(new URL("world.water", packBase).href, {}, GROUND_STALL_MS);
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`${res.status}`);
       return await res.arrayBuffer();
-    })();
+    });
     worldWaterFetch = p;
     watchGround("world", p);
     // a failed fetch is tried again by the next edit or `retryGround`; the sea outside the zones is
